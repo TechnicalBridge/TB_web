@@ -1,0 +1,45 @@
+server:
+  port: ${GATEWAY_PORT:8082}
+
+spring:
+  application:
+    name: digitalbot-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns: "*"
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders: "*"
+                allowCredentials: true
+          routes:
+            - id: digitalbot-backend
+              uri: ${BACKEND_URI:http://127.0.0.1:8081}
+              predicates:
+                - Path=/api/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, digitalbot-gateway
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.digitalbot.gateway: INFO
+    org.springframework.cloud.gateway: INFO

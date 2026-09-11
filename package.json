@@ -1,0 +1,18 @@
+{
+  "name": "digital-bot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DIGITAL BOT — sistema automatizado verificado de planes y pagos",
+  "scripts": {
+    "install:all": "npm install --prefix frontend",
+    "dev": "concurrently -n gw,api,web -c magenta,cyan,green \"npm run start:gateway\" \"npm run start:backend\" \"npm run dev --prefix frontend\"",
+    "start": "concurrently -n gw,api -c magenta,cyan \"npm run start:gateway\" \"npm run start:backend\"",
+    "start:backend": "node scripts/mvnw.js -pl backend spring-boot:run",
+    "start:gateway": "node scripts/mvnw.js -pl gateway spring-boot:run",
+    "build": "npm run build --prefix frontend",
+    "build:java": "node scripts/mvnw.js -DskipTests package"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

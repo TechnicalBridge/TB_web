@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+frontend/dist/
+target/
+.idea/
+*.iml
+*.mv.db
+*.trace.db
+backend/data/
+data/
+.mvn/wrapper/maven-wrapper.jar
