@@ -1,3 +1,7 @@
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 :root {
   --navy-950: #061018;
   --navy-900: #0a1628;
@@ -390,6 +394,54 @@ img { max-width: 100%; display: block; }
   cursor: pointer;
 }
 .chip.on { color: var(--white); border-color: var(--cyan); background: rgba(62,198,224,0.12); }
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+.dropzone {
+  border: 1px dashed rgba(62, 198, 224, 0.35);
+  min-height: 220px;
+}
+.dropzone.on {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(61, 207, 112, 0.15);
+}
+.chat-dock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.chat-panel {
+  width: min(360px, calc(100vw - 32px));
+  max-height: 520px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.chat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.chat-panel .messages { max-height: 320px; }
+.chat-fab {
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  font-weight: 800;
+  cursor: pointer;
+  color: #042018;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  box-shadow: 0 12px 30px rgba(62, 198, 224, 0.35);
+}
+.chat-fab:hover { transform: translateY(-1px); }
 
 @media (max-width: 980px) {
   .auth-shell, .app-shell, .grid-3, .grid-2, .methods { grid-template-columns: 1fr; }

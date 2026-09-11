@@ -3,7 +3,7 @@ export default function Logo({ size = 56 }) {
     <img
       className="brand-mark"
       src="/logo.png"
-      alt="DIGITAL BOT"
+      alt="Technical Bridge"
       width={size}
       height={size}
       style={{ width: size, height: size }}

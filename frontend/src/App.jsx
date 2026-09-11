@@ -1,24 +1,27 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./context/AuthContext";
+import { useAuth } from "./store/authStore";
 import Layout from "./components/Layout";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
-import Payments from "./pages/Payments";
-import Simulate from "./pages/Simulate";
-import Assistant from "./pages/Assistant";
-import Checkout from "./pages/Checkout";
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import Magic from "./pages/Magic";
+import Debts from "./pages/Debts";
+import Repact from "./pages/Repact";
+import Pay from "./pages/Pay";
+import Pasarela from "./pages/Pasarela";
+import DataBridge from "./pages/DataBridge";
 
-function Guard({ children }) {
-  const { user, ready } = useAuth();
-  if (!ready) return <div className="main">Cargando DIGITAL BOT…</div>;
+function Guard({ children, role }) {
+  const { user, ready, homeFor } = useAuth();
+  if (!ready) return <div className="main">Cargando Technical Bridge…</div>;
   if (!user) return <Navigate to="/" replace />;
+  if (role && user.role !== role) return <Navigate to={homeFor(user)} replace />;
   return children;
 }
 
 function PublicOnly({ children }) {
-  const { user, ready } = useAuth();
-  if (!ready) return <div className="main">Cargando DIGITAL BOT…</div>;
-  if (user) return <Navigate to="/app" replace />;
+  const { user, ready, homeFor } = useAuth();
+  if (!ready) return <div className="main">Cargando Technical Bridge…</div>;
+  if (user) return <Navigate to={homeFor(user)} replace />;
   return children;
 }
 
@@ -29,23 +32,49 @@ export default function App() {
         path="/"
         element={
           <PublicOnly>
-            <Auth />
+            <Landing />
           </PublicOnly>
         }
       />
       <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login portal="TB" />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/databridge/login"
+        element={
+          <PublicOnly>
+            <Login portal="DATABRIDGE" />
+          </PublicOnly>
+        }
+      />
+      <Route path="/magic" element={<Magic />} />
+      <Route path="/pasarela/:id" element={<Pasarela />} />
+      <Route
         path="/app"
         element={
-          <Guard>
-            <Layout />
+          <Guard role="DEBTOR">
+            <Layout variant="debtor" />
           </Guard>
         }
       >
-        <Route index element={<Dashboard />} />
-        <Route path="pagos" element={<Payments />} />
-        <Route path="simular" element={<Simulate />} />
-        <Route path="ia" element={<Assistant />} />
-        <Route path="pago" element={<Checkout />} />
+        <Route index element={<Debts />} />
+        <Route path="repactar/:id" element={<Repact />} />
+        <Route path="pagar/:id" element={<Pay />} />
+      </Route>
+      <Route
+        path="/databridge"
+        element={
+          <Guard role="CREDITOR">
+            <Layout variant="creditor" />
+          </Guard>
+        }
+      >
+        <Route index element={<DataBridge />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -11,16 +11,19 @@
     <relativePath/>
   </parent>
 
-  <groupId>com.digitalbot</groupId>
-  <artifactId>digitalbot</artifactId>
+  <groupId>com.tbridge</groupId>
+  <artifactId>tbridge</artifactId>
   <version>1.0.0</version>
   <packaging>pom</packaging>
-  <name>DIGITAL BOT</name>
-  <description>Planes y pagos con API Gateway y backend Spring Boot</description>
+  <name>Technical Bridge</name>
+  <description>Ecosistema Technical Bridge y DataBridge — microservicios Spring Boot</description>
 
   <modules>
-    <module>backend</module>
+    <module>common</module>
     <module>gateway</module>
+    <module>ms-auth</module>
+    <module>ms-debt</module>
+    <module>ms-payments</module>
   </modules>
 
   <properties>
@@ -29,6 +32,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>25</maven.compiler.release>
     <spring-cloud.version>2025.0.3</spring-cloud.version>
+    <jjwt.version>0.12.6</jjwt.version>
   </properties>
 
   <dependencyManagement>
@@ -39,6 +43,26 @@
         <version>${spring-cloud.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.tbridge</groupId>
+        <artifactId>tbridge-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-api</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-impl</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-jackson</artifactId>
+        <version>${jjwt.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

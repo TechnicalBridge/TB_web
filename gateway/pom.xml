@@ -5,13 +5,13 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>com.digitalbot</groupId>
-    <artifactId>digitalbot</artifactId>
+    <groupId>com.tbridge</groupId>
+    <artifactId>tbridge</artifactId>
     <version>1.0.0</version>
   </parent>
 
-  <artifactId>digitalbot-gateway</artifactId>
-  <name>DIGITAL BOT API Gateway</name>
+  <artifactId>tbridge-gateway</artifactId>
+  <name>TBridge API Gateway</name>
 
   <dependencies>
     <dependency>
@@ -21,6 +21,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j_jdk17-core</artifactId>
+      <version>8.14.0</version>
     </dependency>
   </dependencies>
 

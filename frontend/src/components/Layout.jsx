@@ -1,17 +1,16 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../store/authStore";
 import Logo from "./Logo";
+import Chatbot from "./Chatbot";
 
-const links = [
-  { to: "/app", label: "Inicio", end: true },
-  { to: "/app/pagos", label: "Pagos" },
-  { to: "/app/simular", label: "Simular" },
-  { to: "/app/ia", label: "IA" },
-  { to: "/app/pago", label: "Forma de pago" },
-];
+const debtorLinks = [{ to: "/app", label: "Mis deudas", end: true }];
+const creditorLinks = [{ to: "/databridge", label: "Dashboard", end: true }];
 
-export default function Layout() {
+export default function Layout({ variant }) {
   const { user, logout } = useAuth();
+  const links = variant === "creditor" ? creditorLinks : debtorLinks;
+  const brand = variant === "creditor" ? "DATABRIDGE" : "TECHNICAL BRIDGE";
+  const sub = variant === "creditor" ? "Core B2B" : "Core B2C";
 
   return (
     <div className="app-shell">
@@ -19,8 +18,8 @@ export default function Layout() {
         <div className="brand-row" style={{ marginBottom: 18 }}>
           <Logo size={44} />
           <div>
-            <div className="brand-name" style={{ fontSize: 14 }}>DIGITAL BOT</div>
-            <div className="brand-sub" style={{ letterSpacing: "0.06em" }}>Verificado</div>
+            <div className="brand-name" style={{ fontSize: 13 }}>{brand}</div>
+            <div className="brand-sub" style={{ letterSpacing: "0.06em" }}>{sub}</div>
           </div>
         </div>
         {links.map((l) => (
@@ -31,8 +30,8 @@ export default function Layout() {
         <div className="sidebar-foot">
           <div className="user-chip">
             <b>{user?.name}</b>
-            <span>{user?.role === "guest" ? "Modo invitado" : user?.email}</span>
-            <span>{user?.plan?.name || "Sin plan activo"}</span>
+            <span>{user?.email}</span>
+            <span>{user?.role === "CREDITOR" ? "Acreedor" : "Deudor"}</span>
           </div>
           <button className="btn btn-ghost" onClick={logout}>Cerrar sesión</button>
         </div>
@@ -40,12 +39,16 @@ export default function Layout() {
       <div className="main">
         <Outlet />
       </div>
-      <nav className="mobile-bar">
+      {variant === "debtor" ? <Chatbot /> : null}
+      <nav className="mobile-bar" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => (isActive ? "active" : "")}>
             {l.label}
           </NavLink>
         ))}
+        <button type="button" onClick={logout} style={{ background: "transparent", border: 0, color: "inherit" }}>
+          Salir
+        </button>
       </nav>
     </div>
   );

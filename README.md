@@ -1,26 +1,29 @@
-# DIGITAL BOT
+# Technical Bridge & DataBridge
 
-App web de planes y pagos con un **sistema automatizado verificado**. Sin un token `DBT-XXXX-XXXX-XXXX` la forma de pago no se muestra.
-
-Paleta: azul oscuro, celeste, verde y blanco.
-
-Arquitectura:
+Ecosistema B2B2C de conciliación, repactación y pago de deudas. Arquitectura del documento *Plan de Trabajo Kanban y Arquitectura de Software*.
 
 ```
-frontend (5173) → API Gateway (8082) → Spring Boot (8081)
+frontend (5173)
+    │  /api/*
+    ▼
+API Gateway 8082  (Spring Cloud Gateway · CORS · Bucket4j)
+    ├─ /api/auth/**  /api/me     → MS-Auth      8081
+    ├─ /api/debts/** /analytics  → MS-Debt      8083
+    ├─ /api/payments/**          → MS-Payments  8084
+    └─ /api/ai/**                → MS-AI        8085  (Python FastAPI)
+                                      │
+MS-Payments ──pago_exitoso──► RabbitMQ (opcional) ──► MS-Debt
+                 └ fallback HTTP /internal/events/pago-exitoso
 ```
 
-- **Web** (Vite/React): http://localhost:5173
-- **API Gateway** (Spring Cloud Gateway): http://localhost:8082
-- **Backend** (Spring Boot + JPA/H2): http://localhost:8081
-
-El frontend llama a `/api/*`. Vite reenvía esas peticiones al gateway, y el gateway las enruta al backend.
-
-## Requisitos
-
-- Node.js 18+
-- Java 25 LTS (si `JAVA_HOME` apunta a otra versión, los scripts buscan un JDK 25 en el sistema)
-- Maven Wrapper incluido (`mvnw` / `mvnw.cmd`); no hace falta instalar Maven
+| Pieza | Rol |
+| --- | --- |
+| **API Gateway** | Entrada única, CORS, rate limiting (10 req/min en `/api/auth/**`) |
+| **MS-Auth** | Magic links UUID de un solo uso, SMTP (o log), JWT |
+| **MS-Debt** | Saldo, cuotas, repactación 3–24 meses, CSV DataBridge, auditoría, PDF deuda cero |
+| **MS-Payments** | Mercado Pago / Khipu / Webpay simulados, webhooks HMAC, evento `pago_exitoso` |
+| **MS-AI** | Chatbot NLP (SpaceXAI si hay `XAI_API_KEY`, si no reglas locales) · solo lectura |
+| **RabbitMQ** | Bus opcional. Sin broker, MS-Payments avisa a MS-Debt por HTTP |
 
 ## Cómo arrancar
 
@@ -30,38 +33,37 @@ npm run install:all
 npm run dev
 ```
 
-La primera vez Maven descarga dependencias (puede tardar unos minutos).
+- Web: http://localhost:5173
+- Gateway: http://localhost:8082/health
 
-## Cuentas
+Requisitos: Node 18+, JDK 17+ (el wrapper busca un JDK reciente), Python 3 para MS-AI.
 
-| Acceso | Datos |
+RabbitMQ (opcional):
+
+```bash
+docker compose up -d
+# EVENTS_RABBIT=true npm run dev
+```
+
+## Cuentas demo (passwordless)
+
+Pide el enlace mágico; en desarrollo aparece en pantalla.
+
+| Portal | Correo |
 | --- | --- |
-| Demo | `demo@digitalbot.com` / `demo1234` |
-| Registro | nombre, correo y contraseña (mín. 6) |
-| Invitado | simula e pregunta a la IA; no emite token ni paga |
+| Technical Bridge | `ana.perez@correo.com` |
+| Technical Bridge | `demo@technicalbridge.com` |
+| DataBridge | `carlos.soto@databridge.com` |
+
+CSV de ejemplo: `databridge-cartera.ejemplo.csv`.
 
 ## Flujo
 
-1. Inicia sesión, regístrate o entra como invitado.
-2. **Simular plan** (mensual/anual, usuarios y extras).
-3. **Sistema IA** verifica y emite el token.
-4. En **Forma de pago** el token revela tarjeta, transferencia o billetera (simulación).
-5. El cobro queda en **Lista de pagos**.
+1. El deudor entra con magic link. JWT en sesión (Zustand).
+2. **Mis deudas**: saldo, simular cuotas, pagar.
+3. La pasarela confirma con firma HMAC; MS-Payments publica `pago_exitoso`.
+4. MS-Debt marca cuota/deuda **PAGADA**. El front hace polling.
+5. Con saldo cero se descarga el **Certificado de Deuda Cero** (PDF).
+6. DataBridge sube CSV y ve recaudación / cartera activa.
 
-## IA (SpaceXAI / xAI)
-
-Opcional. Copia `backend/.env.example` a `backend/.env` y pon `XAI_API_KEY`. Si no hay clave, el asistente usa respuestas locales verificadas y el token lo sigue emitiendo el backend.
-
-## Endpoints
-
-| Método | Ruta | Auth |
-| --- | --- | --- |
-| GET | `/health` (solo gateway) | no |
-| GET | `/api/health` | no |
-| GET | `/api/plans` | no |
-| POST | `/api/auth/register` `/login` `/guest` | no |
-| GET | `/api/me` | sí |
-| POST | `/api/simulate` | sí |
-| GET/POST | `/api/payments` | sí |
-| POST | `/api/ai/chat` | sí |
-| POST | `/api/tokens` `/api/tokens/verify` | sí |
+IA opcional: copia `.env.example` a `.env` y pon `XAI_API_KEY` (SpaceXAI / xAI).

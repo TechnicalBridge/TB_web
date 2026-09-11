@@ -3,7 +3,10 @@ server:
 
 spring:
   application:
-    name: digitalbot-gateway
+    name: tbridge-gateway
+  http:
+    codecs:
+      max-in-memory-size: 10MB
   cloud:
     gateway:
       server:
@@ -23,12 +26,36 @@ spring:
                 allowedHeaders: "*"
                 allowCredentials: true
           routes:
-            - id: digitalbot-backend
-              uri: ${BACKEND_URI:http://127.0.0.1:8081}
+            - id: ms-auth
+              uri: ${AUTH_URI:http://127.0.0.1:8081}
               predicates:
-                - Path=/api/**
+                - Path=/api/auth/**,/api/me
               filters:
-                - AddRequestHeader=X-Forwarded-By, digitalbot-gateway
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-debt
+              uri: ${DEBT_URI:http://127.0.0.1:8083}
+              predicates:
+                - Path=/api/debts/**,/api/analytics/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-payments
+              uri: ${PAYMENTS_URI:http://127.0.0.1:8084}
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-ai
+              uri: ${AI_URI:http://127.0.0.1:8085}
+              predicates:
+                - Path=/api/ai/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+
+ratelimit:
+  auth-capacity: ${RATE_AUTH_CAPACITY:10}
+  auth-refill-minutes: 1
+  global-capacity: ${RATE_GLOBAL_CAPACITY:120}
+  global-refill-minutes: 1
 
 management:
   endpoints:
@@ -41,5 +68,5 @@ management:
 
 logging:
   level:
-    com.digitalbot.gateway: INFO
+    com.tbridge.gateway: INFO
     org.springframework.cloud.gateway: INFO

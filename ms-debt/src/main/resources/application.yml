@@ -1,0 +1,48 @@
+server:
+  port: ${PORT:8083}
+
+spring:
+  application:
+    name: ms-debt
+  jmx:
+    enabled: false
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  datasource:
+    url: jdbc:h2:file:./data/ms-debt;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  rabbitmq:
+    host: ${RABBIT_HOST:127.0.0.1}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASSWORD:guest}
+    listener:
+      simple:
+        auto-startup: ${EVENTS_RABBIT:false}
+        missing-queues-fatal: false
+    connection-timeout: 2000
+
+jwt:
+  secret: ${JWT_SECRET:tbridge-dev-secret-change-me-32chars}
+
+app:
+  internal-key: ${INTERNAL_KEY:tbridge-internal-dev}
+
+events:
+  rabbit: ${EVENTS_RABBIT:false}
+
+logging:
+  level:
+    com.tbridge: INFO
