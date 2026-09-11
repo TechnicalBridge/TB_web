@@ -19,7 +19,7 @@ El frontend llama a `/api/*`. Vite reenvía esas peticiones al gateway, y el gat
 ## Requisitos
 
 - Node.js 18+
-- Java 17 o superior (si `JAVA_HOME` apunta a Java 8, los scripts buscan un JDK 17+ en el sistema)
+- Java 25 LTS (si `JAVA_HOME` apunta a otra versión, los scripts buscan un JDK 25 en el sistema)
 - Maven Wrapper incluido (`mvnw` / `mvnw.cmd`); no hace falta instalar Maven
 
 ## Cómo arrancar
