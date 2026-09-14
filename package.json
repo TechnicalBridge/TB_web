@@ -1,0 +1,24 @@
+{
+  "name": "technical-bridge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Technical Bridge & DataBridge — microservicios, gateway y SPA",
+  "scripts": {
+    "install:all": "npm install --prefix frontend",
+    "predev": "node scripts/mvnw.js -N install -DskipTests && node scripts/mvnw.js -pl common install -DskipTests",
+    "dev": "concurrently -n gw,auth,debt,pay,ai,web -c magenta,cyan,blue,yellow,green,white \"npm run start:gateway\" \"npm run start:auth\" \"npm run start:debt\" \"npm run start:payments\" \"npm run start:ai\" \"npm run dev --prefix frontend\"",
+    "start": "concurrently -n gw,auth,debt,pay,ai -c magenta,cyan,blue,yellow,green \"npm run start:gateway\" \"npm run start:auth\" \"npm run start:debt\" \"npm run start:payments\" \"npm run start:ai\"",
+    "start:gateway": "node scripts/mvnw.js -pl gateway spring-boot:run",
+    "start:auth": "node scripts/mvnw.js -pl ms-auth spring-boot:run",
+    "start:debt": "node scripts/mvnw.js -pl ms-debt spring-boot:run",
+    "start:payments": "node scripts/mvnw.js -pl ms-payments spring-boot:run",
+    "start:ai": "node scripts/start-ai.js",
+    "start:backend": "npm run start:auth",
+    "build": "npm run build --prefix frontend",
+    "build:java": "node scripts/mvnw.js -DskipTests package",
+    "test:java": "node scripts/mvnw.js test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

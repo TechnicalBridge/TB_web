@@ -1,0 +1,41 @@
+server:
+  port: ${PORT:8081}
+
+spring:
+  application:
+    name: ms-auth
+  jmx:
+    enabled: false
+  datasource:
+    url: jdbc:h2:file:./data/ms-auth;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+jwt:
+  secret: ${JWT_SECRET:tbridge-dev-secret-change-me-32chars}
+
+app:
+  public-url: ${PUBLIC_URL:http://localhost:5173}
+  magic-ttl-minutes: ${MAGIC_TTL_MINUTES:15}
+  from-email: ${MAIL_FROM:noreply@technicalbridge.local}
+
+logging:
+  level:
+    com.tbridge: INFO
