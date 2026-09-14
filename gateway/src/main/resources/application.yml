@@ -1,0 +1,72 @@
+server:
+  port: ${GATEWAY_PORT:8082}
+
+spring:
+  application:
+    name: tbridge-gateway
+  http:
+    codecs:
+      max-in-memory-size: 10MB
+  cloud:
+    gateway:
+      server:
+        webflux:
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns: "*"
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders: "*"
+                allowCredentials: true
+          routes:
+            - id: ms-auth
+              uri: ${AUTH_URI:http://127.0.0.1:8081}
+              predicates:
+                - Path=/api/auth/**,/api/me
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-debt
+              uri: ${DEBT_URI:http://127.0.0.1:8083}
+              predicates:
+                - Path=/api/debts/**,/api/analytics/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-payments
+              uri: ${PAYMENTS_URI:http://127.0.0.1:8084}
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+            - id: ms-ai
+              uri: ${AI_URI:http://127.0.0.1:8085}
+              predicates:
+                - Path=/api/ai/**
+              filters:
+                - AddRequestHeader=X-Forwarded-By, tbridge-gateway
+
+ratelimit:
+  auth-capacity: ${RATE_AUTH_CAPACITY:10}
+  auth-refill-minutes: 1
+  global-capacity: ${RATE_GLOBAL_CAPACITY:120}
+  global-refill-minutes: 1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.tbridge.gateway: INFO
+    org.springframework.cloud.gateway: INFO
