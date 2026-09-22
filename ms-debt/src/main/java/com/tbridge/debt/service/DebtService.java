@@ -12,6 +12,7 @@ import com.tbridge.debt.domain.Organization;
 import com.tbridge.debt.domain.Repactation;
 import com.tbridge.debt.dto.InstallmentPreview;
 import com.tbridge.debt.dto.RepactPlan;
+import com.tbridge.debt.integracion.EventosService;
 import com.tbridge.debt.repo.DebtChargeRepository;
 import com.tbridge.debt.repo.DebtEventRepository;
 import com.tbridge.debt.repo.DebtRepository;
@@ -61,6 +62,7 @@ public class DebtService {
     private final RepactationRepository repactations;
     private final DebtEventRepository events;
     private final RepactationService repactation;
+    private final EventosService eventos;
 
     public DebtService(
             DebtRepository debts,
@@ -70,7 +72,8 @@ public class DebtService {
             InstallmentRepository installments,
             RepactationRepository repactations,
             DebtEventRepository events,
-            RepactationService repactation
+            RepactationService repactation,
+            EventosService eventos
     ) {
         this.debts = debts;
         this.debtors = debtors;
@@ -80,6 +83,7 @@ public class DebtService {
         this.repactations = repactations;
         this.events = events;
         this.repactation = repactation;
+        this.eventos = eventos;
     }
 
     // ------------------------------------------------------------------
@@ -104,21 +108,16 @@ public class DebtService {
     }
 
     /**
-     * El deudor detras del token.
+     * El deudor detras del token, por RUT.
      *
-     * <p>Por RUT cuando el token lo trae. Mientras ms-auth siga emitiendo
-     * tokens sin RUT se cae al correo, que es identificacion de transicion y
-     * se va cuando ms-auth migre.
+     * <p>Hubo un respaldo por correo mientras ms-auth emitia tokens sin RUT.
+     * Ya no los emite, y el correo no es una identidad verificada: se quito.
      */
     private Debtor deudorDe(JwtPrincipal user) {
-        if (user == null) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesion invalida");
+        if (user == null || user.rut() == null || user.rut().isBlank()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "La sesion no identifica al deudor");
         }
-        if (user.rut() != null && !user.rut().isBlank()) {
-            return debtors.findByRut(user.rut())
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No hay deudas a tu nombre"));
-        }
-        return debtors.findFirstByEmailIgnoreCase(user.email())
+        return debtors.findByRut(user.rut())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No hay deudas a tu nombre"));
     }
 
@@ -128,7 +127,7 @@ public class DebtService {
 
     public List<Map<String, Object>> listFor(JwtPrincipal user) {
         List<Debt> filas = user.isCreditor()
-                ? debts.findByCreditorOrderByUpdatedAtDesc(acreedorDe(user))
+                ? debts.carteraDe(acreedorDe(user))
                 : debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
         return filas.stream().map(this::toSummary).toList();
     }
@@ -158,7 +157,7 @@ public class DebtService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesion invalida");
         }
         if (user.isCreditor()) {
-            if (!deuda.getCreditor().getId().equals(acreedorDe(user).getId())) {
+            if (!opera(acreedorDe(user), deuda)) {
                 throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es de tu cartera");
             }
             return deuda;
@@ -170,6 +169,20 @@ public class DebtService {
     }
 
     /** Lo que se debe hoy: la suma de las cuotas pendientes. */
+    /** La organizacion detras de la sesion de una empresa. */
+    public Organization organizacionDe(JwtPrincipal user) {
+        if (user == null || !user.isCreditor()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Solo una empresa carga cartera");
+        }
+        return acreedorDe(user);
+    }
+
+    /** La misma regla que {@code DebtRepository.carteraDe}, para una deuda suelta. */
+    private static boolean opera(Organization organizacion, Debt deuda) {
+        return deuda.getCreditor().getId().equals(organizacion.getId())
+                || deuda.getLastBatch().getSender().getId().equals(organizacion.getId());
+    }
+
     public BigDecimal saldo(Debt deuda) {
         return installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
                 .map(Installment::getAmount)
@@ -182,7 +195,7 @@ public class DebtService {
 
     public RepactPlan simulate(JwtPrincipal user, Long id, int months) {
         Debt deuda = requireVisible(user, id);
-        return repactation.simulate(saldo(deuda), months, LocalDate.now().plusMonths(1));
+        return repactation.simulate(saldo(deuda), deuda.getCurrency(), months, LocalDate.now().plusMonths(1));
     }
 
     /**
@@ -206,7 +219,7 @@ public class DebtService {
                     "El acreedor retiro esta deuda de la cobranza");
         }
 
-        RepactPlan plan = repactation.simulate(saldo(deuda), months, LocalDate.now().plusMonths(1));
+        RepactPlan plan = repactation.simulate(saldo(deuda), deuda.getCurrency(), months, LocalDate.now().plusMonths(1));
 
         for (Repactation anterior : repactations.findByDebtAndSupersededAtIsNull(deuda)) {
             anterior.setSupersededAt(Instant.now());
@@ -243,6 +256,13 @@ public class DebtService {
         events.save(DebtEvent.de(deuda, DebtEvent.Type.repacted, DebtEvent.Actor.debtor)
                 .conMonto(plan.monthlyAmount(), deuda.getCurrency())
                 .conReferencia(months + " cuotas"));
+
+        Map<String, Object> datos = new LinkedHashMap<>();
+        datos.put("cuotas", months);
+        datos.put("monto_cuota", EventosService.monto(plan.monthlyAmount(), deuda.getCurrency()));
+        datos.put("moneda", deuda.getCurrency().name());
+        datos.put("primera_cuota", plan.cuotas().get(0).dueDate().toString());
+        eventos.publicar(deuda, EventosService.REPACTACION_ACEPTADA, datos, Instant.now());
 
         return getFor(user, id);
     }
@@ -350,16 +370,40 @@ public class DebtService {
             }
         }
 
+        Debt.Currency moneda = Debt.Currency.valueOf(aviso.currency());
+        Instant pagadoEn = aviso.paidAt() == null ? Instant.now() : aviso.paidAt();
         events.save(DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
-                .conMonto(aviso.amount(), Debt.Currency.valueOf(aviso.currency()))
+                .conMonto(aviso.amount(), moneda)
                 .conReferencia(referencia));
+        eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, datosDelPago(aviso, moneda, pagadoEn), pagadoEn);
 
         if (saldo(deuda).compareTo(BigDecimal.ZERO) == 0) {
             deuda.setStatus(Debt.Status.paid);
             events.save(DebtEvent.de(deuda, DebtEvent.Type.settled, DebtEvent.Actor.system));
+            eventos.publicar(deuda, EventosService.DEUDA_SALDADA,
+                    Map.of("saldada_en", EventosService.enChile(pagadoEn)), pagadoEn);
         }
         deuda.setUpdatedAt(Instant.now());
         debts.save(deuda);
+    }
+
+    /**
+     * Lo que el acreedor necesita para imputar el pago en su propio sistema.
+     * En UF va el valor usado: la UF cambia todos los dias, y sin ese dato
+     * nadie podria reconstruir por que UF 38,5 fueron esos pesos.
+     */
+    private static Map<String, Object> datosDelPago(PagoConfirmado aviso, Debt.Currency moneda, Instant pagadoEn) {
+        Map<String, Object> datos = new LinkedHashMap<>();
+        datos.put("pago_id", String.valueOf(aviso.paymentId()));
+        datos.put("monto", EventosService.monto(aviso.amount(), moneda));
+        datos.put("moneda", moneda.name());
+        datos.put("monto_clp", aviso.amountClp());
+        if (moneda == Debt.Currency.UF) {
+            datos.put("valor_uf", aviso.ufValue());
+        }
+        datos.put("medio", aviso.gateway() == null ? null : aviso.gateway().toLowerCase());
+        datos.put("pagado_en", EventosService.enChile(pagadoEn));
+        return datos;
     }
 
     private void marcarPagada(Installment cuota, Instant cuando) {

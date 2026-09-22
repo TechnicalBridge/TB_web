@@ -48,7 +48,11 @@ public class MailService {
      * no expone cuanto debe alguien ni a quien.
      */
     public void enviarCodigo(String to, String codigo, String acreedor) {
-        log.info("Codigo de acceso para {}: {}", to, codigo);
+        if (!smtpEnabled) {
+            //  Solo sin SMTP, que es desarrollo. Con SMTP el codigo NO va al
+            //  log: quien leyera los logs podria entrar como cualquier deudor.
+            log.info("Sin SMTP: codigo de acceso para {}: {}", to, codigo);
+        }
         enviar(to, "Tu codigo de acceso", """
                 Hola,
 
@@ -68,7 +72,9 @@ public class MailService {
 
     /** El camino de excepcion, para quien no logra entrar con el codigo. */
     public void enviarEnlace(String to, String url, long minutos) {
-        log.info("Enlace de acceso para {}: {}", to, url);
+        if (!smtpEnabled) {
+            log.info("Sin SMTP: enlace de acceso para {}: {}", to, url);
+        }
         enviar(to, "Tu acceso a Technical Bridge", """
                 Hola,
 

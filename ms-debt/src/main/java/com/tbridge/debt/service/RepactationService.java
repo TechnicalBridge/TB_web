@@ -1,6 +1,7 @@
 package com.tbridge.debt.service;
 
 import com.tbridge.common.web.ApiException;
+import com.tbridge.debt.domain.Debt;
 import com.tbridge.debt.dto.InstallmentPreview;
 import com.tbridge.debt.dto.RepactPlan;
 import org.springframework.http.HttpStatus;
@@ -18,7 +19,14 @@ public class RepactationService {
     public static final int MIN_MONTHS = 3;
     public static final int MAX_MONTHS = 24;
 
-    public RepactPlan simulate(BigDecimal remaining, int months, LocalDate start) {
+    /**
+     * El plan de cuotas para un saldo.
+     *
+     * <p>Se redondea a la unidad de la moneda: pesos enteros en CLP y
+     * centesimas en UF. Redondear una deuda en UF a enteros le cambiaba el
+     * monto: UF 115,50 pasaba a UF 116, media UF que el deudor no debia.
+     */
+    public RepactPlan simulate(BigDecimal remaining, Debt.Currency moneda, int months, LocalDate start) {
         if (remaining == null || remaining.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "No hay saldo para repactar");
         }
@@ -26,8 +34,9 @@ public class RepactationService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Las cuotas deben estar entre 3 y 24 meses");
         }
         LocalDate from = start == null ? LocalDate.now().plusMonths(1) : start;
-        BigDecimal total = remaining.setScale(0, RoundingMode.HALF_UP);
-        BigDecimal monthly = total.divide(BigDecimal.valueOf(months), 0, RoundingMode.DOWN);
+        int decimales = moneda == Debt.Currency.UF ? 2 : 0;
+        BigDecimal total = remaining.setScale(decimales, RoundingMode.HALF_UP);
+        BigDecimal monthly = total.divide(BigDecimal.valueOf(months), decimales, RoundingMode.DOWN);
         if (monthly.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El monto es demasiado bajo para ese plazo");
         }

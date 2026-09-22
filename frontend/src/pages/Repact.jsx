@@ -1,33 +1,41 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, clp } from "../api";
+import { api, dinero, fecha } from "../api";
 
+/**
+ * Simular un plan de cuotas y aceptarlo.
+ *
+ * Simular no compromete nada: el deudor mueve el plazo y ve la cuota. Recien
+ * al confirmar se crea el plan, y la empresa se entera por un evento.
+ */
 export default function Repact() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [debt, setDebt] = useState(null);
-  const [months, setMonths] = useState(12);
+  const [deuda, setDeuda] = useState(null);
+  const [meses, setMeses] = useState(6);
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api(`/debts/${id}`).then(setDebt).catch((err) => setError(err.message));
+    api(`/debts/${id}`).then(setDeuda).catch((err) => setError(err.message));
   }, [id]);
 
   useEffect(() => {
-    if (!id) return;
-    api(`/debts/${id}/simulate?months=${months}`)
-      .then((data) => setPlan(data.plan))
+    api(`/debts/${id}/simulate?months=${meses}`)
+      .then((data) => {
+        setPlan(data.plan);
+        setError("");
+      })
       .catch((err) => setError(err.message));
-  }, [id, months]);
+  }, [id, meses]);
 
-  async function confirm() {
+  async function confirmar() {
     setBusy(true);
     setError("");
     try {
-      await api(`/debts/${id}/repact`, { method: "POST", body: { months } });
-      navigate("/app");
+      await api(`/debts/${id}/repact`, { method: "POST", body: { months: meses } });
+      navigate(`/app/pagar/${id}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -35,14 +43,15 @@ export default function Repact() {
     }
   }
 
-  if (!debt) return <div className="card">{error || "Cargando…"}</div>;
+  if (!deuda) return <div className="card">{error || "Cargando…"}</div>;
+  const moneda = deuda.moneda;
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>Simulador de repactación</h1>
-          <p>{debt.creditorName} · saldo {clp(debt.remainingAmount)}</p>
+          <h1>Pagar en cuotas</h1>
+          <p>{deuda.acreedor} · {deuda.concepto} · saldo {dinero(deuda.saldo, moneda)}</p>
         </div>
         <Link className="btn btn-ghost btn-sm" to="/app">Volver</Link>
       </div>
@@ -50,49 +59,44 @@ export default function Repact() {
       <div className="grid-2">
         <div className="card">
           <label className="field">
-            <span>Plazo: <b>{months} meses</b></span>
-            <input
-              type="range"
-              min={3}
-              max={24}
-              value={months}
-              onChange={(e) => setMonths(Number(e.target.value))}
-            />
+            <span>Plazo: <b>{meses} meses</b></span>
+            <input type="range" min={3} max={24} value={meses}
+                   onChange={(e) => setMeses(Number(e.target.value))} />
           </label>
           <div className="grid-3" style={{ marginTop: 12 }}>
             <div className="stat">
               <span>Cuota</span>
-              <b>{clp(plan?.monthlyAmount)}</b>
+              <b>{dinero(plan?.monthlyAmount, moneda)}</b>
             </div>
             <div className="stat">
               <span>Última</span>
-              <b>{clp(plan?.lastAmount)}</b>
+              <b>{dinero(plan?.lastAmount, moneda)}</b>
             </div>
             <div className="stat">
               <span>Total</span>
-              <b>{clp(plan?.total)}</b>
+              <b>{dinero(plan?.total, moneda)}</b>
             </div>
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 18 }} disabled={busy} onClick={confirm}>
-            {busy ? "Aplicando…" : "Confirmar plan"}
+          <p className="hint" style={{ textAlign: "left" }}>
+            Sin intereses: el total es lo que debes hoy. La última cuota absorbe el redondeo.
+            {moneda === "UF" ? " En UF, cada cuota se paga al valor de la UF del día en que pagas." : ""}
+          </p>
+          <button className="btn btn-primary" style={{ marginTop: 8 }} disabled={busy || !plan} onClick={confirmar}>
+            {busy ? "Aceptando…" : `Aceptar ${meses} cuotas`}
           </button>
         </div>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Tabla de cuotas</h3>
+          <h3 style={{ marginTop: 0 }}>Calendario</h3>
           <table className="table">
             <thead>
-              <tr>
-                <th>#</th>
-                <th>Vence</th>
-                <th>Monto</th>
-              </tr>
+              <tr><th>#</th><th>Vence</th><th>Monto</th></tr>
             </thead>
             <tbody>
               {(plan?.cuotas || []).map((c) => (
                 <tr key={c.number}>
                   <td>{c.number}</td>
-                  <td>{c.dueDate}</td>
-                  <td>{clp(c.amount)}</td>
+                  <td>{fecha(c.dueDate)}</td>
+                  <td>{dinero(c.amount, moneda)}</td>
                 </tr>
               ))}
             </tbody>

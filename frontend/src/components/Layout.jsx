@@ -1,16 +1,17 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { rutLegible } from "../api";
 import { useAuth } from "../store/authStore";
 import Logo from "./Logo";
 import Chatbot from "./Chatbot";
 
-const debtorLinks = [{ to: "/app", label: "Mis deudas", end: true }];
-const creditorLinks = [{ to: "/databridge", label: "Dashboard", end: true }];
+const debtorLinks = [{ to: "/app", label: "Mis pagos", end: true }];
+const creditorLinks = [{ to: "/databridge", label: "Cartera", end: true }];
 
 export default function Layout({ variant }) {
   const { user, logout } = useAuth();
   const links = variant === "creditor" ? creditorLinks : debtorLinks;
   const brand = variant === "creditor" ? "DATABRIDGE" : "TECHNICAL BRIDGE";
-  const sub = variant === "creditor" ? "Core B2B" : "Core B2C";
+  const sub = variant === "creditor" ? "Portal de empresas" : "Portal de pago";
 
   return (
     <div className="app-shell">
@@ -29,9 +30,17 @@ export default function Layout({ variant }) {
         ))}
         <div className="sidebar-foot">
           <div className="user-chip">
-            <b>{user?.name}</b>
-            <span>{user?.email}</span>
-            <span>{user?.role === "CREDITOR" ? "Acreedor" : "Deudor"}</span>
+            {user?.role === "CREDITOR" ? (
+              <>
+                <b>{user?.nombre}</b>
+                <span>{user?.correo}</span>
+              </>
+            ) : (
+              <>
+                <b>RUT {rutLegible(user?.rut)}</b>
+                <span>Sesión con código de acceso</span>
+              </>
+            )}
           </div>
           <button className="btn btn-ghost" onClick={logout}>Cerrar sesión</button>
         </div>

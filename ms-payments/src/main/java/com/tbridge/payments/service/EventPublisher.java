@@ -1,5 +1,6 @@
 package com.tbridge.payments.service;
 
+import com.tbridge.common.events.PagoConfirmado;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,9 +16,6 @@ import org.springframework.web.client.RestClient;
  */
 @Service
 public class EventPublisher {
-
-    public static final String EXCHANGE = "tbridge.pagos";
-    public static final String ROUTING_KEY = "pago.confirmado";
 
     private final RabbitTemplate rabbit;
     private final RestClient rest;
@@ -41,7 +39,7 @@ public class EventPublisher {
     /** Lanza si no se pudo entregar. El que llama decide que hacer. */
     public void publicar(PagoConfirmado aviso) {
         if (rabbitEnabled) {
-            rabbit.convertAndSend(EXCHANGE, ROUTING_KEY, aviso);
+            rabbit.convertAndSend(PagoConfirmado.EXCHANGE, PagoConfirmado.ROUTING_KEY, aviso);
             return;
         }
         rest.post()

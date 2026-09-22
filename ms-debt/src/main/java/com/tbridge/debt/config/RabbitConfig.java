@@ -1,12 +1,13 @@
 package com.tbridge.debt.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.tbridge.common.events.PagoConfirmado;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -16,9 +17,9 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnProperty(name = "events.rabbit", havingValue = "true")
 public class RabbitConfig {
 
-    public static final String EXCHANGE = "tbridge.pagos";
-    public static final String QUEUE = "ms-debt.pago-exitoso";
-    public static final String ROUTING_KEY = "pago.exitoso";
+    public static final String EXCHANGE = PagoConfirmado.EXCHANGE;
+    public static final String QUEUE = PagoConfirmado.QUEUE;
+    public static final String ROUTING_KEY = PagoConfirmado.ROUTING_KEY;
 
     @Bean
     public TopicExchange pagosExchange() {

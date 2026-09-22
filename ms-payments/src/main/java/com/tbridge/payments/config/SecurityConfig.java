@@ -36,6 +36,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                         .requestMatchers("/api/payments/webhooks/**").permitAll()
                         .requestMatchers("/api/payments/public/**").permitAll()
+                        //  Lo interno lo protege la clave interna, no un JWT.
+                        .requestMatchers("/internal/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

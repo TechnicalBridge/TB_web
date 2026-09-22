@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +39,8 @@ import java.util.Map;
  */
 @Service
 public class PaymentService {
+
+    private static final ZoneId CHILE = ZoneId.of("America/Santiago");
 
     private final PaymentRepository payments;
     private final PaymentEventRepository eventos;
@@ -81,8 +84,16 @@ public class PaymentService {
         }
         Payment.Gateway gateway = pasarela(body.get("gateway"));
 
+        //  Solo se paga lo propio, y lo propio se decide por RUT: es lo unico
+        //  que trae la sesion de un deudor, que entra con su codigo, sin
+        //  cuenta ni correo. Antes se pasaba el correo, que en un deudor es
+        //  nulo, y la comprobacion se saltaba: cualquiera podia abrir el cobro
+        //  de una deuda ajena y ver su monto.
+        if (user == null || user.rut() == null) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "La sesion no identifica al deudor");
+        }
         //  El monto y a quien se le debe salen de ms-debt, no del cuerpo.
-        var deuda = deudas.obtener(debtId, installmentId, user == null ? null : user.email());
+        var deuda = deudas.obtener(debtId, installmentId, user.rut());
 
         Payment pago = new Payment();
         pago.setDebtId(deuda.debtId());
@@ -94,6 +105,11 @@ public class PaymentService {
         pago.setGateway(gateway);
         pago.setStatus(Payment.Status.created);
         pago.setCreatedAt(Instant.now());
+        //  Los pesos se fijan al abrir el cobro, porque es lo que la pasarela
+        //  le cobra al deudor. Calcularlos al confirmar dejaba un pago abierto
+        //  a las 23:59 y confirmado a las 00:01 registrado con otra UF que la
+        //  que se cobro, y la conciliacion no cuadraba.
+        fijarPesos(pago);
         payments.save(pago);
         eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.created, PaymentEvent.Source.portal));
 
@@ -124,9 +140,17 @@ public class PaymentService {
     //  Consultar
     // ------------------------------------------------------------------
 
+    /**
+     * Un pago, si a quien pregunta le corresponde verlo: al deudor, los suyos;
+     * a la empresa, los de su cartera. Todo por RUT, que es lo que traen las
+     * sesiones. Antes se comparaba el correo: el deudor, que no tiene, no
+     * podia ver su propio pago, y a la empresa no se le revisaba nada.
+     */
     public Map<String, Object> get(JwtPrincipal user, Long id) {
         Payment pago = buscar(id);
-        if (user != null && !user.isCreditor() && !mismo(user.email(), pago.getDebtorRut())) {
+        String suyo = user == null ? null
+                : user.isCreditor() ? pago.getCreditorRut() : pago.getDebtorRut();
+        if (!mismo(user == null ? null : user.rut(), suyo)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "No puedes ver este pago");
         }
         return publico(pago);
@@ -143,9 +167,12 @@ public class PaymentService {
      * cualquier acreedor: todos veian los pagos de todos.
      */
     public List<Map<String, Object>> list(JwtPrincipal user) {
+        if (user.rut() == null) {
+            return List.of();
+        }
         List<Payment> filas = user.isCreditor()
-                ? payments.findByCreditorRutOrderByCreatedAtDesc(user.email())
-                : payments.findByDebtorRutOrderByCreatedAtDesc(user.email());
+                ? payments.findByCreditorRutOrderByCreatedAtDesc(user.rut())
+                : payments.findByDebtorRutOrderByCreatedAtDesc(user.rut());
         return filas.stream().map(this::publico).toList();
     }
 
@@ -209,6 +236,17 @@ public class PaymentService {
         return confirmar(pago, PaymentEvent.Source.webhook, texto(body.get("txnId")), true);
     }
 
+    /** El monto en pesos, con el valor de la UF del dia en Chile si la deuda es en UF. */
+    private void fijarPesos(Payment pago) {
+        if (pago.getCurrency() == Payment.Currency.UF) {
+            UfValue valor = uf.delDia(LocalDate.now(CHILE));
+            pago.setUfValue(valor.getValue());
+            pago.setAmountClp(uf.aPesos(pago.getAmount(), valor.getValue()));
+        } else {
+            pago.setAmountClp(pago.getAmount().longValue());
+        }
+    }
+
     private Map<String, Object> confirmar(Payment pago, PaymentEvent.Source origen,
                                           String txnId, Boolean firmaOk) {
         //  Idempotencia: el pago ya cobrado se devuelve tal cual.
@@ -216,12 +254,9 @@ public class PaymentService {
             return publico(pago);
         }
 
-        if (pago.getCurrency() == Payment.Currency.UF) {
-            UfValue valor = uf.delDia(LocalDate.now());
-            pago.setUfValue(valor.getValue());
-            pago.setAmountClp(uf.aPesos(pago.getAmount(), valor.getValue()));
-        } else {
-            pago.setAmountClp(pago.getAmount().longValue());
+        //  Solo los cobros abiertos antes de que se fijaran al abrir.
+        if (pago.getAmountClp() == null) {
+            fijarPesos(pago);
         }
 
         pago.setGatewayTxnId(txnId == null || txnId.isBlank()

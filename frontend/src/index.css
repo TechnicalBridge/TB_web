@@ -261,6 +261,7 @@ img { max-width: 100%; display: block; }
 .badge-ok { background: rgba(61, 207, 112, 0.15); color: var(--green-2); }
 .badge-wait { background: rgba(62, 198, 224, 0.12); color: var(--cyan-2); }
 .badge-muted { background: rgba(255,255,255,0.06); color: var(--muted); }
+.badge-warn { background: rgba(255, 196, 87, 0.14); color: #ffd48a; }
 .dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: currentColor;
@@ -467,3 +468,36 @@ input[type="range"] {
   }
   .mobile-bar a.active { color: var(--white); background: rgba(62,198,224,0.12); }
 }
+
+/* ---- Acceso con codigo ---------------------------------------------------- */
+.code-input {
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 26px !important;
+  letter-spacing: 0.45em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.notice {
+  background: rgba(62, 198, 224, 0.08);
+  border: 1px solid var(--line);
+  color: var(--cyan-2);
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.notice a { color: var(--white); }
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--cyan-2);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+.totales { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.totales b { white-space: nowrap; }
+.table td .sub { display: block; color: var(--muted); font-size: 12px; }
+

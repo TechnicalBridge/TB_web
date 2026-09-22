@@ -1,44 +1,56 @@
 import { create } from "zustand";
 import { api, getSessionToken, setSessionToken } from "../api";
 
+/**
+ * La sesion.
+ *
+ * El deudor entra con su RUT y el codigo que le llego por correo o WhatsApp:
+ * sin cuenta, sin contrasena y sin hacer clic en ningun enlace. El enlace al
+ * correo queda como respaldo, y es tambien como entra el personal de las
+ * empresas.
+ */
 export const useAuth = create((set, get) => ({
   user: null,
   ready: false,
-  error: "",
-
-  setError: (error) => set({ error }),
 
   bootstrap: async () => {
-    const token = getSessionToken();
-    if (!token) {
+    if (!getSessionToken()) {
       set({ ready: true, user: null });
       return;
     }
     try {
       const data = await api("/me");
-      set({ user: data.user, ready: true, error: "" });
+      set({ user: data.user, ready: true });
     } catch {
       setSessionToken(null);
       set({ user: null, ready: true });
     }
   },
 
-  requestMagicLink: async (email, name) => {
-    set({ error: "" });
-    return api("/auth/magic-link", { method: "POST", body: { email, name } });
+  entrarConCodigo: async (rut, codigo) => {
+    const data = await api("/auth/acceso", { method: "POST", body: { rut, codigo } });
+    return get().abrirSesion(data);
   },
 
-  verifyMagic: async (token, name) => {
-    set({ error: "" });
-    const data = await api("/auth/verify", { method: "POST", body: { token, name } });
+  pedirEnlace: (correo, rut) =>
+    api("/auth/enlace", { method: "POST", body: { correo, rut: rut || null } }),
+
+  entrarConEnlace: async (token) => {
+    const data = await api("/auth/verify", { method: "POST", body: { token } });
+    return get().abrirSesion(data);
+  },
+
+  // La respuesta del login trae el usuario resumido; /me lo trae completo.
+  abrirSesion: async (data) => {
     setSessionToken(data.token);
-    set({ user: data.user });
-    return data.user;
+    const me = await api("/me");
+    set({ user: me.user });
+    return me.user;
   },
 
   logout: () => {
     setSessionToken(null);
-    set({ user: null, error: "" });
+    set({ user: null });
   },
 
   homeFor: (user = get().user) => {

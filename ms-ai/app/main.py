@@ -10,7 +10,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .nlp import local_reply
+from .nlp import ESTADOS, dinero, local_reply, sentimiento
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
@@ -42,6 +42,11 @@ def health() -> dict[str, Any]:
 
 
 async def fetch_debts(authorization: str | None) -> list[dict[str, Any]]:
+    """
+    Las deudas del deudor, con SU sesion: ms-debt decide que puede ver. El
+    asistente no tiene acceso propio a la base, y por eso es de solo lectura
+    por construccion, no por promesa.
+    """
     if not authorization:
         return []
     try:
@@ -59,24 +64,29 @@ async def fetch_debts(authorization: str | None) -> list[dict[str, Any]]:
 
 
 def context_block(debts: list[dict[str, Any]]) -> str:
+    """Las deudas como las entrega ms-debt, en montos legibles y sin mezclar monedas."""
     if not debts:
         return "El deudor no tiene deudas visibles."
     lines = []
     for d in debts:
+        moneda = d.get("moneda") or "CLP"
         lines.append(
-            f"- {d.get('creditorName')} | original {d.get('originalAmount')} | "
-            f"saldo {d.get('remainingAmount')} {d.get('currency')} | estado {d.get('status')}"
+            f"- {d.get('acreedor')} ({d.get('concepto')}) | original {dinero(d.get('montoOriginal'), moneda)} | "
+            f"saldo {dinero(d.get('saldo'), moneda)} | {ESTADOS.get(d.get('estado'), d.get('estado'))}"
         )
-    return "Deudas (solo lectura):\n" + "\n".join(lines)
+    return "Deudas (solo lectura; pesos y UF no se suman entre si):\n" + "\n".join(lines)
 
 
-async def llm_reply(history: list[dict[str, Any]], debts: list[dict[str, Any]]) -> str | None:
+async def llm_reply(history: list[dict[str, Any]], debts: list[dict[str, Any]], animo: str) -> str | None:
     if not XAI_API_KEY:
         return None
     system = (
-        "Eres el chatbot de Technical Bridge. Ayudas a deudores a entender saldo, cuotas y pagos. "
-        "No inventes montos: usa solo el contexto. No pidas contraseñas. Responde en español, breve. "
-        "No ejecutes pagos; indica que el botón Pagar abre la pasarela.\n\n"
+        "Eres el asistente de Technical Bridge. Ayudas a deudores en Chile a entender cuánto deben, "
+        "a quién, y cómo pagar o pagar en cuotas (3 a 24, sin interés). No inventes montos: usa solo "
+        "el contexto. Nunca pidas contraseñas ni datos bancarios, y nunca mandes enlaces para entrar. "
+        "Responde en español de Chile, breve. No ejecutes pagos: el botón Pagar abre la pasarela.\n"
+        f"Ánimo detectado en el último mensaje: {animo}. Si es frustración, reconócela antes de "
+        "responder; si es desconfianza, explica cómo verificar que esto es legítimo.\n\n"
         + context_block(debts)
     )
     messages = [{"role": "system", "content": system}]
@@ -115,8 +125,9 @@ async def chat(body: ChatIn, authorization: str | None = Header(default=None)) -
         if item.get("role") == "user":
             last = str(item.get("content") or item.get("message") or "")
             break
-    reply = await llm_reply(history, debts)
+    animo = sentimiento(last)
+    reply = await llm_reply(history, debts, animo["etiqueta"])
     source = "spacexai" if reply else "local-nlp"
     if not reply:
         reply = local_reply(last, debts)
-    return {"reply": reply, "source": source, "debts": len(debts)}
+    return {"reply": reply, "source": source, "debts": len(debts), "sentimiento": animo}

@@ -1,6 +1,7 @@
 package com.tbridge.debt.web;
 
 import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.debt.service.AccesoService;
 import com.tbridge.debt.service.CertificateService;
 import com.tbridge.debt.service.DebtService;
 import org.springframework.http.HttpHeaders;
@@ -27,10 +28,12 @@ public class DebtController {
 
     private final DebtService debts;
     private final CertificateService certificates;
+    private final AccesoService acceso;
 
-    public DebtController(DebtService debts, CertificateService certificates) {
+    public DebtController(DebtService debts, CertificateService certificates, AccesoService acceso) {
         this.debts = debts;
         this.certificates = certificates;
+        this.acceso = acceso;
     }
 
     @GetMapping("/api/debts")
@@ -59,6 +62,12 @@ public class DebtController {
             @RequestBody Map<String, Integer> body
     ) {
         return debts.applyRepact(user, id, body.getOrDefault("months", 12));
+    }
+
+    /** El acreedor le hace llegar al deudor su codigo de acceso, al correo. */
+    @PostMapping("/api/debts/{id}/codigo")
+    public Map<String, Object> codigo(@AuthenticationPrincipal JwtPrincipal user, @PathVariable Long id) {
+        return acceso.enviarCodigo(user, id);
     }
 
     @GetMapping("/api/debts/{id}/certificate")

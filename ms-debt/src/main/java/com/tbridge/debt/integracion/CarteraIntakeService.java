@@ -74,6 +74,7 @@ public class CarteraIntakeService {
     private final InstallmentRepository installments;
     private final DebtEventRepository events;
     private final ObjectMapper json;
+    private final EventosService eventos;
 
     public CarteraIntakeService(
             OrganizationRepository organizations,
@@ -85,7 +86,8 @@ public class CarteraIntakeService {
             DebtChargeRepository charges,
             InstallmentRepository installments,
             DebtEventRepository events,
-            ObjectMapper json
+            ObjectMapper json,
+            EventosService eventos
     ) {
         this.organizations = organizations;
         this.mandates = mandates;
@@ -97,6 +99,7 @@ public class CarteraIntakeService {
         this.installments = installments;
         this.events = events;
         this.json = json;
+        this.eventos = eventos;
     }
 
     // ------------------------------------------------------------------
@@ -293,6 +296,7 @@ public class CarteraIntakeService {
         }
         events.save(DebtEvent.de(existente, DebtEvent.Type.withdrawn, DebtEvent.Actor.creditor)
                 .conReferencia(motivo));
+        eventos.publicar(existente, EventosService.DEUDA_RETIRADA, Map.of("motivo", motivo), Instant.now());
 
         Map<String, Object> resultado = new LinkedHashMap<>();
         resultado.put("id_externo", idDeuda);

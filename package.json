@@ -16,7 +16,8 @@
     "start:backend": "npm run start:auth",
     "build": "npm run build --prefix frontend",
     "build:java": "node scripts/mvnw.js -DskipTests package",
-    "test:java": "node scripts/mvnw.js test"
+    "test:java": "node scripts/mvnw.js test",
+    "test:e2e": "node pruebas/todas.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

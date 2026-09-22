@@ -47,5 +47,22 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
 
+  # ---------------------------------------------------------------------------
+  #  Buzon de prueba, solo para desarrollo. Recibe los correos que manda
+  #  ms-auth —el codigo de acceso, el enlace de respaldo— y los muestra en
+  #  http://localhost:8025 sin mandarlos a nadie. Asi la demo usa el camino de
+  #  verdad (el codigo llega por correo) sin tener un SMTP real.
+  #
+  #  Para que ms-auth le escriba:
+  #      SMTP_HOST=localhost SMTP_PORT=1025 SMTP_AUTH=false SMTP_STARTTLS=false
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: tbridge-mail
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   tbridge_db_data:

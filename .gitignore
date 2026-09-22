@@ -12,3 +12,5 @@ target/
 backend/data/
 data/
 .mvn/wrapper/maven-wrapper.jar
+__pycache__/
+*.pyc

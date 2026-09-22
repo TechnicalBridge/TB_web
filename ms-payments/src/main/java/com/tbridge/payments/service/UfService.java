@@ -31,8 +31,16 @@ public class UfService {
         this.valores = valores;
     }
 
+    /**
+     * La UF de ESE dia, y ninguna otra.
+     *
+     * <p>Antes se usaba la mas reciente disponible. Con la UF eso cobra mal en
+     * silencio: la de ayer no es la de hoy. El Banco Central la publica con
+     * un mes de adelanto y {@link UfLoader} la carga asi, de modo que si falta
+     * es porque algo fallo, y es mejor detener el cobro que adivinar.
+     */
     public UfValue delDia(LocalDate dia) {
-        return valores.findFirstByDayLessThanEqualOrderByDayDesc(dia)
+        return valores.findById(dia)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.SERVICE_UNAVAILABLE,
                         "No hay valor de la UF para el " + dia + ": el cobro en UF no puede continuar"

@@ -33,8 +33,11 @@ public class CertificateService {
 
     public byte[] generate(JwtPrincipal user, Long debtId) {
         Debt debt = debts.requireVisible(user, debtId);
-        if (debts.saldo(debt).compareTo(BigDecimal.ZERO) > 0) {
-            throw new ApiException(HttpStatus.CONFLICT, "Aún hay saldo pendiente. El certificado se emite con deuda cero.");
+        //  Por estado, no solo por saldo: una deuda retirada tambien queda en
+        //  cero (sus cuotas se anulan), y certificar que se PAGO algo que el
+        //  acreedor retiro, o que se disputo, seria un documento falso.
+        if (debt.getStatus() != Debt.Status.paid || debts.saldo(debt).compareTo(BigDecimal.ZERO) > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "El certificado se emite solo para deudas pagadas por completo.");
         }
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();

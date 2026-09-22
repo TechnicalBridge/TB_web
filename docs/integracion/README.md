@@ -293,7 +293,11 @@ POST /api/v1/carteras   (multipart/form-data)
 - `referencias` va en una sola columna como `clave=valor|clave=valor`.
 - Una fila de retiro lleva solo `deuda_id`, `accion` y `motivo_retiro`.
 
-Reemplaza al CSV actual de ms-debt (`email,nombre,acreedor,monto,...`), que no trae RUT, ni id
+Desde el portal de empresas de DataBridge la misma planilla se carga arrastrándola
+(`POST /api/debts/cartera`, con la sesión del personal en vez de la clave de API). No es otra
+ingesta: el archivo se convierte a Cartera v1 y entra por el mismo camino.
+
+Reemplaza al CSV antiguo de ms-debt (`email,nombre,acreedor,monto,...`), que no traía RUT, ni id
 externo, ni forma de reenviar sin duplicar.
 
 ---
@@ -366,6 +370,17 @@ X-Firma:     v1=<HMAC-SHA256(secreto, timestamp + "." + cuerpo), en hex>
 }
 ```
 
+**Cómo se registra un receptor.** Ante DataBridge, con la misma clave de API de la cartera:
+
+```
+POST /api/v1/suscripciones
+{ "url": "https://apofyx.cl/api/v1/eventos", "eventos": ["pago.confirmado", "deuda.saldada"] }
+```
+
+`eventos` es opcional (sin él, todos). La respuesta trae el `secreto`. Registrar la misma URL otra
+vez la reactiva y devuelve el mismo secreto, así que la llamada se puede repetir sin romper nada.
+APOFYX hace lo mismo con sus clientes, con `manage.py suscribir_cliente`.
+
 Al reenviar, APOFYX genera un evento nuevo (con su propio `id` y firmado con el secreto de
 Patrimonio) y cambia `lote_id_externo` por el lote original de Patrimonio. `deuda_id_externo` no
 cambia, porque siempre fue el de Patrimonio.
@@ -393,6 +408,12 @@ ahora en sentido contrario.
 | `deuda.saldada` | El saldo llega a cero | `deuda_id_externo`, `saldada_en` |
 | `deuda.disputada` | El deudor dice que la deuda no es suya o no corresponde | `deuda_id_externo`, `motivo` |
 | `deuda.retirada` | Se procesó un retiro | `deuda_id_externo`, `motivo` |
+
+**Qué se emite hoy (22-09-2026).** DataBridge emite `pago.confirmado`, `deuda.saldada`,
+`repactacion.aceptada` y `deuda.retirada`. `lote.procesado` repite la respuesta síncrona de la
+ingesta y queda para cuando exista la carga por archivo; `campana.avance` necesita métricas de
+mensajería que DataBridge aún no mide; `deuda.disputada` espera el flujo de disputa del portal.
+Los tres se pueden pedir al suscribirse, para no tener que volver a registrarse cuando existan.
 
 **En UF, `pago.confirmado` trae el valor de la UF usado.** La UF cambia todos los días; el acreedor
 tiene que poder reconstruir por qué un pago de `UF 38,5` fueron esos pesos.
@@ -502,12 +523,12 @@ diseña en `TBridgeDB.sql` y reemplaza la ingesta CSV actual.
 | **I8** | Formato del esquema | **JSON Schema draft-07**, el que más validadores soportan en Java, Python y JavaScript |
 | **I9** | Acceso del deudor | **Código de acceso por dos canales, con magic link de respaldo** (decidido el 18-09-2026). Es interno de DataBridge; el contrato solo exige al menos un canal (§6.3) |
 | **I14** | ¿Un contrato por tramo o uno para toda la cadena? | **Uno para toda la cadena** (R8). Cada pieza se puede saltar o reemplazar |
+| **I10** | Fuente del valor de la UF | **Banco Central de Chile**, serie `F073.UFF.PRE.Z.D` de su Base de Datos Estadísticos (decidido el 22-09-2026). Se publica con un mes de adelanto, así que no hay hora del día que fijar: ms-payments carga cada mañana desde una semana atrás hasta 40 días adelante. Un cobro usa la UF de ese día exacto o no se hace. Sin credenciales, operaciones la carga a mano |
+| **I11** | ¿La integración de DataBridge es un microservicio propio o un módulo de ms-debt? | **Un paquete de ms-debt** (`integracion`). Todo lo que toca el contrato —lotes, deudas, mandatos, eventos— es de ms-debt, y un servicio aparte solo agregaría llamadas entre ambos |
 
 ### Abiertas
 
 | # | Decisión | Estado |
 | --- | --- | --- |
-| **I10** | Fuente del valor de la UF | CMF o Banco Central, y a qué hora se fija el del día |
-| **I11** | ¿La capa de integración de DataBridge es un microservicio propio o un módulo de ms-debt? | Se decide al diseñar `TBridgeDB.sql` |
 | **I12** | Retención del detalle | Cuánto guardan APOFYX y DataBridge una deuda saldada o retirada antes de anonimizarla |
 | **I13** | ¿Integradores de terceros? | En v1, el emisor solo puede ser el acreedor o una agencia con mandato |

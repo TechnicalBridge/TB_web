@@ -10,4 +10,6 @@ public interface MandateRepository extends JpaRepository<Mandate, Long> {
 
     List<Mandate> findByAgencyAndCreditorAndStatus(
             Organization agency, Organization creditor, Mandate.Status status);
+
+    List<Mandate> findByAgencyAndStatus(Organization agency, Mandate.Status status);
 }

@@ -1,40 +1,20 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
-import { api } from "../api";
+import { rutLegible } from "../api";
 import { useAuth } from "../store/authStore";
 
+/**
+ * Dos portales, dos formas de entrar.
+ *
+ * El deudor escribe su RUT y el codigo que le llego. No hay enlace que tocar:
+ * es lo que evita que un mensaje falso lo lleve a otra parte (docs de APOFYX,
+ * seccion 13.3). El enlace al correo existe como respaldo, para quien no
+ * recibio el codigo, y es como entra el personal de las empresas.
+ */
 export default function Login({ portal }) {
-  const { requestMagicLink, error, setError } = useAuth();
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(null);
-  const [accounts, setAccounts] = useState([]);
-  const isBridge = portal !== "DATABRIDGE";
-
-  useEffect(() => {
-    api("/auth/demo")
-      .then((data) => setAccounts(data.accounts || []))
-      .catch(() => {});
-  }, []);
-
-  async function onSubmit(e) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const data = await requestMagicLink(email, name);
-      if (name) sessionStorage.setItem("tb_pending_name", name);
-      setSent(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const demos = accounts.filter((a) => (isBridge ? a.role === "DEBTOR" : a.role === "CREDITOR"));
+  const esDeudor = portal !== "DATABRIDGE";
+  const [modo, setModo] = useState(esDeudor ? "codigo" : "enlace");
 
   return (
     <div className="auth-shell">
@@ -42,78 +22,186 @@ export default function Login({ portal }) {
         <div className="brand-row">
           <Logo size={72} />
           <div>
-            <div className="brand-name">{isBridge ? "TECHNICAL BRIDGE" : "DATABRIDGE"}</div>
-            <div className="brand-sub">{isBridge ? "Core B2C · deudor" : "Core B2B · acreedor"}</div>
+            <div className="brand-name">{esDeudor ? "TECHNICAL BRIDGE" : "DATABRIDGE"}</div>
+            <div className="brand-sub">{esDeudor ? "Portal de pago" : "Portal de empresas"}</div>
           </div>
         </div>
         <div className="hero-copy">
-          <h1>{isBridge ? "Entra sin contraseña." : "Carga cartera y mira la recuperación."}</h1>
-          <p>
-            Te enviamos un enlace UUID de un solo uso. Al abrirlo, MS-Auth emite un JWT y quedas en sesión.
-          </p>
+          {esDeudor ? (
+            <>
+              <h1>Tu RUT y tu código. Nada más.</h1>
+              <p>
+                Sin cuenta y sin contraseña. El código te llegó por correo o WhatsApp de parte de la
+                empresa con la que tienes el pago pendiente. Nunca te vamos a mandar un enlace para
+                entrar: escribe esta dirección tú mismo.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1>La cartera que gestionas, al día.</h1>
+              <p>
+                Saldo, convenios y recuperación de cada deuda que entregaste. La cartera llega por la
+                API del contrato v1; los pagos, de vuelta por eventos firmados.
+              </p>
+            </>
+          )}
         </div>
-        <Link to="/" className="badge badge-muted">Volver a los portales</Link>
+        <Link to="/" className="badge badge-muted">Volver</Link>
       </section>
       <section className="auth-panel">
         <div className="auth-card">
-          <div className="brand-row" style={{ marginBottom: 18 }}>
-            <Logo size={48} />
-            <div>
-              <div className="brand-name" style={{ fontSize: 16 }}>Magic link</div>
-              <div className="brand-sub">Rate limited en el gateway</div>
-            </div>
-          </div>
-          {error ? <div className="error">{error}</div> : null}
-          {sent ? (
-            <div>
-              <p>Revisa tu correo. En este entorno de desarrollo el enlace queda aquí:</p>
-              <Link className="btn btn-primary" to={sent.magicUrl.replace(/^https?:\/\/[^/]+/, "")}>
-                Abrir enlace mágico
-              </Link>
-              <p className="hint">UUID de un solo uso · {sent.expiresInMinutes} min</p>
-            </div>
+          {modo === "codigo" ? (
+            <ConCodigo onSinCodigo={() => setModo("enlace")} />
           ) : (
-            <form onSubmit={onSubmit}>
-              {!isBridge ? null : (
-                <div className="field">
-                  <label>Nombre (si es tu primer acceso)</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ana Pérez" />
-                </div>
-              )}
-              <div className="field">
-                <label>Correo</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={isBridge ? "ana.perez@correo.com" : "carlos.soto@databridge.com"}
-                  required
-                />
-              </div>
-              <button className="btn btn-primary" disabled={busy}>
-                {busy ? "Enviando…" : "Enviar enlace"}
-              </button>
-            </form>
+            <ConEnlace esDeudor={esDeudor} onVolver={esDeudor ? () => setModo("codigo") : null} />
           )}
-          <div className="hint" style={{ textAlign: "left", marginTop: 18 }}>
-            Cuentas demo:
-            {demos.map((a) => (
-              <button
-                key={a.email}
-                type="button"
-                className="chip"
-                style={{ display: "block", width: "100%", marginTop: 8, textAlign: "left" }}
-                onClick={() => {
-                  setEmail(a.email);
-                  setName(a.name);
-                }}
-              >
-                {a.name} · {a.email}
-              </button>
-            ))}
-          </div>
         </div>
       </section>
     </div>
+  );
+}
+
+function ConCodigo({ onSinCodigo }) {
+  const { entrarConCodigo, homeFor } = useAuth();
+  const navigate = useNavigate();
+  const [rut, setRut] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const user = await entrarConCodigo(rut, codigo);
+      navigate(homeFor(user), { replace: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>Entrar</h2>
+      {error ? <div className="error">{error}</div> : null}
+      <div className="field">
+        <label htmlFor="rut">RUT</label>
+        <input
+          id="rut"
+          value={rut}
+          onChange={(e) => setRut(rutLegible(e.target.value))}
+          placeholder="12.345.678-5"
+          inputMode="text"
+          autoComplete="username"
+          required
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="codigo">Código de acceso</label>
+        <input
+          id="codigo"
+          className="code-input"
+          value={codigo}
+          onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 6))}
+          placeholder="······"
+          autoComplete="one-time-code"
+          required
+        />
+      </div>
+      <button className="btn btn-primary" disabled={busy || codigo.length !== 6}>
+        {busy ? "Entrando…" : "Entrar"}
+      </button>
+      <p className="hint">
+        El código sirve una vez y dura 24 horas.{" "}
+        <button type="button" className="link-btn" onClick={onSinCodigo}>
+          ¿No te llegó?
+        </button>
+      </p>
+    </form>
+  );
+}
+
+function ConEnlace({ esDeudor, onVolver }) {
+  const { pedirEnlace } = useAuth();
+  const [correo, setCorreo] = useState("");
+  const [rut, setRut] = useState("");
+  const [enviado, setEnviado] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      setEnviado(await pedirEnlace(correo, esDeudor ? rut : null));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (enviado) {
+    return (
+      <div>
+        <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>Revisa tu correo</h2>
+        <p>{enviado.mensaje}</p>
+        <p className="hint" style={{ textAlign: "left" }}>
+          El enlace sirve una vez y dura {enviado.expiraEnMinutos} minutos.
+        </p>
+        {import.meta.env.DEV ? (
+          <div className="notice">
+            En desarrollo los correos llegan al buzón de prueba:{" "}
+            <a href="http://localhost:8025" target="_blank" rel="noreferrer">localhost:8025</a>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>
+        {esDeudor ? "Recibir un enlace" : "Entrar"}
+      </h2>
+      {esDeudor ? (
+        <p className="hint" style={{ textAlign: "left", marginTop: 0 }}>
+          Si no te llegó el código, te mandamos un enlace de un solo uso al correo que la empresa
+          tiene registrado.
+        </p>
+      ) : null}
+      {error ? <div className="error">{error}</div> : null}
+      {esDeudor ? (
+        <div className="field">
+          <label htmlFor="rut">RUT</label>
+          <input id="rut" value={rut} onChange={(e) => setRut(rutLegible(e.target.value))}
+                 placeholder="12.345.678-5" required />
+        </div>
+      ) : null}
+      <div className="field">
+        <label htmlFor="correo">Correo</label>
+        <input
+          id="correo"
+          type="email"
+          value={correo}
+          onChange={(e) => setCorreo(e.target.value)}
+          placeholder={esDeudor ? "tu.correo@correo.cl" : "nombre@empresa.cl"}
+          autoComplete="email"
+          required
+        />
+      </div>
+      <button className="btn btn-primary" disabled={busy}>
+        {busy ? "Enviando…" : "Enviar enlace"}
+      </button>
+      {onVolver ? (
+        <p className="hint">
+          <button type="button" className="link-btn" onClick={onVolver}>Tengo mi código</button>
+        </p>
+      ) : null}
+    </form>
   );
 }

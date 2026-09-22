@@ -1,83 +1,104 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, clp, downloadCertificate } from "../api";
+import { api, dinero, downloadCertificate, ESTADO_DEUDA, rutLegible } from "../api";
 import { useAuth } from "../store/authStore";
+
+/** Suma por moneda: pesos y UF no se pueden sumar entre si. */
+function porMoneda(deudas, campo) {
+  const totales = {};
+  for (const d of deudas) totales[d.moneda] = (totales[d.moneda] || 0) + Number(d[campo] || 0);
+  return Object.entries(totales);
+}
 
 export default function Debts() {
   const { user } = useAuth();
-  const [debts, setDebts] = useState([]);
+  const [deudas, setDeudas] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     api("/debts")
-      .then((data) => setDebts(data.debts || []))
-      .catch((err) => setError(err.message));
+      .then((data) => setDeudas(data.debts || []))
+      .catch((err) => {
+        setError(err.status === 404 ? "" : err.message);
+        setDeudas([]);
+      });
   }, []);
 
-  const remaining = debts.reduce((s, d) => s + Number(d.remainingAmount || 0), 0);
-  const original = debts.reduce((s, d) => s + Number(d.originalAmount || 0), 0);
+  if (deudas === null) return <div className="card">Cargando…</div>;
+
+  const vigentes = deudas.filter((d) => d.estado === "open" || d.estado === "repacted");
+  const nombre = deudas[0]?.deudor?.split(" ")[0];
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>Mis deudas</h1>
-          <p>Hola, {user?.name?.split(" ")[0]} · Technical Bridge</p>
+          <h1>Mis pagos pendientes</h1>
+          <p>{nombre ? `Hola, ${nombre}` : "Hola"} · RUT {rutLegible(user?.rut)}</p>
         </div>
-        <span className="badge badge-ok"><span className="dot" /> Sesión JWT</span>
       </div>
       {error ? <div className="error">{error}</div> : null}
+
       <div className="grid-3" style={{ marginBottom: 16 }}>
         <div className="card stat">
-          <span>Saldo pendiente</span>
-          <b>{clp(remaining)}</b>
+          <span>Por pagar</span>
+          <b className="totales">
+            {porMoneda(vigentes, "saldo").map(([moneda, total]) => (
+              <span key={moneda}>{dinero(total, moneda)}</span>
+            ))}
+            {vigentes.length === 0 ? dinero(0) : null}
+          </b>
         </div>
         <div className="card stat">
-          <span>Original</span>
-          <b>{clp(original)}</b>
+          <span>Pendientes</span>
+          <b>{vigentes.length}</b>
         </div>
         <div className="card stat">
-          <span>Obligaciones</span>
-          <b>{debts.length}</b>
+          <span>Pagadas</span>
+          <b>{deudas.filter((d) => d.estado === "paid").length}</b>
         </div>
       </div>
+
       <div className="card">
-        {debts.length === 0 ? (
-          <div className="empty">No hay deudas a tu nombre. DataBridge puede cargarlas por CSV.</div>
+        {deudas.length === 0 ? (
+          <div className="empty">No hay pagos pendientes a tu nombre.</div>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Acreedor</th>
-                <th>Descripción</th>
+                <th>Empresa</th>
+                <th>Concepto</th>
                 <th>Saldo</th>
                 <th>Estado</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {debts.map((d) => (
-                <tr key={d.id}>
-                  <td>{d.creditorName}</td>
-                  <td>{d.description}</td>
-                  <td>{clp(d.remainingAmount)}</td>
-                  <td>
-                    <span className={`badge ${d.status === "PAGADA" ? "badge-ok" : "badge-wait"}`}>{d.status}</span>
-                  </td>
-                  <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {d.status === "PAGADA" ? (
-                      <button className="btn btn-cyan btn-sm" type="button" onClick={() => downloadCertificate(d.id)}>
-                        PDF
-                      </button>
-                    ) : (
-                      <>
-                        <Link className="btn btn-cyan btn-sm" to={`/app/repactar/${d.id}`}>Repactar</Link>
+              {deudas.map((d) => {
+                const estado = ESTADO_DEUDA[d.estado] || { texto: d.estado, clase: "badge-muted" };
+                return (
+                  <tr key={d.id}>
+                    <td>{d.acreedor}<span className="sub">{d.externalId}</span></td>
+                    <td>{d.concepto}</td>
+                    <td>{dinero(d.saldo, d.moneda)}</td>
+                    <td><span className={`badge ${estado.clase}`}>{estado.texto}</span></td>
+                    <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {d.estado === "paid" ? (
+                        <button className="btn btn-cyan btn-sm" type="button"
+                                onClick={() => downloadCertificate(d.id)}>
+                          Certificado
+                        </button>
+                      ) : null}
+                      {d.estado === "open" ? (
+                        <Link className="btn btn-cyan btn-sm" to={`/app/repactar/${d.id}`}>Ver planes</Link>
+                      ) : null}
+                      {d.estado === "open" || d.estado === "repacted" ? (
                         <Link className="btn btn-sm btn-green" to={`/app/pagar/${d.id}`}>Pagar</Link>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

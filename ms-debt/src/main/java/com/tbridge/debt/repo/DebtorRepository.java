@@ -8,7 +8,4 @@ import java.util.Optional;
 public interface DebtorRepository extends JpaRepository<Debtor, Long> {
 
     Optional<Debtor> findByRut(String rut);
-
-    /** Solo para la transicion, mientras ms-auth siga emitiendo tokens sin RUT. */
-    Optional<Debtor> findFirstByEmailIgnoreCase(String email);
 }

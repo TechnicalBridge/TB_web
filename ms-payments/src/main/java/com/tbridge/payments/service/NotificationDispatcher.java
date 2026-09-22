@@ -1,5 +1,6 @@
 package com.tbridge.payments.service;
 
+import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.payments.domain.DebtNotification;
 import com.tbridge.payments.domain.Payment;
 import com.tbridge.payments.repo.DebtNotificationRepository;

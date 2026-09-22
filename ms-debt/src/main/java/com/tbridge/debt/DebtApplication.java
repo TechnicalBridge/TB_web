@@ -4,9 +4,11 @@ import com.tbridge.common.env.DotEnv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.nio.file.Path;
 
+@EnableScheduling
 @SpringBootApplication(
         scanBasePackages = {"com.tbridge.debt", "com.tbridge.common"},
         exclude = UserDetailsServiceAutoConfiguration.class

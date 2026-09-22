@@ -31,4 +31,14 @@ public record PagoConfirmado(
         Instant paidAt
 ) {
     public static final String TIPO = "pago.confirmado";
+
+    /*
+     * Como viaja por RabbitMQ. Los dos servicios leen estas constantes: cuando
+     * cada uno tenia las suyas, ms-payments publicaba con "pago.confirmado",
+     * ms-debt escuchaba "pago.exitoso", y RabbitMQ descartaba cada pago en
+     * silencio porque no calzaba con ninguna cola.
+     */
+    public static final String EXCHANGE = "tbridge.pagos";
+    public static final String ROUTING_KEY = "pago.confirmado";
+    public static final String QUEUE = "ms-debt.pagos-confirmados";
 }
