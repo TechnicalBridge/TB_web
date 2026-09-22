@@ -1,91 +1,87 @@
 package com.tbridge.debt.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * Las cuotas por pagar.
+ *
+ * <p>Una deuda sin repactar tiene una sola. Al repactar, las pendientes se
+ * anulan y se emiten las nuevas: anular deja el rastro, borrar lo perderia.
+ *
+ * <p>`paidAt` lo escribe el aviso que llega de ms-payments. Aca no se guarda
+ * ningun dato de la pasarela: eso vive en tb_payments.
+ */
 @Entity
 @Table(name = "installments")
 public class Installment {
 
+    public enum Status { pending, paid, void_ }
+
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "debt_id", nullable = false)
+    private Debt debt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "repactation_id")
+    private Repactation repactation;
 
     @Column(nullable = false)
-    private String debtId;
+    private Short number;
 
-    @Column(nullable = false)
-    private int number;
-
-    @Column(nullable = false)
+    @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
-    @Column(nullable = false)
-    private String status;
+    /**
+     * 'void' es palabra reservada en Java, asi que la constante se llama
+     * void_ y se guarda con su nombre real mediante el conversor de abajo.
+     */
+    @Convert(converter = StatusConverter.class)
+    @Column(nullable = false, length = 10)
+    private Status status = Status.pending;
 
+    @Column(name = "paid_at")
     private Instant paidAt;
 
-    public String getId() {
-        return id;
+    @Converter
+    public static class StatusConverter implements AttributeConverter<Status, String> {
+        @Override
+        public String convertToDatabaseColumn(Status status) {
+            if (status == null) { return null; }
+            return status == Status.void_ ? "void" : status.name();
+        }
+
+        @Override
+        public Status convertToEntityAttribute(String valor) {
+            if (valor == null) { return null; }
+            return "void".equals(valor) ? Status.void_ : Status.valueOf(valor);
+        }
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getDebtId() {
-        return debtId;
-    }
-
-    public void setDebtId(String debtId) {
-        this.debtId = debtId;
-    }
-
-    public int getNumber() {
-        return number;
-    }
-
-    public void setNumber(int number) {
-        this.number = number;
-    }
-
-    public LocalDate getDueDate() {
-        return dueDate;
-    }
-
-    public void setDueDate(LocalDate dueDate) {
-        this.dueDate = dueDate;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public void setAmount(BigDecimal amount) {
-        this.amount = amount;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public Instant getPaidAt() {
-        return paidAt;
-    }
-
-    public void setPaidAt(Instant paidAt) {
-        this.paidAt = paidAt;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Debt getDebt() { return debt; }
+    public void setDebt(Debt debt) { this.debt = debt; }
+    public Repactation getRepactation() { return repactation; }
+    public void setRepactation(Repactation repactation) { this.repactation = repactation; }
+    public Short getNumber() { return number; }
+    public void setNumber(Short number) { this.number = number; }
+    public LocalDate getDueDate() { return dueDate; }
+    public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
+    public BigDecimal getAmount() { return amount; }
+    public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public Status getStatus() { return status; }
+    public void setStatus(Status status) { this.status = status; }
+    public Instant getPaidAt() { return paidAt; }
+    public void setPaidAt(Instant paidAt) { this.paidAt = paidAt; }
 }

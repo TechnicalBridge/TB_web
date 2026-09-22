@@ -1,21 +1,23 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.events.PagoExitosoEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+/**
+ * Entrega un aviso a ms-debt.
+ *
+ * <p>No decide cuando ni reintenta: eso lo hace el despachador de la bandeja
+ * de salida. Aca solo se intenta una vez y se deja que la excepcion suba, que
+ * es lo que el despachador necesita para programar el proximo intento.
+ */
 @Service
 public class EventPublisher {
 
     public static final String EXCHANGE = "tbridge.pagos";
-    public static final String ROUTING_KEY = "pago.exitoso";
-
-    private static final Logger log = LoggerFactory.getLogger(EventPublisher.class);
+    public static final String ROUTING_KEY = "pago.confirmado";
 
     private final RabbitTemplate rabbit;
     private final RestClient rest;
@@ -36,22 +38,17 @@ public class EventPublisher {
         this.rabbitEnabled = rabbitEnabled && this.rabbit != null;
     }
 
-    public void publishPagoExitoso(PagoExitosoEvent event) {
+    /** Lanza si no se pudo entregar. El que llama decide que hacer. */
+    public void publicar(PagoConfirmado aviso) {
         if (rabbitEnabled) {
-            try {
-                rabbit.convertAndSend(EXCHANGE, ROUTING_KEY, event);
-                log.info("Evento pago_exitoso publicado en RabbitMQ payment={}", event.paymentId());
-                return;
-            } catch (Exception e) {
-                log.warn("RabbitMQ no disponible, fallback HTTP: {}", e.getMessage());
-            }
+            rabbit.convertAndSend(EXCHANGE, ROUTING_KEY, aviso);
+            return;
         }
         rest.post()
-                .uri(debtUrl + "/internal/events/pago-exitoso")
+                .uri(debtUrl + "/internal/events/pago-confirmado")
                 .header("X-Internal-Key", internalKey)
-                .body(event)
+                .body(aviso)
                 .retrieve()
                 .toBodilessEntity();
-        log.info("Evento pago_exitoso enviado por HTTP a MS-Debt payment={}", event.paymentId());
     }
 }

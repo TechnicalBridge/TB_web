@@ -1,6 +1,6 @@
 package com.tbridge.debt.config;
 
-import com.tbridge.common.events.PagoExitosoEvent;
+import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.debt.service.DebtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 public class RabbitPaymentListener {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitPaymentListener.class);
+
     private final DebtService debts;
 
     public RabbitPaymentListener(DebtService debts) {
@@ -20,8 +21,8 @@ public class RabbitPaymentListener {
     }
 
     @RabbitListener(queues = RabbitConfig.QUEUE)
-    public void onPagoExitoso(PagoExitosoEvent event) {
-        log.info("RabbitMQ pago_exitoso debt={} payment={}", event.debtId(), event.paymentId());
-        debts.onPagoExitoso(event);
+    public void onPagoConfirmado(PagoConfirmado aviso) {
+        log.info("RabbitMQ pago.confirmado deuda={} pago={}", aviso.debtId(), aviso.paymentId());
+        debts.onPagoConfirmado(aviso);
     }
 }

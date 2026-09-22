@@ -32,17 +32,23 @@ public class PaymentController {
     }
 
     @GetMapping("/api/payments/{id}")
-    public Map<String, Object> one(@AuthenticationPrincipal JwtPrincipal user, @PathVariable String id) {
+    public Map<String, Object> one(@AuthenticationPrincipal JwtPrincipal user, @PathVariable Long id) {
         return payments.get(user, id);
     }
 
     @GetMapping("/api/payments/public/{id}")
-    public Map<String, Object> pub(@PathVariable String id, @RequestParam String sig) {
+    public Map<String, Object> pub(@PathVariable Long id, @RequestParam String sig) {
         return payments.publicGet(id, sig);
     }
 
+    /** El libro del pago: como llego a estar donde esta. */
+    @GetMapping("/api/payments/{id}/historia")
+    public Map<String, Object> historia(@AuthenticationPrincipal JwtPrincipal user, @PathVariable Long id) {
+        return Map.of("eventos", payments.historia(user, id));
+    }
+
     @PostMapping("/api/payments/public/{id}/confirm")
-    public Map<String, Object> confirm(@PathVariable String id, @RequestParam String sig) {
+    public Map<String, Object> confirm(@PathVariable Long id, @RequestParam String sig) {
         return payments.confirmPublic(id, sig);
     }
 }

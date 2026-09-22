@@ -1,13 +1,14 @@
 package com.tbridge.debt.repo;
 
+import com.tbridge.debt.domain.Debt;
 import com.tbridge.debt.domain.Installment;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 
-public interface InstallmentRepository extends JpaRepository<Installment, String> {
+public interface InstallmentRepository extends JpaRepository<Installment, Long> {
 
-    List<Installment> findByDebtIdOrderByNumberAsc(String debtId);
+    List<Installment> findByDebtOrderByNumberAsc(Debt debt);
 
-    List<Installment> findByDebtIdAndStatus(String debtId, String status);
+    List<Installment> findByDebtAndStatus(Debt debt, Installment.Status status);
 }

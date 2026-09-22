@@ -1,87 +1,82 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.debt.domain.AuditEvent;
 import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.repo.AuditEventRepository;
+import com.tbridge.debt.domain.Organization;
 import com.tbridge.debt.repo.DebtRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
+/**
+ * Los numeros de UNA cartera.
+ *
+ * <p>Recibe la organizacion, no un booleano: asi no existe la posibilidad de
+ * llamar a este servicio "para todos". La version anterior sumaba
+ * {@code findAll()} y le mostraba a cada acreedor el total de la plataforma.
+ */
 @Service
+@Transactional(readOnly = true)
 public class AnalyticsService {
 
     private final DebtRepository debts;
-    private final AuditEventRepository audits;
+    private final DebtService servicio;
 
-    public AnalyticsService(DebtRepository debts, AuditEventRepository audits) {
+    public AnalyticsService(DebtRepository debts, DebtService servicio) {
         this.debts = debts;
-        this.audits = audits;
+        this.servicio = servicio;
     }
 
-    public Map<String, Object> summary() {
-        List<Debt> all = debts.findAll();
-        BigDecimal cartera = BigDecimal.ZERO;
-        BigDecimal recaudado = BigDecimal.ZERO;
+    public Map<String, Object> resumen(Organization acreedor) {
+        List<Debt> cartera = debts.findByCreditorOrderByUpdatedAtDesc(acreedor);
+
+        Map<String, BigDecimal[]> porMoneda = new LinkedHashMap<>();
         int activas = 0;
         int pagadas = 0;
-        Map<String, BigDecimal[]> byCreditor = new LinkedHashMap<>();
-        for (Debt debt : all) {
-            BigDecimal paid = debt.getOriginalAmount().subtract(debt.getRemainingAmount());
-            cartera = cartera.add(debt.getRemainingAmount());
-            recaudado = recaudado.add(paid);
-            if ("PAGADA".equals(debt.getStatus())) {
+
+        for (Debt deuda : cartera) {
+            BigDecimal saldo = servicio.saldo(deuda);
+            BigDecimal pagado = deuda.getOriginalAmount().subtract(saldo);
+            BigDecimal[] acumulado = porMoneda.computeIfAbsent(
+                    deuda.getCurrency().name(),
+                    k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+            acumulado[0] = acumulado[0].add(saldo);
+            acumulado[1] = acumulado[1].add(pagado);
+            if (deuda.getStatus() == Debt.Status.paid) {
                 pagadas++;
-            } else {
+            } else if (deuda.getStatus() != Debt.Status.withdrawn) {
                 activas++;
             }
-            BigDecimal[] bucket = byCreditor.computeIfAbsent(debt.getCreditorName(), k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
-            bucket[0] = bucket[0].add(debt.getRemainingAmount());
-            bucket[1] = bucket[1].add(paid);
-        }
-        BigDecimal origin = cartera.add(recaudado);
-        BigDecimal rate = origin.compareTo(BigDecimal.ZERO) == 0
-                ? BigDecimal.ZERO
-                : recaudado.multiply(BigDecimal.valueOf(100)).divide(origin, 1, RoundingMode.HALF_UP);
-
-        Map<String, BigDecimal> monthly = new TreeMap<>();
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM");
-        for (AuditEvent event : audits.findAll()) {
-            if (!"PAGO".equals(event.getAction()) || event.getAt() == null) {
-                continue;
-            }
-            String key = event.getAt().atZone(ZoneId.systemDefault()).toLocalDate().format(fmt);
-            monthly.merge(key, BigDecimal.ONE, BigDecimal::add);
         }
 
-        List<Map<String, Object>> acreedores = new ArrayList<>();
-        byCreditor.forEach((name, vals) -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("name", name);
-            row.put("activo", vals[0]);
-            row.put("recaudado", vals[1]);
-            acreedores.add(row);
+        List<Map<String, Object>> monedas = new ArrayList<>();
+        porMoneda.forEach((moneda, valores) -> {
+            BigDecimal origen = valores[0].add(valores[1]);
+            BigDecimal tasa = origen.compareTo(BigDecimal.ZERO) == 0
+                    ? BigDecimal.ZERO
+                    : valores[1].multiply(BigDecimal.valueOf(100))
+                        .divide(origen, 1, RoundingMode.HALF_UP);
+            Map<String, Object> fila = new LinkedHashMap<>();
+            fila.put("moneda", moneda);
+            fila.put("saldo", valores[0]);
+            fila.put("recuperado", valores[1]);
+            fila.put("tasaRecuperacion", tasa);
+            monedas.add(fila);
         });
 
-        List<Map<String, Object>> serie = new ArrayList<>();
-        monthly.forEach((mes, count) -> serie.add(Map.of("mes", mes, "eventosPago", count)));
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("totalCartera", cartera);
-        body.put("totalRecaudado", recaudado);
-        body.put("deudasActivas", activas);
-        body.put("deudasPagadas", pagadas);
-        body.put("tasaRecuperacion", rate);
-        body.put("porAcreedor", acreedores);
-        body.put("serieMensual", serie);
-        return body;
+        Map<String, Object> cuerpo = new LinkedHashMap<>();
+        cuerpo.put("acreedor", acreedor.getTradeName());
+        cuerpo.put("acreedorRut", acreedor.getRut());
+        cuerpo.put("deudas", cartera.size());
+        cuerpo.put("activas", activas);
+        cuerpo.put("pagadas", pagadas);
+        cuerpo.put("retiradas", debts.countByCreditorAndStatus(acreedor, Debt.Status.withdrawn));
+        cuerpo.put("porMoneda", monedas);
+        return cuerpo;
     }
 }

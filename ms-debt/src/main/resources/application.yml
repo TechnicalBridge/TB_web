@@ -11,14 +11,22 @@ spring:
       max-file-size: 5MB
       max-request-size: 5MB
   datasource:
-    url: jdbc:h2:file:./data/ms-debt;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3308}/${DB_NAME:tb_debt}?useUnicode=true&characterEncoding=utf8&serverTimezone=America/Santiago
+    username: ${DB_USER:tbridge}
+    password: ${DB_PASSWORD:tbridge_pass}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   jpa:
     hibernate:
-      ddl-auto: update
+      # El esquema lo pone Flyway. Con 'validate' el servicio no arranca si
+      # las entidades y las tablas dejaron de calzar.
+      ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: America/Santiago
   jackson:
     serialization:
       write-dates-as-timestamps: false

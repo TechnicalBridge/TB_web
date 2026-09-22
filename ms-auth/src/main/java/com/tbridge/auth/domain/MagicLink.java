@@ -1,81 +1,57 @@
 package com.tbridge.auth.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import java.time.Instant;
 
+/**
+ * El respaldo cuando el codigo no funciona, y para el personal de una empresa.
+ *
+ * <p>Se conserva con una advertencia: es justo el patron que el documento de
+ * APOFYX critica, porque el destino lo elige quien manda el mensaje. Por eso
+ * vive mucho menos que un codigo y se usa solo cuando alguien lo pide.
+ */
 @Entity
 @Table(name = "magic_links")
 public class MagicLink {
 
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "token_hash", nullable = false, columnDefinition = "char(64)")
+    private String tokenHash;
+
+    @Column(name = "debtor_rut", length = 12)
+    private String debtorRut;
+
+    @Column(nullable = false, length = 254)
     private String email;
 
-    private String userId;
+    @Column(name = "issued_at", nullable = false)
+    private Instant issuedAt = Instant.now();
 
-    @Column(nullable = false)
-    private Instant createdAt;
-
-    @Column(nullable = false)
+    @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
-    private Instant usedAt;
+    @Column(name = "consumed_at")
+    private Instant consumedAt;
 
-    public String getId() {
-        return id;
+    public boolean vigente() {
+        return consumedAt == null && Instant.now().isBefore(expiresAt);
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public String getUserId() {
-        return userId;
-    }
-
-    public void setUserId(String userId) {
-        this.userId = userId;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Instant getExpiresAt() {
-        return expiresAt;
-    }
-
-    public void setExpiresAt(Instant expiresAt) {
-        this.expiresAt = expiresAt;
-    }
-
-    public Instant getUsedAt() {
-        return usedAt;
-    }
-
-    public void setUsedAt(Instant usedAt) {
-        this.usedAt = usedAt;
-    }
-
-    public boolean isUsed() {
-        return usedAt != null;
-    }
+    public Long getId() { return id; }
+    public String getTokenHash() { return tokenHash; }
+    public void setTokenHash(String tokenHash) { this.tokenHash = tokenHash; }
+    public String getDebtorRut() { return debtorRut; }
+    public void setDebtorRut(String debtorRut) { this.debtorRut = debtorRut; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public Instant getIssuedAt() { return issuedAt; }
+    public void setIssuedAt(Instant issuedAt) { this.issuedAt = issuedAt; }
+    public Instant getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+    public Instant getConsumedAt() { return consumedAt; }
+    public void setConsumedAt(Instant consumedAt) { this.consumedAt = consumedAt; }
 }

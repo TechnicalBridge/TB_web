@@ -4,6 +4,7 @@ import com.tbridge.common.env.DotEnv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.nio.file.Path;
 
@@ -11,6 +12,8 @@ import java.nio.file.Path;
         scanBasePackages = {"com.tbridge.payments", "com.tbridge.common"},
         exclude = UserDetailsServiceAutoConfiguration.class
 )
+// El despachador de la bandeja de salida corre en segundo plano.
+@EnableScheduling
 public class PaymentsApplication {
 
     public static void main(String[] args) {

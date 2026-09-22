@@ -27,6 +27,11 @@ public class JwtService {
     }
 
     public String issue(String id, String email, String role, String name) {
+        return issue(id, email, role, name, null);
+    }
+
+    /** Con RUT: es lo que los servicios usan para acotar lo que cada quien ve. */
+    public String issue(String id, String email, String role, String name, String rut) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(id)
@@ -34,6 +39,7 @@ public class JwtService {
                 .claim("email", email)
                 .claim("role", role)
                 .claim("name", name)
+                .claim("rut", rut)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(EXPIRATION_MS)))
                 .signWith(key)
@@ -53,7 +59,8 @@ public class JwtService {
                 id,
                 claims.get("email", String.class),
                 claims.get("role", String.class),
-                claims.get("name", String.class)
+                claims.get("name", String.class),
+                claims.get("rut", String.class)
         );
     }
 }

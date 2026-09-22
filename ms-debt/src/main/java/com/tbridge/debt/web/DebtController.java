@@ -1,12 +1,9 @@
 package com.tbridge.debt.web;
 
 import com.tbridge.common.jwt.JwtPrincipal;
-import com.tbridge.common.web.ApiException;
 import com.tbridge.debt.service.CertificateService;
-import com.tbridge.debt.service.CsvIngestService;
 import com.tbridge.debt.service.DebtService;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,20 +13,23 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
+/**
+ * Las deudas del portal.
+ *
+ * <p>La carga de cartera ya no vive aqui: entra por el contrato de
+ * integracion, en /api/v1/carteras, con su propia autenticacion.
+ */
 @RestController
 public class DebtController {
 
     private final DebtService debts;
-    private final CsvIngestService csv;
     private final CertificateService certificates;
 
-    public DebtController(DebtService debts, CsvIngestService csv, CertificateService certificates) {
+    public DebtController(DebtService debts, CertificateService certificates) {
         this.debts = debts;
-        this.csv = csv;
         this.certificates = certificates;
     }
 
@@ -39,14 +39,14 @@ public class DebtController {
     }
 
     @GetMapping("/api/debts/{id}")
-    public Map<String, Object> one(@AuthenticationPrincipal JwtPrincipal user, @PathVariable String id) {
+    public Map<String, Object> one(@AuthenticationPrincipal JwtPrincipal user, @PathVariable Long id) {
         return debts.getFor(user, id);
     }
 
     @GetMapping("/api/debts/{id}/simulate")
     public Map<String, Object> simulate(
             @AuthenticationPrincipal JwtPrincipal user,
-            @PathVariable String id,
+            @PathVariable Long id,
             @RequestParam(defaultValue = "12") int months
     ) {
         return Map.of("plan", debts.simulate(user, id, months));
@@ -55,31 +55,20 @@ public class DebtController {
     @PostMapping("/api/debts/{id}/repact")
     public Map<String, Object> repact(
             @AuthenticationPrincipal JwtPrincipal user,
-            @PathVariable String id,
+            @PathVariable Long id,
             @RequestBody Map<String, Integer> body
     ) {
-        int months = body.getOrDefault("months", 12);
-        return debts.applyRepact(user, id, months);
+        return debts.applyRepact(user, id, body.getOrDefault("months", 12));
     }
 
     @GetMapping("/api/debts/{id}/certificate")
-    public ResponseEntity<byte[]> certificate(@AuthenticationPrincipal JwtPrincipal user, @PathVariable String id) {
+    public ResponseEntity<byte[]> certificate(
+            @AuthenticationPrincipal JwtPrincipal user, @PathVariable Long id) {
         byte[] pdf = certificates.generate(user, id);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"certificado-deuda-cero.pdf\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"certificado-deuda-cero.pdf\"")
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(pdf);
-    }
-
-    @PostMapping("/api/debts/ingest")
-    public Map<String, Object> ingest(
-            @AuthenticationPrincipal JwtPrincipal user,
-            @RequestParam("file") MultipartFile file
-    ) {
-        if (user == null || !user.isCreditor()) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Solo DataBridge puede cargar cartera");
-        }
-        String creditor = user.name() == null || user.name().isBlank() ? "DataBridge" : user.name();
-        return csv.ingest(file, creditor);
     }
 }

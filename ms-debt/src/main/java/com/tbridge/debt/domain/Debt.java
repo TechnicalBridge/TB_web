@@ -1,155 +1,106 @@
 package com.tbridge.debt.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
 
+/**
+ * Lo que un deudor le debe a un acreedor.
+ *
+ * <p><b>`creditor` es la columna que arregla la fuga del modelo anterior.</b>
+ * Antes cualquier acreedor veia las deudas de todos, y no era un descuido del
+ * codigo: no existia el campo por el que filtrar. Ahora existe, y toda
+ * consulta de acreedor pasa por el.
+ *
+ * <p>`externalId` es el id que le puso el acreedor y viaja intacto por toda la
+ * cadena: es lo que permite que un pago vuelva hasta el contrato de arriendo
+ * que lo origino.
+ */
 @Entity
 @Table(name = "debts")
 public class Debt {
 
+    public enum Currency { CLP, UF }
+
+    public enum Status { open, repacted, paid, withdrawn, disputed }
+
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(nullable = false)
-    private String debtorEmail;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "creditor_id", nullable = false)
+    private Organization creditor;
 
-    @Column(nullable = false)
-    private String debtorName;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "debtor_id", nullable = false)
+    private Debtor debtor;
 
-    @Column(nullable = false)
-    private String creditorName;
+    @Column(name = "external_id", nullable = false, length = 64)
+    private String externalId;
 
-    private String description;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 3)
+    private Currency currency = Currency.CLP;
 
-    @Column(nullable = false, precision = 18, scale = 2)
+    @Column(nullable = false, length = 200)
+    private String concept;
+
+    /** Lo que se le muestra al deudor para que reconozca la deuda. */
+    @Column(columnDefinition = "json")
+    private String refs;
+
+    @Column(name = "original_amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal originalAmount;
 
-    @Column(nullable = false, precision = 18, scale = 2)
-    private BigDecimal remainingAmount;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 12)
+    private Status status = Status.open;
 
-    @Column(nullable = false)
-    private String currency = "CLP";
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "first_batch_id", nullable = false)
+    private Batch firstBatch;
 
-    @Column(nullable = false)
-    private String status;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "last_batch_id", nullable = false)
+    private Batch lastBatch;
 
-    private Integer months;
+    @Column(name = "withdrawn_reason", length = 30)
+    private String withdrawnReason;
 
-    private LocalDate dueDate;
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
 
-    @Column(nullable = false)
-    private Instant createdAt;
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt = Instant.now();
 
-    @Column(nullable = false)
-    private Instant updatedAt;
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getDebtorEmail() {
-        return debtorEmail;
-    }
-
-    public void setDebtorEmail(String debtorEmail) {
-        this.debtorEmail = debtorEmail;
-    }
-
-    public String getDebtorName() {
-        return debtorName;
-    }
-
-    public void setDebtorName(String debtorName) {
-        this.debtorName = debtorName;
-    }
-
-    public String getCreditorName() {
-        return creditorName;
-    }
-
-    public void setCreditorName(String creditorName) {
-        this.creditorName = creditorName;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public BigDecimal getOriginalAmount() {
-        return originalAmount;
-    }
-
-    public void setOriginalAmount(BigDecimal originalAmount) {
-        this.originalAmount = originalAmount;
-    }
-
-    public BigDecimal getRemainingAmount() {
-        return remainingAmount;
-    }
-
-    public void setRemainingAmount(BigDecimal remainingAmount) {
-        this.remainingAmount = remainingAmount;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public Integer getMonths() {
-        return months;
-    }
-
-    public void setMonths(Integer months) {
-        this.months = months;
-    }
-
-    public LocalDate getDueDate() {
-        return dueDate;
-    }
-
-    public void setDueDate(LocalDate dueDate) {
-        this.dueDate = dueDate;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Organization getCreditor() { return creditor; }
+    public void setCreditor(Organization creditor) { this.creditor = creditor; }
+    public Debtor getDebtor() { return debtor; }
+    public void setDebtor(Debtor debtor) { this.debtor = debtor; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public String getConcept() { return concept; }
+    public void setConcept(String concept) { this.concept = concept; }
+    public String getRefs() { return refs; }
+    public void setRefs(String refs) { this.refs = refs; }
+    public BigDecimal getOriginalAmount() { return originalAmount; }
+    public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }
+    public Status getStatus() { return status; }
+    public void setStatus(Status status) { this.status = status; }
+    public Batch getFirstBatch() { return firstBatch; }
+    public void setFirstBatch(Batch firstBatch) { this.firstBatch = firstBatch; }
+    public Batch getLastBatch() { return lastBatch; }
+    public void setLastBatch(Batch lastBatch) { this.lastBatch = lastBatch; }
+    public String getWithdrawnReason() { return withdrawnReason; }
+    public void setWithdrawnReason(String withdrawnReason) { this.withdrawnReason = withdrawnReason; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }

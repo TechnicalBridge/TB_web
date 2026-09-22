@@ -27,6 +27,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         this.jwtService = jwtService;
     }
 
+    /**
+     * Rutas que no se autentican con la sesion del portal.
+     *
+     * <p>El contrato de integracion tambien usa {@code Authorization: Bearer},
+     * pero con una clave de API, no con un JWT. Sin esta excepcion el filtro
+     * intentaba leer la clave como token y respondia 401 antes de que el
+     * controlador pudiera siquiera mirarla.
+     *
+     * <p>{@code /internal} va con clave interna y tampoco pasa por aqui.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String ruta = request.getRequestURI();
+        return ruta.startsWith("/api/v1/") || ruta.startsWith("/internal/");
+    }
+
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -46,7 +62,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             Claims claims = jwtService.parse(raw);
             JwtPrincipal principal = jwtService.toPrincipal(claims);
-            if (principal.id() == null || principal.email() == null) {
+            //  Basta con id y ALGUNA identidad. Antes se exigia el correo,
+            //  porque toda sesion venia de una cuenta; el deudor que entra con
+            //  su codigo de acceso no tiene cuenta ni correo, se identifica
+            //  por RUT, y con la regla anterior quedaba fuera del portal.
+            boolean sinIdentidad = (principal.email() == null || principal.email().isBlank())
+                    && (principal.rut() == null || principal.rut().isBlank());
+            if (principal.id() == null || sinIdentidad) {
                 write(response, HttpServletResponse.SC_UNAUTHORIZED, "Sesión inválida");
                 return;
             }

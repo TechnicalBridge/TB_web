@@ -1,16 +1,26 @@
 package com.tbridge.debt.service;
 
+import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.common.jwt.JwtPrincipal;
 import com.tbridge.common.web.ApiException;
-import com.tbridge.debt.domain.AuditEvent;
 import com.tbridge.debt.domain.Debt;
+import com.tbridge.debt.domain.DebtCharge;
+import com.tbridge.debt.domain.DebtEvent;
+import com.tbridge.debt.domain.Debtor;
 import com.tbridge.debt.domain.Installment;
+import com.tbridge.debt.domain.Organization;
+import com.tbridge.debt.domain.Repactation;
 import com.tbridge.debt.dto.InstallmentPreview;
-import com.tbridge.common.events.PagoExitosoEvent;
 import com.tbridge.debt.dto.RepactPlan;
-import com.tbridge.debt.repo.AuditEventRepository;
+import com.tbridge.debt.repo.DebtChargeRepository;
+import com.tbridge.debt.repo.DebtEventRepository;
 import com.tbridge.debt.repo.DebtRepository;
+import com.tbridge.debt.repo.DebtorRepository;
 import com.tbridge.debt.repo.InstallmentRepository;
+import com.tbridge.debt.repo.OrganizationRepository;
+import com.tbridge.debt.repo.RepactationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,201 +31,394 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
+/**
+ * Las deudas.
+ *
+ * <p><b>Lo que cambia respecto del modelo anterior.</b> Toda consulta de
+ * acreedor pasa por su organizacion. Antes esto era {@code findAll()} para
+ * cualquiera con rol CREDITOR, asi que todos veian las carteras de todos; no
+ * era un descuido del codigo, era que la deuda no tenia a quien pertenecer.
+ *
+ * <p><b>El saldo se calcula.</b> Sale de las cuotas pendientes, nunca de una
+ * columna guardada: un total almacenado al lado de sus partes termina
+ * discrepando de ellas.
+ */
 @Service
+//  open-in-view esta apagado a proposito: la sesion no sigue abierta mientras
+//  se serializa la respuesta. Por eso las lecturas tambien necesitan su
+//  transaccion, o las relaciones perezosas revientan al tocarlas.
+@Transactional(readOnly = true)
 public class DebtService {
 
+    private static final Logger log = LoggerFactory.getLogger(DebtService.class);
+
     private final DebtRepository debts;
+    private final DebtorRepository debtors;
+    private final OrganizationRepository organizations;
+    private final DebtChargeRepository charges;
     private final InstallmentRepository installments;
-    private final AuditEventRepository audits;
+    private final RepactationRepository repactations;
+    private final DebtEventRepository events;
     private final RepactationService repactation;
 
     public DebtService(
             DebtRepository debts,
+            DebtorRepository debtors,
+            OrganizationRepository organizations,
+            DebtChargeRepository charges,
             InstallmentRepository installments,
-            AuditEventRepository audits,
+            RepactationRepository repactations,
+            DebtEventRepository events,
             RepactationService repactation
     ) {
         this.debts = debts;
+        this.debtors = debtors;
+        this.organizations = organizations;
+        this.charges = charges;
         this.installments = installments;
-        this.audits = audits;
+        this.repactations = repactations;
+        this.events = events;
         this.repactation = repactation;
     }
 
+    // ------------------------------------------------------------------
+    //  Quien esta preguntando
+    // ------------------------------------------------------------------
+
+    /**
+     * El acreedor detras del token.
+     *
+     * <p>Se resuelve por RUT. Sin RUT en el token no hay forma de acotar la
+     * cartera, y devolver "todas" seria repetir la fuga que este redisenio
+     * vino a cerrar: antes eso, un error.
+     */
+    private Organization acreedorDe(JwtPrincipal user) {
+        if (user == null || user.rut() == null || user.rut().isBlank()) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "El token no dice de que empresa eres: no se puede mostrar una cartera");
+        }
+        return organizations.findByRut(user.rut())
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN,
+                        "Esa empresa no esta registrada en DataBridge"));
+    }
+
+    /**
+     * El deudor detras del token.
+     *
+     * <p>Por RUT cuando el token lo trae. Mientras ms-auth siga emitiendo
+     * tokens sin RUT se cae al correo, que es identificacion de transicion y
+     * se va cuando ms-auth migre.
+     */
+    private Debtor deudorDe(JwtPrincipal user) {
+        if (user == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesion invalida");
+        }
+        if (user.rut() != null && !user.rut().isBlank()) {
+            return debtors.findByRut(user.rut())
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No hay deudas a tu nombre"));
+        }
+        return debtors.findFirstByEmailIgnoreCase(user.email())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No hay deudas a tu nombre"));
+    }
+
+    // ------------------------------------------------------------------
+    //  Consultas
+    // ------------------------------------------------------------------
+
     public List<Map<String, Object>> listFor(JwtPrincipal user) {
-        List<Debt> rows = user.isCreditor()
-                ? debts.findAllByOrderByCreatedAtDesc()
-                : debts.findByDebtorEmailOrderByCreatedAtDesc(user.email());
-        return rows.stream().map(this::toSummary).toList();
+        List<Debt> filas = user.isCreditor()
+                ? debts.findByCreditorOrderByUpdatedAtDesc(acreedorDe(user))
+                : debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
+        return filas.stream().map(this::toSummary).toList();
     }
 
-    public Map<String, Object> getFor(JwtPrincipal user, String id) {
-        Debt debt = requireVisible(user, id);
-        Map<String, Object> body = toSummary(debt);
-        body.put("cuotas", installments.findByDebtIdOrderByNumberAsc(id).stream().map(this::toInstallment).toList());
-        body.put("auditoria", audits.findByDebtIdOrderByAtAsc(id).stream().map(this::toAudit).toList());
-        return body;
+    public Map<String, Object> getFor(JwtPrincipal user, Long id) {
+        Debt deuda = requireVisible(user, id);
+        Map<String, Object> cuerpo = toSummary(deuda);
+        cuerpo.put("cargos", charges.findByDebtOrderByDueDateAsc(deuda).stream()
+                .map(this::cargoPublico).toList());
+        cuerpo.put("cuotas", installments.findByDebtOrderByNumberAsc(deuda).stream()
+                .map(this::cuotaPublica).toList());
+        cuerpo.put("historia", events.findByDebtOrderByOccurredAtAsc(deuda).stream()
+                .map(this::eventoPublico).toList());
+        return cuerpo;
     }
 
-    public RepactPlan simulate(JwtPrincipal user, String id, int months) {
-        Debt debt = requireVisible(user, id);
-        return repactation.simulate(debt.getRemainingAmount(), months, LocalDate.now().plusMonths(1));
-    }
+    /**
+     * La deuda, si a quien pregunta le corresponde verla.
+     *
+     * <p>El acreedor solo ve las suyas; el deudor, solo las propias.
+     */
+    public Debt requireVisible(JwtPrincipal user, Long id) {
+        Debt deuda = debts.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
 
-    @Transactional
-    public Map<String, Object> applyRepact(JwtPrincipal user, String id, int months) {
+        if (user == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesion invalida");
+        }
         if (user.isCreditor()) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "La repactación la confirma el deudor");
+            if (!deuda.getCreditor().getId().equals(acreedorDe(user).getId())) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es de tu cartera");
+            }
+            return deuda;
         }
-        Debt debt = requireVisible(user, id);
-        if ("PAGADA".equals(debt.getStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT, "La deuda ya está pagada");
+        if (!deuda.getDebtor().getId().equals(deudorDe(user).getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "No puedes ver esta deuda");
         }
-        RepactPlan plan = repactation.simulate(debt.getRemainingAmount(), months, LocalDate.now().plusMonths(1));
-        for (Installment pending : installments.findByDebtIdAndStatus(id, "PENDIENTE")) {
-            installments.delete(pending);
+        return deuda;
+    }
+
+    /** Lo que se debe hoy: la suma de las cuotas pendientes. */
+    public BigDecimal saldo(Debt deuda) {
+        return installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
+                .map(Installment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    // ------------------------------------------------------------------
+    //  Repactacion
+    // ------------------------------------------------------------------
+
+    public RepactPlan simulate(JwtPrincipal user, Long id, int months) {
+        Debt deuda = requireVisible(user, id);
+        return repactation.simulate(saldo(deuda), months, LocalDate.now().plusMonths(1));
+    }
+
+    /**
+     * El deudor acepta un plan.
+     *
+     * <p>Las cuotas pendientes se ANULAN, no se borran: un compromiso que
+     * existio deja rastro. Y el plan anterior queda marcado como reemplazado,
+     * por la misma razon.
+     */
+    @Transactional
+    public Map<String, Object> applyRepact(JwtPrincipal user, Long id, int months) {
+        if (user != null && user.isCreditor()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "La repactacion la acepta el deudor");
         }
-        for (InstallmentPreview preview : plan.cuotas()) {
-            Installment inst = new Installment();
-            inst.setId(UUID.randomUUID().toString());
-            inst.setDebtId(id);
-            inst.setNumber(preview.number());
-            inst.setDueDate(preview.dueDate());
-            inst.setAmount(preview.amount());
-            inst.setStatus("PENDIENTE");
-            installments.save(inst);
+        Debt deuda = requireVisible(user, id);
+        if (deuda.getStatus() == Debt.Status.paid) {
+            throw new ApiException(HttpStatus.CONFLICT, "La deuda ya esta pagada");
         }
-        debt.setMonths(months);
-        debt.setStatus("REPACTADA");
-        debt.setDueDate(plan.cuotas().getLast().dueDate());
-        debt.setUpdatedAt(Instant.now());
-        debts.save(debt);
-        audits.save(AuditEvent.of(id, "REPACTACION",
-                "Nuevo plan de " + months + " cuotas. Cuota referencial " + plan.monthlyAmount() + " CLP"));
+        if (deuda.getStatus() == Debt.Status.withdrawn) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "El acreedor retiro esta deuda de la cobranza");
+        }
+
+        RepactPlan plan = repactation.simulate(saldo(deuda), months, LocalDate.now().plusMonths(1));
+
+        for (Repactation anterior : repactations.findByDebtAndSupersededAtIsNull(deuda)) {
+            anterior.setSupersededAt(Instant.now());
+            repactations.save(anterior);
+        }
+        Repactation nueva = new Repactation();
+        nueva.setDebt(deuda);
+        nueva.setMonths((short) months);
+        nueva.setMonthlyAmount(plan.monthlyAmount());
+        nueva.setCurrency(deuda.getCurrency());
+        repactations.save(nueva);
+
+        for (Installment pendiente : installments.findByDebtAndStatus(deuda, Installment.Status.pending)) {
+            pendiente.setStatus(Installment.Status.void_);
+            installments.save(pendiente);
+        }
+
+        short numero = siguienteNumero(deuda);
+        for (InstallmentPreview previa : plan.cuotas()) {
+            Installment cuota = new Installment();
+            cuota.setDebt(deuda);
+            cuota.setRepactation(nueva);
+            cuota.setNumber(numero++);
+            cuota.setDueDate(previa.dueDate());
+            cuota.setAmount(previa.amount());
+            cuota.setStatus(Installment.Status.pending);
+            installments.save(cuota);
+        }
+
+        deuda.setStatus(Debt.Status.repacted);
+        deuda.setUpdatedAt(Instant.now());
+        debts.save(deuda);
+
+        events.save(DebtEvent.de(deuda, DebtEvent.Type.repacted, DebtEvent.Actor.debtor)
+                .conMonto(plan.monthlyAmount(), deuda.getCurrency())
+                .conReferencia(months + " cuotas"));
+
         return getFor(user, id);
     }
 
-    @Transactional
-    public Debt createDebt(String email, String name, String creditor, BigDecimal amount, LocalDate due, String description) {
-        Debt debt = new Debt();
-        debt.setId(UUID.randomUUID().toString());
-        debt.setDebtorEmail(email.trim().toLowerCase());
-        debt.setDebtorName(name);
-        debt.setCreditorName(creditor);
-        debt.setDescription(description);
-        debt.setOriginalAmount(amount);
-        debt.setRemainingAmount(amount);
-        debt.setCurrency("CLP");
-        debt.setStatus("ACTIVA");
-        debt.setMonths(1);
-        debt.setDueDate(due);
-        Instant now = Instant.now();
-        debt.setCreatedAt(now);
-        debt.setUpdatedAt(now);
-        debts.save(debt);
-
-        Installment inst = new Installment();
-        inst.setId(UUID.randomUUID().toString());
-        inst.setDebtId(debt.getId());
-        inst.setNumber(1);
-        inst.setDueDate(due != null ? due : LocalDate.now().plusMonths(1));
-        inst.setAmount(amount);
-        inst.setStatus("PENDIENTE");
-        installments.save(inst);
-        audits.save(AuditEvent.of(debt.getId(), "ALTA", "Deuda ingresada por " + creditor + " · " + amount + " CLP"));
-        return debt;
+    /** Las cuotas se numeran corrido, para que dos planes no choquen. */
+    private short siguienteNumero(Debt deuda) {
+        return (short) (installments.findByDebtOrderByNumberAsc(deuda).stream()
+                .mapToInt(Installment::getNumber).max().orElse(0) + 1);
     }
 
+    // ------------------------------------------------------------------
+    //  Lo que ms-payments necesita y lo que avisa
+    // ------------------------------------------------------------------
+
+    /**
+     * Cuanto se debe y a quien, para que ms-payments no le crea al navegador.
+     *
+     * <p>Antes el monto a cobrar venia en el cuerpo de la peticion de pago:
+     * quien supiera el id de una deuda podia pagar un peso y darla por
+     * saldada.
+     */
+    public Map<String, Object> snapshotInterno(Long debtId, Long installmentId) {
+        Debt deuda = debts.findById(debtId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
+
+        BigDecimal monto;
+        Long cuotaId = installmentId;
+        if (installmentId != null) {
+            Installment cuota = installments.findById(installmentId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cuota no encontrada"));
+            if (!cuota.getDebt().getId().equals(deuda.getId())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Esa cuota no es de esa deuda");
+            }
+            if (cuota.getStatus() != Installment.Status.pending) {
+                throw new ApiException(HttpStatus.CONFLICT, "Esa cuota no esta pendiente");
+            }
+            monto = cuota.getAmount();
+        } else {
+            monto = saldo(deuda);
+            cuotaId = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
+                    .min((a, b) -> a.getDueDate().compareTo(b.getDueDate()))
+                    .map(Installment::getId).orElse(null);
+        }
+        if (monto.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "Esa deuda no tiene saldo por pagar");
+        }
+
+        Map<String, Object> cuerpo = new LinkedHashMap<>();
+        cuerpo.put("debtId", deuda.getId());
+        cuerpo.put("creditorRut", deuda.getCreditor().getRut());
+        cuerpo.put("debtorRut", deuda.getDebtor().getRut());
+        cuerpo.put("currency", deuda.getCurrency().name());
+        cuerpo.put("amount", monto);
+        cuerpo.put("installmentId", cuotaId);
+        return cuerpo;
+    }
+
+    /**
+     * Un pago confirmado por ms-payments.
+     *
+     * <p>Idempotente a proposito: el aviso se entrega "al menos una vez", asi
+     * que el mismo pago puede llegar dos veces y la segunda no debe abonar de
+     * nuevo. Se reconoce por la referencia de la pasarela, que ya quedo
+     * guardada en el evento.
+     */
     @Transactional
-    public void onPagoExitoso(PagoExitosoEvent event) {
-        if (event == null || event.debtId() == null) {
+    public void onPagoConfirmado(PagoConfirmado aviso) {
+        if (aviso == null || aviso.debtId() == null) {
             return;
         }
-        Debt debt = debts.findById(event.debtId()).orElse(null);
-        if (debt == null) {
+        Debt deuda = debts.findById(aviso.debtId()).orElse(null);
+        if (deuda == null) {
+            log.warn("Aviso de pago para una deuda que no existe: {}", aviso.debtId());
             return;
         }
-        BigDecimal amount = event.amount() == null ? BigDecimal.ZERO : event.amount();
-        if (event.installmentId() != null) {
-            Installment inst = installments.findById(event.installmentId()).orElse(null);
-            if (inst != null) {
-                if ("PAGADA".equals(inst.getStatus())) {
-                    return;
+
+        String referencia = aviso.gateway() + ":" + aviso.gatewayTxnId();
+        boolean yaAplicado = events.findByDebtOrderByOccurredAtAsc(deuda).stream()
+                .anyMatch(e -> e.getType() == DebtEvent.Type.payment_applied
+                        && referencia.equals(e.getReference()));
+        if (yaAplicado) {
+            log.info("Aviso repetido del pago {}: no se abona de nuevo", aviso.paymentId());
+            return;
+        }
+
+        BigDecimal porAplicar = aviso.amount() == null ? BigDecimal.ZERO : aviso.amount();
+
+        if (aviso.installmentId() != null) {
+            installments.findById(aviso.installmentId())
+                    .filter(c -> c.getDebt().getId().equals(deuda.getId()))
+                    .filter(c -> c.getStatus() == Installment.Status.pending)
+                    .ifPresent(cuota -> marcarPagada(cuota, aviso.paidAt()));
+        } else {
+            //  Sin cuota indicada, se imputa de la mas antigua a la mas nueva,
+            //  como cualquier abono en una cuenta corriente.
+            List<Installment> pendientes = installments
+                    .findByDebtAndStatus(deuda, Installment.Status.pending).stream()
+                    .sorted((a, b) -> a.getDueDate().compareTo(b.getDueDate())).toList();
+            for (Installment cuota : pendientes) {
+                if (porAplicar.compareTo(cuota.getAmount()) < 0) {
+                    break;
                 }
-                inst.setStatus("PAGADA");
-                inst.setPaidAt(event.paidAt() == null ? Instant.now() : event.paidAt());
-                installments.save(inst);
-                amount = inst.getAmount();
+                marcarPagada(cuota, aviso.paidAt());
+                porAplicar = porAplicar.subtract(cuota.getAmount());
             }
         }
-        BigDecimal remaining = debt.getRemainingAmount().subtract(amount);
-        if (remaining.compareTo(BigDecimal.ZERO) < 0) {
-            remaining = BigDecimal.ZERO;
+
+        events.save(DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
+                .conMonto(aviso.amount(), Debt.Currency.valueOf(aviso.currency()))
+                .conReferencia(referencia));
+
+        if (saldo(deuda).compareTo(BigDecimal.ZERO) == 0) {
+            deuda.setStatus(Debt.Status.paid);
+            events.save(DebtEvent.de(deuda, DebtEvent.Type.settled, DebtEvent.Actor.system));
         }
-        debt.setRemainingAmount(remaining);
-        debt.setStatus(remaining.compareTo(BigDecimal.ZERO) == 0 ? "PAGADA" : "PARCIAL");
-        debt.setUpdatedAt(Instant.now());
-        debts.save(debt);
-        if (remaining.compareTo(BigDecimal.ZERO) == 0) {
-            for (Installment inst : installments.findByDebtIdAndStatus(debt.getId(), "PENDIENTE")) {
-                inst.setStatus("PAGADA");
-                inst.setPaidAt(event.paidAt() == null ? Instant.now() : event.paidAt());
-                installments.save(inst);
-            }
-        }
-        audits.save(AuditEvent.of(
-                debt.getId(),
-                "PAGO",
-                "pago_exitoso " + amount + " CLP vía " + (event.gateway() == null ? "pasarela" : event.gateway())
-                        + " (paymentId=" + event.paymentId() + ")"
-        ));
+        deuda.setUpdatedAt(Instant.now());
+        debts.save(deuda);
     }
 
-    public Debt requireVisible(JwtPrincipal user, String id) {
-        Debt debt = debts.findById(id).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
-        if (!user.isCreditor() && (user.email() == null || !user.email().equalsIgnoreCase(debt.getDebtorEmail()))) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "No puedes ver esta deuda");
-        }
-        return debt;
+    private void marcarPagada(Installment cuota, Instant cuando) {
+        cuota.setStatus(Installment.Status.paid);
+        cuota.setPaidAt(cuando == null ? Instant.now() : cuando);
+        installments.save(cuota);
     }
 
-    public Map<String, Object> toSummary(Debt debt) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", debt.getId());
-        map.put("debtorEmail", debt.getDebtorEmail());
-        map.put("debtorName", debt.getDebtorName());
-        map.put("creditorName", debt.getCreditorName());
-        map.put("description", debt.getDescription());
-        map.put("originalAmount", debt.getOriginalAmount());
-        map.put("remainingAmount", debt.getRemainingAmount());
-        map.put("currency", debt.getCurrency());
-        map.put("status", debt.getStatus());
-        map.put("months", debt.getMonths());
-        map.put("dueDate", debt.getDueDate());
-        map.put("createdAt", debt.getCreatedAt());
-        map.put("updatedAt", debt.getUpdatedAt());
-        map.put("paidAmount", debt.getOriginalAmount().subtract(debt.getRemainingAmount()));
-        return map;
+    // ------------------------------------------------------------------
+    //  Representacion
+    // ------------------------------------------------------------------
+
+    public Map<String, Object> toSummary(Debt deuda) {
+        BigDecimal saldo = saldo(deuda);
+        Map<String, Object> mapa = new LinkedHashMap<>();
+        mapa.put("id", deuda.getId());
+        mapa.put("externalId", deuda.getExternalId());
+        mapa.put("acreedor", deuda.getCreditor().getTradeName());
+        mapa.put("acreedorRut", deuda.getCreditor().getRut());
+        mapa.put("deudor", deuda.getDebtor().getFullName());
+        mapa.put("deudorRut", deuda.getDebtor().getRut());
+        mapa.put("concepto", deuda.getConcept());
+        mapa.put("moneda", deuda.getCurrency());
+        mapa.put("montoOriginal", deuda.getOriginalAmount());
+        mapa.put("saldo", saldo);
+        mapa.put("pagado", deuda.getOriginalAmount().subtract(saldo));
+        mapa.put("estado", deuda.getStatus());
+        mapa.put("actualizada", deuda.getUpdatedAt());
+        return mapa;
     }
 
-    private Map<String, Object> toInstallment(Installment inst) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", inst.getId());
-        map.put("number", inst.getNumber());
-        map.put("dueDate", inst.getDueDate());
-        map.put("amount", inst.getAmount());
-        map.put("status", inst.getStatus());
-        map.put("paidAt", inst.getPaidAt());
-        return map;
+    private Map<String, Object> cargoPublico(DebtCharge cargo) {
+        Map<String, Object> mapa = new LinkedHashMap<>();
+        mapa.put("concepto", cargo.getConcept());
+        mapa.put("periodo", cargo.getPeriod());
+        mapa.put("monto", cargo.getAmount());
+        mapa.put("vencimiento", cargo.getDueDate());
+        return mapa;
     }
 
-    private Map<String, Object> toAudit(AuditEvent event) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", event.getId());
-        map.put("action", event.getAction());
-        map.put("detail", event.getDetail());
-        map.put("at", event.getAt());
-        return map;
+    private Map<String, Object> cuotaPublica(Installment cuota) {
+        Map<String, Object> mapa = new LinkedHashMap<>();
+        mapa.put("id", cuota.getId());
+        mapa.put("numero", cuota.getNumber());
+        mapa.put("vencimiento", cuota.getDueDate());
+        mapa.put("monto", cuota.getAmount());
+        mapa.put("estado", cuota.getStatus() == Installment.Status.void_ ? "anulada" : cuota.getStatus());
+        mapa.put("pagadaEn", cuota.getPaidAt());
+        return mapa;
+    }
+
+    private Map<String, Object> eventoPublico(DebtEvent evento) {
+        Map<String, Object> mapa = new LinkedHashMap<>();
+        mapa.put("tipo", evento.getType());
+        mapa.put("quien", evento.getActor());
+        mapa.put("monto", evento.getAmount());
+        mapa.put("moneda", evento.getCurrency());
+        mapa.put("referencia", evento.getReference());
+        mapa.put("ocurrioEn", evento.getOccurredAt());
+        return mapa;
     }
 }

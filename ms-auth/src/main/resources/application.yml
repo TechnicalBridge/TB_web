@@ -7,14 +7,20 @@ spring:
   jmx:
     enabled: false
   datasource:
-    url: jdbc:h2:file:./data/ms-auth;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3308}/${DB_NAME:tb_auth}?useUnicode=true&characterEncoding=utf8&serverTimezone=America/Santiago
+    username: ${DB_USER:tbridge}
+    password: ${DB_PASSWORD:tbridge_pass}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: America/Santiago
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -34,6 +40,11 @@ jwt:
 app:
   public-url: ${PUBLIC_URL:http://localhost:5173}
   magic-ttl-minutes: ${MAGIC_TTL_MINUTES:15}
+  # El codigo dura mas que un enlace a proposito: llega por WhatsApp y correo,
+  # y el deudor puede leerlo horas despues. El enlace, en cambio, es el camino
+  # de excepcion y conviene que viva poco.
+  code-ttl-hours: ${CODE_TTL_HOURS:24}
+  internal-key: ${INTERNAL_KEY:tbridge-internal-dev}
   from-email: ${MAIL_FROM:noreply@technicalbridge.local}
 
 logging:

@@ -1,9 +1,51 @@
 services:
+  # ---------------------------------------------------------------------------
+  #  MySQL 8.4 — el mismo motor que usa APOFYX, para no tener dos en el
+  #  proyecto. Crea las tres bases vacias; el esquema lo ponen las migraciones
+  #  de Flyway de cada servicio al arrancar (ver db/README.md).
+  #
+  #  Puerto 3308 para no chocar ni con el MySQL del equipo (3306) ni con el de
+  #  APOFYX (3307).
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: tbridge-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_USER: ${MYSQL_USER:-tbridge}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tbridge_pass}
+      MYSQL_DATABASE: tb_debt
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "${MYSQL_PORT:-3308}:3306"
+    volumes:
+      - tbridge_db_data:/var/lib/mysql
+      # Crea las otras dos bases y le da permisos al usuario de la aplicacion.
+      # Corre solo la primera vez, cuando el volumen esta vacio.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1",
+             "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  #  Bus de eventos, opcional. Sin el, ms-payments le avisa a ms-debt por HTTP.
+  # ---------------------------------------------------------------------------
   rabbitmq:
     image: rabbitmq:3.13-management
+    container_name: tbridge-rabbit
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+
+volumes:
+  tbridge_db_data:

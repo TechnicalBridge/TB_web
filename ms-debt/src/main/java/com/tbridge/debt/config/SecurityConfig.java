@@ -35,6 +35,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                         .requestMatchers("/internal/**").permitAll()
+                        // El contrato de integracion se autentica con clave de
+                        // API dentro del controlador, no con el JWT del portal.
+                        .requestMatchers("/api/v1/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

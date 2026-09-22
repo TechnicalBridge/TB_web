@@ -12,6 +12,7 @@ import com.tbridge.common.web.ApiException;
 import com.tbridge.debt.domain.Debt;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
@@ -21,6 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 @Service
+@Transactional(readOnly = true)
 public class CertificateService {
 
     private final DebtService debts;
@@ -29,9 +31,9 @@ public class CertificateService {
         this.debts = debts;
     }
 
-    public byte[] generate(JwtPrincipal user, String debtId) {
+    public byte[] generate(JwtPrincipal user, Long debtId) {
         Debt debt = debts.requireVisible(user, debtId);
-        if (debt.getRemainingAmount().compareTo(BigDecimal.ZERO) > 0) {
+        if (debts.saldo(debt).compareTo(BigDecimal.ZERO) > 0) {
             throw new ApiException(HttpStatus.CONFLICT, "Aún hay saldo pendiente. El certificado se emite con deuda cero.");
         }
         try {
@@ -56,13 +58,16 @@ public class CertificateService {
             document.add(heading);
 
             document.add(new Paragraph(
-                    "Se certifica que " + debt.getDebtorName() + " (" + debt.getDebtorEmail() + ") no registra saldo pendiente "
-                            + "con " + debt.getCreditorName() + " respecto de la obligación descrita a continuación.",
+                    "Se certifica que " + debt.getDebtor().getFullName() + " (RUT " + debt.getDebtor().getRut()
+                            + ") no registra saldo pendiente con " + debt.getCreditor().getTradeName()
+                            + " respecto de la obligación descrita a continuación.",
                     body
             ));
             document.add(new Paragraph(" ", body));
-            document.add(new Paragraph("Acreedor: " + debt.getCreditorName(), body));
-            document.add(new Paragraph("Descripción: " + (debt.getDescription() == null ? "—" : debt.getDescription()), body));
+            document.add(new Paragraph("Acreedor: " + debt.getCreditor().getTradeName()
+                    + " (RUT " + debt.getCreditor().getRut() + ")", body));
+            document.add(new Paragraph("Concepto: " + debt.getConcept(), body));
+            document.add(new Paragraph("Referencia del acreedor: " + debt.getExternalId(), body));
             document.add(new Paragraph("Monto original: " + formatClp(debt.getOriginalAmount()), body));
             document.add(new Paragraph("Saldo: " + formatClp(BigDecimal.ZERO), body));
             document.add(new Paragraph("Estado: PAGADA", body));
