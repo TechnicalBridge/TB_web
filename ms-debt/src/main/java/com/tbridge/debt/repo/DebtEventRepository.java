@@ -13,4 +13,8 @@ public interface DebtEventRepository extends JpaRepository<DebtEvent, Long> {
     List<DebtEvent> findByDebtOrderByOccurredAtAsc(Debt debt);
 
     List<DebtEvent> findByDebtInAndTypeAndOccurredAtAfter(Collection<Debt> debts, DebtEvent.Type type, Instant desde);
+
+    List<DebtEvent> findByDebtIn(Collection<Debt> debts);
+
+    boolean existsByDebtAndTypeAndOccurredAtAfter(Debt debt, DebtEvent.Type type, Instant desde);
 }

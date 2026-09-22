@@ -21,6 +21,26 @@ export const PY_APOFYX = venv(APOFYX);
 export const PY_AI = process.env.MS_AI_PYTHON || venv(path.join(TB, 'ms-ai'));
 const MVNW = path.join(TB, WIN ? 'mvnw.cmd' : 'mvnw');
 
+/**
+ * El JDK con el que Maven compila.
+ *
+ * No basta con que haya un java en el PATH: JAVA_HOME suele quedar apuntando al
+ * JRE que instala cualquier otro programa, y un JRE no trae javac. Si no
+ * compila, Maven se cae en la primera linea y la prueba se queda esperando un
+ * servicio que nunca va a arrancar.
+ */
+function javaHome() {
+  const esJdk = (dir) => dir && fs.existsSync(path.join(dir, 'bin', WIN ? 'javac.exe' : 'javac'));
+  if (esJdk(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
+  const base = 'C:/Program Files/Java';
+  if (WIN && fs.existsSync(base)) {
+    const jdk = fs.readdirSync(base).filter((d) => d.startsWith('jdk-')).sort().reverse()
+      .map((d) => path.join(base, d)).find(esJdk);
+    if (jdk) return jdk;
+  }
+  return null;
+}
+
 export const URLS = {
   auth: 'http://127.0.0.1:8081', gateway: 'http://127.0.0.1:8082', debt: 'http://127.0.0.1:8083',
   pay: 'http://127.0.0.1:8084', web: 'http://localhost:5173',
@@ -77,23 +97,44 @@ export function arrancar({ cmd, args, cwd, listo, env = {}, capturar, espera = 2
       env: { ...process.env, ...env },
     });
     procesos.push(p);
-    const t = setTimeout(() => reject(new Error(`no arranco: ${[cmd, ...args].join(' ')}`)), espera);
+
+    //  Lo ultimo que dijo el proceso. Si no arranca, esto es lo unico que
+    //  explica por que, asi que va en el error en vez de perderse.
+    let dicho = '';
+    const orden = [cmd, ...args].join(' ');
+    const fallar = (motivo) => reject(new Error(
+      `${motivo}: ${orden}${dicho.trim() ? `\n\n${dicho.trim().split('\n').slice(-15).join('\n')}` : ''}`));
+
+    const t = setTimeout(() => fallar('no arranco'), espera);
     const mirar = (d) => {
+      dicho = (dicho + d).slice(-4000);
       if (capturar) capturar(String(d));
       if (String(d).includes(listo)) { clearTimeout(t); resolve(p); }
     };
     p.stdout.on('data', mirar);
     p.stderr.on('data', mirar);
+    //  Un proceso que termina antes de avisar que esta listo no va a avisar
+    //  nunca: no tiene sentido esperar los cuatro minutos del plazo.
+    p.on('error', (e) => { clearTimeout(t); fallar(`no se pudo ejecutar (${e.code || e.message})`); });
+    p.on('exit', (codigo) => { clearTimeout(t); fallar(`termino con codigo ${codigo} sin arrancar`); });
   });
 }
 
 const CLASE = { gateway: 'Gateway', 'ms-auth': 'Auth', 'ms-debt': 'Debt', 'ms-payments': 'Payments' };
 
 /** Un servicio de DataBridge con Maven. */
-export const servicio = (modulo, env = {}, capturar) => arrancar({
-  cmd: MVNW, args: ['-q', '-pl', modulo, 'spring-boot:run'], cwd: TB,
-  listo: `Started ${CLASE[modulo]}Application`, env, capturar,
-});
+export const servicio = (modulo, env = {}, capturar) => {
+  const jdk = javaHome();
+  if (!jdk) {
+    throw new Error('No encuentro un JDK. Maven necesita compilar, y con un JRE no alcanza.\n'
+      + 'Instala el JDK 25 o deja JAVA_HOME apuntando a el.\n'
+      + `JAVA_HOME dice ahora: ${process.env.JAVA_HOME || '(nada)'}`);
+  }
+  return arrancar({
+    cmd: MVNW, args: ['-q', '-pl', modulo, 'spring-boot:run'], cwd: TB,
+    listo: `Started ${CLASE[modulo]}Application`, env: { JAVA_HOME: jdk, ...env }, capturar,
+  });
+};
 
 export const asistente = () => arrancar({
   cmd: PY_AI, args: ['-m', 'uvicorn', 'app.main:app', '--port', '8085'], cwd: path.join(TB, 'ms-ai'),

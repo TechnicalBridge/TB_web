@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ import java.util.Map;
 public class DebtService {
 
     private static final Logger log = LoggerFactory.getLogger(DebtService.class);
+    private static final ZoneId CHILE = ZoneId.of("America/Santiago");
 
     private final DebtRepository debts;
     private final DebtorRepository debtors;
@@ -125,11 +127,26 @@ public class DebtService {
     //  Consultas
     // ------------------------------------------------------------------
 
+    @Transactional
     public List<Map<String, Object>> listFor(JwtPrincipal user) {
-        List<Debt> filas = user.isCreditor()
-                ? debts.carteraDe(acreedorDe(user))
-                : debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
+        if (user.isCreditor()) {
+            return debts.carteraDe(acreedorDe(user)).stream().map(this::toSummary).toList();
+        }
+        List<Debt> filas = debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
+        filas.forEach(this::anotarIngreso);
         return filas.stream().map(this::toSummary).toList();
+    }
+
+    /**
+     * El deudor entro a ver su deuda. Se anota una vez al dia por deuda: es lo
+     * que la agencia mide como "ingresos al portal" y, con codigo de acceso,
+     * reemplaza al clic en el enlace que ya no existe.
+     */
+    private void anotarIngreso(Debt deuda) {
+        Instant desdeHoy = LocalDate.now(CHILE).atStartOfDay(CHILE).toInstant();
+        if (!events.existsByDebtAndTypeAndOccurredAtAfter(deuda, DebtEvent.Type.portal_entered, desdeHoy)) {
+            events.save(DebtEvent.de(deuda, DebtEvent.Type.portal_entered, DebtEvent.Actor.debtor));
+        }
     }
 
     public Map<String, Object> getFor(JwtPrincipal user, Long id) {

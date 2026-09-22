@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -178,6 +179,8 @@ public class CarteraIntakeService {
         respuesta.put("rechazadas", batch.getRejectedCount());
         respuesta.put("resultados", resultados);
         respuesta.put("campos_ignorados", camposIgnorados(payload));
+        eventos.publicarDeLote(batch, EventosService.LOTE_PROCESADO,
+                datosDelLote(batch, corte, resultados), Instant.now());
 
         batch.setResponse(comoJson(respuesta));
         batches.save(batch);
@@ -270,6 +273,55 @@ public class CarteraIntakeService {
                     "La accion va como registrar o retirar"));
         }
         return registrar(deuda, idDeuda, acreedor, batch, campana, corte, mandato, existente);
+    }
+
+    /**
+     * Como quedo el lote, para quien lo entrego: cuantas entraron y como se
+     * reparte la mora. El promedio va solo sobre las deudas en pesos; una
+     * media que mezclara pesos con UF no significaria nada.
+     */
+    private Map<String, Object> datosDelLote(Batch batch, LocalDate corte,
+                                             List<Map<String, Object>> resultados) {
+        Map<String, String> tramoDe = new LinkedHashMap<>();
+        for (Map<String, Object> fila : resultados) {
+            if (fila.get("tramo") != null) {
+                tramoDe.put(String.valueOf(fila.get("id_externo")), String.valueOf(fila.get("tramo")));
+            }
+        }
+        Map<String, int[]> cuantas = new LinkedHashMap<>();          // tramo -> [deudas, enPesos]
+        Map<String, BigDecimal> sumaClp = new LinkedHashMap<>();
+        for (Debt deuda : debts.findByLastBatch(batch)) {
+            String tramo = tramoDe.get(deuda.getExternalId());
+            if (tramo == null) {
+                continue;
+            }
+            int[] conteo = cuantas.computeIfAbsent(tramo, k -> new int[2]);
+            conteo[0]++;
+            if (deuda.getCurrency() == Debt.Currency.CLP) {
+                conteo[1]++;
+                sumaClp.merge(tramo, deuda.getOriginalAmount(), BigDecimal::add);
+            }
+        }
+        List<Map<String, Object>> tramos = new ArrayList<>();
+        cuantas.forEach((tramo, conteo) -> {
+            Map<String, Object> fila = new LinkedHashMap<>();
+            fila.put("tramo", tramo);
+            fila.put("deudas", conteo[0]);
+            if (conteo[1] > 0) {
+                fila.put("promedio_clp", sumaClp.get(tramo)
+                        .divide(BigDecimal.valueOf(conteo[1]), 0, RoundingMode.HALF_UP).longValue());
+            }
+            tramos.add(fila);
+        });
+
+        Map<String, Object> datos = new LinkedHashMap<>();
+        datos.put("periodo", corte.toString().substring(0, 7));
+        datos.put("fecha_corte", corte.toString());
+        datos.put("recibidas", batch.getReceivedCount());
+        datos.put("aceptadas", batch.getAcceptedCount());
+        datos.put("rechazadas", batch.getRejectedCount());
+        datos.put("tramos", tramos);
+        return datos;
     }
 
     private Map<String, Object> retirar(JsonNode deuda, String idDeuda, Debt existente, Batch batch) {
@@ -384,6 +436,11 @@ public class CarteraIntakeService {
         registro.setRefs(deuda.has("referencias") ? deuda.get("referencias").toString() : null);
         registro.setOriginalAmount(total);
         registro.setLastBatch(batch);
+        registro.setMandate(mandato);
+        if (campana != null) {
+            //  Una cartera sin campana no borra la que la deuda ya tenia.
+            registro.setCampaign(campana);
+        }
         registro.setUpdatedAt(Instant.now());
         if (nueva) {
             registro.setFirstBatch(batch);

@@ -3,7 +3,9 @@ package com.tbridge.debt.service;
 import com.tbridge.common.jwt.JwtPrincipal;
 import com.tbridge.common.web.ApiException;
 import com.tbridge.debt.domain.Debt;
+import com.tbridge.debt.domain.DebtEvent;
 import com.tbridge.debt.domain.Debtor;
+import com.tbridge.debt.repo.DebtEventRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,18 +29,20 @@ import java.util.Map;
  * personal pudiera verlo, podria entrar como el deudor.
  */
 @Service
-@Transactional(readOnly = true)
+@Transactional
 public class AccesoService {
 
     private final DebtService debts;
+    private final DebtEventRepository events;
     private final RestClient rest = RestClient.create();
     private final String authUrl;
     private final String internalKey;
 
-    public AccesoService(DebtService debts,
+    public AccesoService(DebtService debts, DebtEventRepository events,
                          @Value("${app.auth-url:http://127.0.0.1:8081}") String authUrl,
                          @Value("${app.internal-key}") String internalKey) {
         this.debts = debts;
+        this.events = events;
         this.authUrl = authUrl.replaceAll("/$", "");
         this.internalKey = internalKey;
     }
@@ -76,6 +80,11 @@ public class AccesoService {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "No se pudo emitir el codigo: el servicio de acceso no responde");
         }
+
+        //  Queda registrado en la historia de la deuda: es el primer paso del
+        //  embudo que la agencia mide (contrato, campana.avance).
+        events.save(DebtEvent.de(deuda, DebtEvent.Type.code_sent, DebtEvent.Actor.agency)
+                .conReferencia(enmascarar(deudor.getEmail())));
 
         Map<String, Object> respuesta = new LinkedHashMap<>();
         respuesta.put("enviado", true);

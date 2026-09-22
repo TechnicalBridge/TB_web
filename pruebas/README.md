@@ -23,7 +23,8 @@ node pruebas/todas.mjs --limpiar-bases
   `Capstone/TB_web`.
 - Las bases arriba: `docker compose up -d` en APOFYX y `docker compose up -d mysql` en TB_web.
   `portal.mjs` levanta RabbitMQ por su cuenta.
-- `JAVA_HOME` apuntando a un JDK 25.
+- Un **JDK** 25, no un JRE: Maven compila. En Windows lo busca solo en
+  `C:\Program Files\Java\jdk-*`; si está en otra parte, `JAVA_HOME` tiene que apuntar a él.
 - El entorno de APOFYX en `APOFYX/.venv`, con sus dependencias.
 - Para el chatbot, un entorno en `ms-ai/.venv` con `pip install -r ms-ai/requirements.txt`, o su
   ruta en `MS_AI_PYTHON`. Sin él, esa parte se salta.

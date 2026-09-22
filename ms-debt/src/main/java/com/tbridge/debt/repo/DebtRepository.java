@@ -1,6 +1,8 @@
 package com.tbridge.debt.repo;
 
 import com.tbridge.debt.domain.Debt;
+import com.tbridge.debt.domain.Batch;
+import com.tbridge.debt.domain.Campaign;
 import com.tbridge.debt.domain.Debtor;
 import com.tbridge.debt.domain.Organization;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -29,6 +31,10 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
     List<Debt> carteraDe(@Param("org") Organization org);
 
     List<Debt> findByDebtorOrderByUpdatedAtDesc(Debtor debtor);
+
+    List<Debt> findByCampaign(Campaign campaign);
+
+    List<Debt> findByLastBatch(Batch lote);
 
     Optional<Debt> findByCreditorAndExternalId(Organization creditor, String externalId);
 }

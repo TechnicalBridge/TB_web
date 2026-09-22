@@ -134,7 +134,9 @@ Cada sistema funciona solo y se conecta con los demás únicamente por el contra
 ## Pendiente
 
 - Conectar las pasarelas a sus sandbox reales (D5).
-- Emitir los eventos `campana.avance` y `lote.procesado` del contrato.
+- Medir la entrega de los mensajes (`entregados`, `respuestas`, `bajas` del evento
+  `campana.avance`): depende del proveedor de mensajería, que todavía no existe.
+- El flujo de disputa en el portal, y con él el evento `deuda.disputada`.
 - Enviar el código de acceso automáticamente al llegar la cartera; hoy lo envía el personal desde el
   portal.
 - Imágenes de Docker para los servicios; hoy Docker levanta solo las bases, RabbitMQ y el buzón de

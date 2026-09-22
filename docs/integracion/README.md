@@ -401,19 +401,27 @@ ahora en sentido contrario.
 
 | Evento | Cuándo | `datos` |
 | --- | --- | --- |
-| `lote.procesado` | Termina la ingesta de un lote | `periodo`, `recibidas`, `aceptadas`, `rechazadas`, `tramos: [{tramo, deudores, promedio_clp}]` |
-| `campana.avance` | Una vez al día por campaña | `fecha_corte`, `enviados`, `entregados`, `ingresos_portal`, `respuestas`, `reportes_fraude`, `bajas`, `disputas`, `pagos`, `recuperado_clp` |
+| `lote.procesado` | Termina la ingesta de un lote | `periodo`, `fecha_corte`, `recibidas`, `aceptadas`, `rechazadas`, `tramos: [{tramo, deudas, promedio_clp}]` |
+| `campana.avance` | Una vez al día por campaña | `campana_id_externo`, `fecha_corte`, `deudas`, `enviados`, `ingresos_portal`, `repactaciones`, `pagos`, `saldadas`, `disputas`, `retiradas`, `recuperado_clp`, `recuperado_uf` |
 | `repactacion.aceptada` | El deudor acepta un plan | `deuda_id_externo`, `cuotas`, `monto_cuota`, `moneda`, `primera_cuota` |
 | `pago.confirmado` | La pasarela confirma un pago | `deuda_id_externo`, `pago_id`, `monto`, `moneda`, `monto_clp`, `valor_uf`, `medio`, `pagado_en` |
 | `deuda.saldada` | El saldo llega a cero | `deuda_id_externo`, `saldada_en` |
 | `deuda.disputada` | El deudor dice que la deuda no es suya o no corresponde | `deuda_id_externo`, `motivo` |
 | `deuda.retirada` | Se procesó un retiro | `deuda_id_externo`, `motivo` |
 
-**Qué se emite hoy (22-09-2026).** DataBridge emite `pago.confirmado`, `deuda.saldada`,
-`repactacion.aceptada` y `deuda.retirada`. `lote.procesado` repite la respuesta síncrona de la
-ingesta y queda para cuando exista la carga por archivo; `campana.avance` necesita métricas de
-mensajería que DataBridge aún no mide; `deuda.disputada` espera el flujo de disputa del portal.
-Los tres se pueden pedir al suscribirse, para no tener que volver a registrarse cuando existan.
+**`campana.avance` no nace de un lote**, así que su sobre no lleva `lote_id_externo`: la campaña
+se identifica en `datos.campana_id_externo`. Es también el único evento que no se reenvía al
+acreedor: la campaña es de la agencia.
+
+**Un campo ausente no es un cero.** `campana.avance` trae lo que DataBridge mide de verdad. Lo que
+depende del proveedor de mensajería —`entregados`, `abiertos`, `respuestas`, `bajas`,
+`reportes_fraude`— no viaja en cero: viaja ausente, porque un cero diría "ninguno" cuando lo
+correcto es "no lo sé". `recuperado_clp` y `recuperado_uf` van separados: sumarlos no significaría
+nada.
+
+**Qué se emite hoy (22-09-2026).** Todo el catálogo salvo `deuda.disputada`, que espera el flujo de
+disputa del portal. Se puede pedir igual al suscribirse, para no tener que volver a registrarse
+cuando exista.
 
 **En UF, `pago.confirmado` trae el valor de la UF usado.** La UF cambia todos los días; el acreedor
 tiene que poder reconstruir por qué un pago de `UF 38,5` fueron esos pesos.
@@ -428,7 +436,8 @@ Cada receptor ya tiene la deuda y cruza por `deuda_id_externo`.
 | Uso | Con qué eventos |
 | --- | --- |
 | Poner al día el estado de cada deuda de su cartera | `repactacion.aceptada`, `pago.confirmado`, `deuda.saldada`, `deuda.disputada` |
-| Llenar `crm_portfoliohandover` y `crm_campaignfunnelsnapshot` | `lote.procesado`, `campana.avance` |
+| Llenar `crm_campaignfunnelsnapshot`: envíos, ingresos al portal, pagos y recuperado | `campana.avance` |
+| Dejar el rastro de cada lote confirmado por DataBridge | `lote.procesado` |
 | Reportarle a Patrimonio | Todos, reenviados con el lote de Patrimonio |
 
 `campana.avance` trae `pagos` y `recuperado_clp`. Es la columna que hoy **falta a propósito** en

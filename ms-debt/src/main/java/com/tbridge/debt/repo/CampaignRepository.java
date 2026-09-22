@@ -12,4 +12,6 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     Optional<Campaign> findByAgencyAndExternalId(Organization agency, String externalId);
 
     List<Campaign> findByAgencyAndCreditorOrderByStartsOnDesc(Organization agency, Organization creditor);
+
+    List<Campaign> findByStatus(Campaign.Status status);
 }

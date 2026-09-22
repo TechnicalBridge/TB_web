@@ -81,6 +81,19 @@ try {
   ok(await hasta(() => enApofyx(`SELECT status FROM cartera_debt WHERE external_id = 'CTR-2025-014'`)[0][0] === 'repacted'),
     'APOFYX la pasa a "en convenio de pago"');
   ok(await deudaEnPatrimonio('CTR-2025-014') === 1040000, 'Patrimonio sigue viendo la deuda completa: un plan no es un pago');
+
+  titulo('6. El avance de la campana llega al embudo de APOFYX');
+  ok(enApofyx(`SELECT COUNT(*) FROM integracion_inboundevent WHERE type = 'lote.procesado'`)[0][0] !== '0',
+    'APOFYX recibe el lote.procesado con que DataBridge confirma la ingesta');
+  await http(`${URLS.debt}/internal/campanas/avance`, { method: 'POST', interna: true });
+  const foto = await hasta(() => {
+    const filas = enApofyx(`SELECT payments, recovered_clp, messages_sent, link_clicks
+                              FROM crm_campaignfunnelsnapshot ORDER BY id DESC LIMIT 1`);
+    return filas.length && filas[0][0] !== '0' ? filas[0] : null;
+  }, 20);
+  ok(foto && foto[1] === '410000',
+    `el embudo queda con ${foto?.[0]} pago(s) y $${Number(foto?.[1]).toLocaleString('es-CL')} recuperados, ` +
+    'lo que APOFYX no podia medir sola');
 } catch (e) {
   ok(false, e.message);
 } finally {

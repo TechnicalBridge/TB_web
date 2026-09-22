@@ -4,6 +4,7 @@ import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.common.util.Rut;
 import com.tbridge.common.web.ApiException;
 import com.tbridge.debt.integracion.ApiKeyService;
+import com.tbridge.debt.integracion.CampanaAvanceService;
 import com.tbridge.debt.repo.OrganizationRepository;
 import com.tbridge.debt.service.DebtService;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,14 +28,16 @@ import java.util.Map;
 public class InternalController {
 
     private final DebtService debts;
+    private final CampanaAvanceService avances;
     private final ApiKeyService claves;
     private final OrganizationRepository organizations;
     private final String internalKey;
 
-    public InternalController(DebtService debts, ApiKeyService claves,
+    public InternalController(DebtService debts, CampanaAvanceService avances, ApiKeyService claves,
                               OrganizationRepository organizations,
                               @Value("${app.internal-key}") String internalKey) {
         this.debts = debts;
+        this.avances = avances;
         this.claves = claves;
         this.organizations = organizations;
         this.internalKey = internalKey;
@@ -83,6 +86,16 @@ public class InternalController {
                 "prefijo", emitida.registro().getPrefix(),
                 "organizacion", organizacion.getTradeName(),
                 "aviso", "Guardala ahora: no se puede volver a mostrar");
+    }
+
+    /**
+     * Publica ahora el avance de cada campana en curso, sin esperar la corrida
+     * de la manana. Lo usa operaciones y las pruebas.
+     */
+    @PostMapping("/internal/campanas/avance")
+    public Map<String, Object> avance(@RequestHeader(value = "X-Internal-Key", required = false) String clave) {
+        exigirClave(clave);
+        return Map.of("campanas", avances.publicarTodas());
     }
 
     /** El aviso de un pago concretado. */

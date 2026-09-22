@@ -58,6 +58,21 @@ public class Debt {
     @Column(nullable = false, length = 12)
     private Status status = Status.open;
 
+    /*
+      * El mandato que autoriza la cobranza y la campana en que se esta
+      * cobrando. Las columnas existian desde el primer esquema, pero la
+      * entidad no las mapeaba: la campana llegaba en la cartera y se perdia,
+      * y sin ella no habia forma de medir una campana ni de contactar por
+      * campana.
+      */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mandate_id")
+    private Mandate mandate;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "campaign_id")
+    private Campaign campaign;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "first_batch_id", nullable = false)
     private Batch firstBatch;
@@ -93,6 +108,10 @@ public class Debt {
     public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
+    public Mandate getMandate() { return mandate; }
+    public void setMandate(Mandate mandate) { this.mandate = mandate; }
+    public Campaign getCampaign() { return campaign; }
+    public void setCampaign(Campaign campaign) { this.campaign = campaign; }
     public Batch getFirstBatch() { return firstBatch; }
     public void setFirstBatch(Batch firstBatch) { this.firstBatch = firstBatch; }
     public Batch getLastBatch() { return lastBatch; }

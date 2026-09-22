@@ -3,6 +3,8 @@ package com.tbridge.debt.integracion;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tbridge.debt.domain.Batch;
+import com.tbridge.debt.domain.Campaign;
 import com.tbridge.debt.domain.Debt;
 import com.tbridge.debt.domain.Organization;
 import com.tbridge.debt.domain.OutboxEvent;
@@ -48,15 +50,16 @@ public class EventosService {
     public static final String DEUDA_SALDADA = "deuda.saldada";
     public static final String REPACTACION_ACEPTADA = "repactacion.aceptada";
     public static final String DEUDA_RETIRADA = "deuda.retirada";
+    public static final String LOTE_PROCESADO = "lote.procesado";
+    public static final String CAMPANA_AVANCE = "campana.avance";
 
     /**
-     * El catalogo del contrato (seccion 8.2). {@code lote.procesado} y
-     * {@code campana.avance} se pueden pedir, aunque todavia no se emiten:
-     * el primero repite la respuesta sincrona de la ingesta, y el segundo
-     * necesita metricas de mensajeria que DataBridge aun no mide.
+     * El catalogo del contrato (seccion 8.2). {@code deuda.disputada} se puede
+     * pedir, aunque todavia no se emite: el portal no tiene por ahora como
+     * disputar una deuda.
      */
     static final Set<String> CATALOGO = Set.of(
-            "lote.procesado", "campana.avance", REPACTACION_ACEPTADA, PAGO_CONFIRMADO,
+            LOTE_PROCESADO, CAMPANA_AVANCE, REPACTACION_ACEPTADA, PAGO_CONFIRMADO,
             DEUDA_SALDADA, "deuda.disputada", DEUDA_RETIRADA);
 
     private static final ZoneId CHILE = ZoneId.of("America/Santiago");
@@ -84,7 +87,33 @@ public class EventosService {
      */
     @Transactional
     public int publicar(Debt deuda, String tipo, Map<String, Object> datos, Instant ocurrido) {
-        Organization destinatario = deuda.getLastBatch().getSender();
+        Map<String, Object> conDeuda = new LinkedHashMap<>();
+        conDeuda.put("deuda_id_externo", deuda.getExternalId());
+        conDeuda.putAll(datos);
+        return anotar(deuda.getLastBatch().getSender(), deuda.getCreditor(),
+                deuda.getLastBatch().getExternalId(), tipo, conDeuda, ocurrido);
+    }
+
+    /**
+     * Un evento que es del lote o de la campana, no de una deuda: no lleva
+     * {@code deuda_id_externo}.
+     */
+    @Transactional
+    public int publicarDeLote(Batch lote, String tipo, Map<String, Object> datos, Instant ocurrido) {
+        return anotar(lote.getSender(), lote.getCreditor(), lote.getExternalId(), tipo, datos, ocurrido);
+    }
+
+    /**
+     * El avance de una campana. No nace de un lote, asi que su sobre no lleva
+     * {@code lote_id_externo}: la campana se identifica en los datos.
+     */
+    @Transactional
+    public int publicarDeCampana(Campaign campana, Map<String, Object> datos, Instant ocurrido) {
+        return anotar(campana.getAgency(), campana.getCreditor(), null, CAMPANA_AVANCE, datos, ocurrido);
+    }
+
+    private int anotar(Organization destinatario, Organization acreedor, String lote,
+                       String tipo, Map<String, Object> datos, Instant ocurrido) {
         List<Subscription> interesados = suscripciones.findByOrganizationAndActiveTrue(destinatario)
                 .stream().filter(s -> quiere(s, tipo)).toList();
         if (interesados.isEmpty()) {
@@ -92,18 +121,16 @@ public class EventosService {
         }
 
         String id = UUID.randomUUID().toString();
-        Map<String, Object> conDeuda = new LinkedHashMap<>();
-        conDeuda.put("deuda_id_externo", deuda.getExternalId());
-        conDeuda.putAll(datos);
-
         Map<String, Object> evento = new LinkedHashMap<>();
         evento.put("id", "evt_" + id);
         evento.put("tipo", tipo);
         evento.put("version", "1");
         evento.put("ocurrido_en", enChile(ocurrido));
-        evento.put("acreedor_rut", deuda.getCreditor().getRut());
-        evento.put("lote_id_externo", deuda.getLastBatch().getExternalId());
-        evento.put("datos", conDeuda);
+        evento.put("acreedor_rut", acreedor.getRut());
+        if (lote != null) {
+            evento.put("lote_id_externo", lote);
+        }
+        evento.put("datos", datos);
 
         String cuerpo = aTexto(evento);
         for (Subscription suscripcion : interesados) {
