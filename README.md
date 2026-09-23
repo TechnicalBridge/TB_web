@@ -6,8 +6,10 @@ Plataforma de pago y repactación de deudas. El deudor entra con su **RUT y un c
 cuenta ni contraseña, ve qué debe y a quién, y paga o acepta un plan de cuotas. La empresa que
 gestiona la cartera la ve al día y se entera de cada pago por eventos firmados.
 
-Es la última pieza de la cadena **Patrimonio Inmuebles → APOFYX → DataBridge**, y se conecta con
-las otras dos solo por el contrato de [`docs/integracion/`](docs/integracion/README.md).
+Es la última pieza de la cadena
+[**Patrimonio Inmuebles**](https://github.com/TechnicalBridge/patrimonioinmuebles) →
+[**APOFYX**](https://github.com/TechnicalBridge/APOFYX) → **DataBridge**, y se conecta con las
+otras dos solo por el contrato de [`docs/integracion/`](docs/integracion/README.md).
 
 Cómo quedó cada tarea del *Plan de Trabajo Kanban*, y por qué algunas se apartan de él:
 [`docs/plan-kanban.md`](docs/plan-kanban.md).

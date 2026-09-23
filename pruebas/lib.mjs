@@ -14,7 +14,12 @@ const WIN = process.platform === 'win32';
 export const TB = path.resolve(import.meta.dirname, '..');
 export const CAPSTONE = path.resolve(TB, '..');
 export const APOFYX = path.join(CAPSTONE, 'APOFYX');
-export const PATRIMONIO = path.join(CAPSTONE, 'PatrimonioInmuebles');
+//  El repositorio se llama 'patrimonioinmuebles' en GitHub, pero en Windows da
+//  lo mismo como este escrito y hay clones con mayusculas. En Linux y en macOS
+//  con disco sensible a mayusculas, no: por eso se prueban las dos formas.
+export const PATRIMONIO = [
+  path.join(CAPSTONE, 'patrimonioinmuebles'), path.join(CAPSTONE, 'PatrimonioInmuebles'),
+].find((d) => fs.existsSync(d)) || path.join(CAPSTONE, 'patrimonioinmuebles');
 
 const venv = (dir) => path.join(dir, '.venv', WIN ? 'Scripts/python.exe' : 'bin/python');
 export const PY_APOFYX = venv(APOFYX);
