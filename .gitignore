@@ -3,16 +3,14 @@ dist/
 .env
 *.log
 .DS_Store
-frontend/dist/
 target/
 .idea/
 *.iml
-*.mv.db
-*.trace.db
-backend/data/
-data/
 .mvn/wrapper/maven-wrapper.jar
 __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Notas locales de commit: no se versionan.
+COMMIT.txt

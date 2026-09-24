@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { api, onSesionPerdida, renovarSesion, setSessionToken } from "../api";
+import { onSesionPerdida, renovarSesion, setSessionToken } from "../api/client";
+import * as sesion from "../api/sesion";
 
 /**
  * La sesion.
@@ -33,8 +34,7 @@ export const useAuth = create((set, get) => {
     bootstrap: async () => {
       try {
         await renovarSesion();
-        const data = await api("/me");
-        set({ user: data.user });
+        set({ user: await sesion.yo() });
       } catch {
         /* no habia sesion que recuperar */
       } finally {
@@ -43,24 +43,21 @@ export const useAuth = create((set, get) => {
     },
 
     entrarConCodigo: async (rut, codigo) => {
-      const data = await api("/auth/acceso", { method: "POST", body: { rut, codigo } });
-      return get().abrirSesion(data);
+      return get().abrirSesion(await sesion.entrarConCodigo(rut, codigo));
     },
 
-    pedirEnlace: (correo, rut) =>
-      api("/auth/enlace", { method: "POST", body: { correo, rut: rut || null } }),
+    pedirEnlace: (correo, rut) => sesion.pedirEnlace(correo, rut),
 
     entrarConEnlace: async (token) => {
-      const data = await api("/auth/verify", { method: "POST", body: { token } });
-      return get().abrirSesion(data);
+      return get().abrirSesion(await sesion.entrarConEnlace(token));
     },
 
     // La respuesta del login trae el usuario resumido; /me lo trae completo.
     abrirSesion: async (data) => {
       setSessionToken(data.token);
-      const me = await api("/me");
-      set({ user: me.user });
-      return me.user;
+      const user = await sesion.yo();
+      set({ user });
+      return user;
     },
 
     /**
@@ -75,7 +72,7 @@ export const useAuth = create((set, get) => {
       setSessionToken(null);
       set({ user: null });
       try {
-        await api("/auth/logout", { method: "POST" });
+        await sesion.cerrarSesion();
       } catch (e) {
         console.warn("No se pudo cerrar la sesion en el servidor:", e.message);
       }

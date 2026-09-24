@@ -1,29 +1,26 @@
 package com.tbridge.payments;
 
-import com.tbridge.common.env.DotEnv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-import java.nio.file.Path;
-
+/**
+ * ms-payments: el cobro.
+ *
+ * <p>Abre el cobro con el monto que dice ms-debt (nunca el del navegador),
+ * guarda cada paso en un libro que solo crece, fija los pesos de una deuda en
+ * UF al abrir el cobro, y le avisa a ms-debt cuando el pago se concreta.
+ */
 @SpringBootApplication(
         scanBasePackages = {"com.tbridge.payments", "com.tbridge.common"},
         exclude = UserDetailsServiceAutoConfiguration.class
 )
-// El despachador de la bandeja de salida corre en segundo plano.
+//  El despachador de avisos y la carga diaria de la UF corren en segundo plano.
 @EnableScheduling
 public class PaymentsApplication {
 
     public static void main(String[] args) {
-        DotEnv.load(Path.of("ms-payments/.env"), Path.of(".env"));
-        boolean rabbit = Boolean.parseBoolean(System.getProperty("EVENTS_RABBIT",
-                System.getenv().getOrDefault("EVENTS_RABBIT", "false")));
-        SpringApplication app = new SpringApplication(PaymentsApplication.class);
-        if (!rabbit) {
-            app.setAdditionalProfiles("no-rabbit");
-        }
-        app.run(args);
+        SpringApplication.run(PaymentsApplication.class, args);
     }
 }

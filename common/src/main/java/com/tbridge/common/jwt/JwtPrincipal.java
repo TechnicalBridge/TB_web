@@ -3,16 +3,11 @@ package com.tbridge.common.jwt;
 /**
  * Quien viene en el token.
  *
- * <p>`rut` es lo que permite que un acreedor vea SOLO su cartera y que un
- * deudor vea solo lo suyo. Mientras ms-auth no lo emita viene en null, y los
- * servicios caen al correo como identificador de transicion.
+ * <p>El RUT es lo que acota lo que cada quien ve: al deudor, sus deudas; a una
+ * empresa, su cartera. En la sesion de un deudor es su propio RUT; en la del
+ * personal de una empresa, el RUT de la empresa.
  */
 public record JwtPrincipal(String id, String email, String role, String name, String rut) {
-
-    /** Para tokens que todavia no traen RUT. */
-    public JwtPrincipal(String id, String email, String role, String name) {
-        this(id, email, role, name, null);
-    }
 
     public boolean isCreditor() {
         return "CREDITOR".equalsIgnoreCase(role);

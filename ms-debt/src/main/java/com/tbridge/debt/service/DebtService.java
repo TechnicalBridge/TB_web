@@ -1,25 +1,29 @@
 package com.tbridge.debt.service;
 
 import com.tbridge.common.events.PagoConfirmado;
+import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.jwt.JwtPrincipal;
-import com.tbridge.common.web.ApiException;
-import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.domain.DebtCharge;
-import com.tbridge.debt.domain.DebtEvent;
-import com.tbridge.debt.domain.Debtor;
-import com.tbridge.debt.domain.Installment;
-import com.tbridge.debt.domain.Organization;
-import com.tbridge.debt.domain.Repactation;
-import com.tbridge.debt.dto.InstallmentPreview;
-import com.tbridge.debt.dto.RepactPlan;
-import com.tbridge.debt.integracion.EventosService;
-import com.tbridge.debt.repo.DebtChargeRepository;
-import com.tbridge.debt.repo.DebtEventRepository;
-import com.tbridge.debt.repo.DebtRepository;
-import com.tbridge.debt.repo.DebtorRepository;
-import com.tbridge.debt.repo.InstallmentRepository;
-import com.tbridge.debt.repo.OrganizationRepository;
-import com.tbridge.debt.repo.RepactationRepository;
+import com.tbridge.debt.dto.evento.DeudaSaldadaDatos;
+import com.tbridge.debt.dto.evento.PagoConfirmadoDatos;
+import com.tbridge.debt.dto.evento.RepactacionAceptadaDatos;
+import com.tbridge.debt.dto.response.DebtDetailResponse;
+import com.tbridge.debt.dto.response.DebtSnapshotResponse;
+import com.tbridge.debt.dto.response.DebtSummaryResponse;
+import com.tbridge.debt.dto.response.InstallmentPreview;
+import com.tbridge.debt.dto.response.RepactPlan;
+import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.model.DebtEvent;
+import com.tbridge.debt.model.Debtor;
+import com.tbridge.debt.model.Installment;
+import com.tbridge.debt.model.Organization;
+import com.tbridge.debt.model.Repactation;
+import com.tbridge.debt.repository.DebtChargeRepository;
+import com.tbridge.debt.repository.DebtEventRepository;
+import com.tbridge.debt.repository.DebtRepository;
+import com.tbridge.debt.repository.DebtorRepository;
+import com.tbridge.debt.repository.InstallmentRepository;
+import com.tbridge.debt.repository.OrganizationRepository;
+import com.tbridge.debt.repository.RepactationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,26 +34,24 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Las deudas.
  *
- * <p><b>Lo que cambia respecto del modelo anterior.</b> Toda consulta de
- * acreedor pasa por su organizacion. Antes esto era {@code findAll()} para
- * cualquiera con rol CREDITOR, asi que todos veian las carteras de todos; no
- * era un descuido del codigo, era que la deuda no tenia a quien pertenecer.
+ * <p><b>Toda consulta de una empresa pasa por su organizacion.</b> Antes esto
+ * era {@code findAll()} para cualquiera con rol CREDITOR, asi que todos veian
+ * las carteras de todos.
  *
  * <p><b>El saldo se calcula.</b> Sale de las cuotas pendientes, nunca de una
  * columna guardada: un total almacenado al lado de sus partes termina
  * discrepando de ellas.
  */
 @Service
-//  open-in-view esta apagado a proposito: la sesion no sigue abierta mientras
-//  se serializa la respuesta. Por eso las lecturas tambien necesitan su
-//  transaccion, o las relaciones perezosas revientan al tocarlas.
+//  open-in-view esta apagado a proposito: la sesion de Hibernate no sigue
+//  abierta mientras se arma la respuesta. Por eso las lecturas tambien van en
+//  una transaccion, o las relaciones perezosas revientan al tocarlas.
 @Transactional(readOnly = true)
 public class DebtService {
 
@@ -93,13 +95,13 @@ public class DebtService {
     // ------------------------------------------------------------------
 
     /**
-     * El acreedor detras del token.
+     * La organizacion detras de la sesion de una empresa.
      *
      * <p>Se resuelve por RUT. Sin RUT en el token no hay forma de acotar la
-     * cartera, y devolver "todas" seria repetir la fuga que este redisenio
-     * vino a cerrar: antes eso, un error.
+     * cartera, y devolver "todas" seria repetir la fuga que este rediseno vino
+     * a cerrar.
      */
-    private Organization acreedorDe(JwtPrincipal user) {
+    public Organization organizacionDe(JwtPrincipal user) {
         if (user == null || user.rut() == null || user.rut().isBlank()) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "El token no dice de que empresa eres: no se puede mostrar una cartera");
@@ -109,12 +111,7 @@ public class DebtService {
                         "Esa empresa no esta registrada en DataBridge"));
     }
 
-    /**
-     * El deudor detras del token, por RUT.
-     *
-     * <p>Hubo un respaldo por correo mientras ms-auth emitia tokens sin RUT.
-     * Ya no los emite, y el correo no es una identidad verificada: se quito.
-     */
+    /** El deudor detras del token, por RUT: es lo unico que trae su sesion. */
     private Debtor deudorDe(JwtPrincipal user) {
         if (user == null || user.rut() == null || user.rut().isBlank()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "La sesion no identifica al deudor");
@@ -127,14 +124,18 @@ public class DebtService {
     //  Consultas
     // ------------------------------------------------------------------
 
+    /**
+     * Lo que ve cada quien: la empresa, su cartera; el deudor, lo suyo. Cuando
+     * el que mira es el deudor, se anota que entro (ver {@link #anotarIngreso}).
+     */
     @Transactional
-    public List<Map<String, Object>> listFor(JwtPrincipal user) {
-        if (user.isCreditor()) {
-            return debts.carteraDe(acreedorDe(user)).stream().map(this::toSummary).toList();
+    public List<DebtSummaryResponse> listFor(JwtPrincipal user) {
+        if (user != null && user.isCreditor()) {
+            return debts.carteraDe(organizacionDe(user)).stream().map(this::resumen).toList();
         }
         List<Debt> filas = debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
         filas.forEach(this::anotarIngreso);
-        return filas.stream().map(this::toSummary).toList();
+        return filas.stream().map(this::resumen).toList();
     }
 
     /**
@@ -149,32 +150,22 @@ public class DebtService {
         }
     }
 
-    public Map<String, Object> getFor(JwtPrincipal user, Long id) {
-        Debt deuda = requireVisible(user, id);
-        Map<String, Object> cuerpo = toSummary(deuda);
-        cuerpo.put("cargos", charges.findByDebtOrderByDueDateAsc(deuda).stream()
-                .map(this::cargoPublico).toList());
-        cuerpo.put("cuotas", installments.findByDebtOrderByNumberAsc(deuda).stream()
-                .map(this::cuotaPublica).toList());
-        cuerpo.put("historia", events.findByDebtOrderByOccurredAtAsc(deuda).stream()
-                .map(this::eventoPublico).toList());
-        return cuerpo;
+    public DebtDetailResponse getFor(JwtPrincipal user, Long id) {
+        return detalle(requireVisible(user, id));
     }
 
     /**
-     * La deuda, si a quien pregunta le corresponde verla.
-     *
-     * <p>El acreedor solo ve las suyas; el deudor, solo las propias.
+     * La deuda, si a quien pregunta le corresponde verla. La empresa solo ve
+     * las de su cartera; el deudor, solo las propias.
      */
     public Debt requireVisible(JwtPrincipal user, Long id) {
         Debt deuda = debts.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
-
         if (user == null) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesion invalida");
         }
         if (user.isCreditor()) {
-            if (!opera(acreedorDe(user), deuda)) {
+            if (!opera(organizacionDe(user), deuda)) {
                 throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es de tu cartera");
             }
             return deuda;
@@ -185,21 +176,13 @@ public class DebtService {
         return deuda;
     }
 
-    /** Lo que se debe hoy: la suma de las cuotas pendientes. */
-    /** La organizacion detras de la sesion de una empresa. */
-    public Organization organizacionDe(JwtPrincipal user) {
-        if (user == null || !user.isCreditor()) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Solo una empresa carga cartera");
-        }
-        return acreedorDe(user);
-    }
-
     /** La misma regla que {@code DebtRepository.carteraDe}, para una deuda suelta. */
     private static boolean opera(Organization organizacion, Debt deuda) {
         return deuda.getCreditor().getId().equals(organizacion.getId())
                 || deuda.getLastBatch().getSender().getId().equals(organizacion.getId());
     }
 
+    /** Lo que se debe hoy: la suma de las cuotas pendientes. */
     public BigDecimal saldo(Debt deuda) {
         return installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
                 .map(Installment::getAmount)
@@ -223,7 +206,7 @@ public class DebtService {
      * por la misma razon.
      */
     @Transactional
-    public Map<String, Object> applyRepact(JwtPrincipal user, Long id, int months) {
+    public DebtDetailResponse applyRepact(JwtPrincipal user, Long id, int months) {
         if (user != null && user.isCreditor()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "La repactacion la acepta el deudor");
         }
@@ -232,8 +215,7 @@ public class DebtService {
             throw new ApiException(HttpStatus.CONFLICT, "La deuda ya esta pagada");
         }
         if (deuda.getStatus() == Debt.Status.withdrawn) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "El acreedor retiro esta deuda de la cobranza");
+            throw new ApiException(HttpStatus.CONFLICT, "El acreedor retiro esta deuda de la cobranza");
         }
 
         RepactPlan plan = repactation.simulate(saldo(deuda), deuda.getCurrency(), months, LocalDate.now().plusMonths(1));
@@ -249,11 +231,7 @@ public class DebtService {
         nueva.setCurrency(deuda.getCurrency());
         repactations.save(nueva);
 
-        for (Installment pendiente : installments.findByDebtAndStatus(deuda, Installment.Status.pending)) {
-            pendiente.setStatus(Installment.Status.void_);
-            installments.save(pendiente);
-        }
-
+        anularPendientes(deuda);
         short numero = siguienteNumero(deuda);
         for (InstallmentPreview previa : plan.cuotas()) {
             Installment cuota = new Installment();
@@ -273,15 +251,18 @@ public class DebtService {
         events.save(DebtEvent.de(deuda, DebtEvent.Type.repacted, DebtEvent.Actor.debtor)
                 .conMonto(plan.monthlyAmount(), deuda.getCurrency())
                 .conReferencia(months + " cuotas"));
+        eventos.publicar(deuda, EventosService.REPACTACION_ACEPTADA, new RepactacionAceptadaDatos(
+                deuda.getExternalId(), months, EventosService.monto(plan.monthlyAmount(), deuda.getCurrency()),
+                deuda.getCurrency().name(), plan.cuotas().getFirst().dueDate().toString()), Instant.now());
 
-        Map<String, Object> datos = new LinkedHashMap<>();
-        datos.put("cuotas", months);
-        datos.put("monto_cuota", EventosService.monto(plan.monthlyAmount(), deuda.getCurrency()));
-        datos.put("moneda", deuda.getCurrency().name());
-        datos.put("primera_cuota", plan.cuotas().get(0).dueDate().toString());
-        eventos.publicar(deuda, EventosService.REPACTACION_ACEPTADA, datos, Instant.now());
+        return detalle(deuda);
+    }
 
-        return getFor(user, id);
+    private void anularPendientes(Debt deuda) {
+        for (Installment pendiente : installments.findByDebtAndStatus(deuda, Installment.Status.pending)) {
+            pendiente.setStatus(Installment.Status.void_);
+            installments.save(pendiente);
+        }
     }
 
     /** Las cuotas se numeran corrido, para que dos planes no choquen. */
@@ -296,12 +277,10 @@ public class DebtService {
 
     /**
      * Cuanto se debe y a quien, para que ms-payments no le crea al navegador.
-     *
-     * <p>Antes el monto a cobrar venia en el cuerpo de la peticion de pago:
-     * quien supiera el id de una deuda podia pagar un peso y darla por
-     * saldada.
+     * Sin cuota indicada, se cobra todo el saldo y se informa la cuota
+     * pendiente que vence primero.
      */
-    public Map<String, Object> snapshotInterno(Long debtId, Long installmentId) {
+    public DebtSnapshotResponse snapshotInterno(Long debtId, Long installmentId) {
         Debt deuda = debts.findById(debtId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
 
@@ -320,21 +299,14 @@ public class DebtService {
         } else {
             monto = saldo(deuda);
             cuotaId = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
-                    .min((a, b) -> a.getDueDate().compareTo(b.getDueDate()))
+                    .min(Comparator.comparing(Installment::getDueDate))
                     .map(Installment::getId).orElse(null);
         }
         if (monto.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException(HttpStatus.CONFLICT, "Esa deuda no tiene saldo por pagar");
         }
-
-        Map<String, Object> cuerpo = new LinkedHashMap<>();
-        cuerpo.put("debtId", deuda.getId());
-        cuerpo.put("creditorRut", deuda.getCreditor().getRut());
-        cuerpo.put("debtorRut", deuda.getDebtor().getRut());
-        cuerpo.put("currency", deuda.getCurrency().name());
-        cuerpo.put("amount", monto);
-        cuerpo.put("installmentId", cuotaId);
-        return cuerpo;
+        return new DebtSnapshotResponse(deuda.getId(), deuda.getCreditor().getRut(), deuda.getDebtor().getRut(),
+                deuda.getCurrency().name(), monto, cuotaId);
     }
 
     /**
@@ -358,14 +330,11 @@ public class DebtService {
 
         String referencia = aviso.gateway() + ":" + aviso.gatewayTxnId();
         boolean yaAplicado = events.findByDebtOrderByOccurredAtAsc(deuda).stream()
-                .anyMatch(e -> e.getType() == DebtEvent.Type.payment_applied
-                        && referencia.equals(e.getReference()));
+                .anyMatch(e -> e.getType() == DebtEvent.Type.payment_applied && referencia.equals(e.getReference()));
         if (yaAplicado) {
             log.info("Aviso repetido del pago {}: no se abona de nuevo", aviso.paymentId());
             return;
         }
-
-        BigDecimal porAplicar = aviso.amount() == null ? BigDecimal.ZERO : aviso.amount();
 
         if (aviso.installmentId() != null) {
             installments.findById(aviso.installmentId())
@@ -375,9 +344,9 @@ public class DebtService {
         } else {
             //  Sin cuota indicada, se imputa de la mas antigua a la mas nueva,
             //  como cualquier abono en una cuenta corriente.
-            List<Installment> pendientes = installments
-                    .findByDebtAndStatus(deuda, Installment.Status.pending).stream()
-                    .sorted((a, b) -> a.getDueDate().compareTo(b.getDueDate())).toList();
+            BigDecimal porAplicar = aviso.amount() == null ? BigDecimal.ZERO : aviso.amount();
+            List<Installment> pendientes = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
+                    .sorted(Comparator.comparing(Installment::getDueDate)).toList();
             for (Installment cuota : pendientes) {
                 if (porAplicar.compareTo(cuota.getAmount()) < 0) {
                     break;
@@ -392,13 +361,13 @@ public class DebtService {
         events.save(DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
                 .conMonto(aviso.amount(), moneda)
                 .conReferencia(referencia));
-        eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, datosDelPago(aviso, moneda, pagadoEn), pagadoEn);
+        eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, datosDelPago(deuda, aviso, moneda, pagadoEn), pagadoEn);
 
         if (saldo(deuda).compareTo(BigDecimal.ZERO) == 0) {
             deuda.setStatus(Debt.Status.paid);
             events.save(DebtEvent.de(deuda, DebtEvent.Type.settled, DebtEvent.Actor.system));
             eventos.publicar(deuda, EventosService.DEUDA_SALDADA,
-                    Map.of("saldada_en", EventosService.enChile(pagadoEn)), pagadoEn);
+                    new DeudaSaldadaDatos(deuda.getExternalId(), EventosService.enChile(pagadoEn)), pagadoEn);
         }
         deuda.setUpdatedAt(Instant.now());
         debts.save(deuda);
@@ -406,21 +375,20 @@ public class DebtService {
 
     /**
      * Lo que el acreedor necesita para imputar el pago en su propio sistema.
-     * En UF va el valor usado: la UF cambia todos los dias, y sin ese dato
-     * nadie podria reconstruir por que UF 38,5 fueron esos pesos.
+     * En UF va el valor usado: sin el, nadie podria reconstruir por que UF
+     * 38,5 fueron esos pesos.
      */
-    private static Map<String, Object> datosDelPago(PagoConfirmado aviso, Debt.Currency moneda, Instant pagadoEn) {
-        Map<String, Object> datos = new LinkedHashMap<>();
-        datos.put("pago_id", String.valueOf(aviso.paymentId()));
-        datos.put("monto", EventosService.monto(aviso.amount(), moneda));
-        datos.put("moneda", moneda.name());
-        datos.put("monto_clp", aviso.amountClp());
-        if (moneda == Debt.Currency.UF) {
-            datos.put("valor_uf", aviso.ufValue());
-        }
-        datos.put("medio", aviso.gateway() == null ? null : aviso.gateway().toLowerCase());
-        datos.put("pagado_en", EventosService.enChile(pagadoEn));
-        return datos;
+    private static PagoConfirmadoDatos datosDelPago(Debt deuda, PagoConfirmado aviso, Debt.Currency moneda,
+                                                    Instant pagadoEn) {
+        return new PagoConfirmadoDatos(
+                deuda.getExternalId(),
+                String.valueOf(aviso.paymentId()),
+                EventosService.monto(aviso.amount(), moneda),
+                moneda.name(),
+                aviso.amountClp(),
+                moneda == Debt.Currency.UF ? aviso.ufValue() : null,
+                aviso.gateway() == null ? null : aviso.gateway().toLowerCase(),
+                EventosService.enChile(pagadoEn));
     }
 
     private void marcarPagada(Installment cuota, Instant cuando) {
@@ -433,53 +401,15 @@ public class DebtService {
     //  Representacion
     // ------------------------------------------------------------------
 
-    public Map<String, Object> toSummary(Debt deuda) {
-        BigDecimal saldo = saldo(deuda);
-        Map<String, Object> mapa = new LinkedHashMap<>();
-        mapa.put("id", deuda.getId());
-        mapa.put("externalId", deuda.getExternalId());
-        mapa.put("acreedor", deuda.getCreditor().getTradeName());
-        mapa.put("acreedorRut", deuda.getCreditor().getRut());
-        mapa.put("deudor", deuda.getDebtor().getFullName());
-        mapa.put("deudorRut", deuda.getDebtor().getRut());
-        mapa.put("concepto", deuda.getConcept());
-        mapa.put("moneda", deuda.getCurrency());
-        mapa.put("montoOriginal", deuda.getOriginalAmount());
-        mapa.put("saldo", saldo);
-        mapa.put("pagado", deuda.getOriginalAmount().subtract(saldo));
-        mapa.put("estado", deuda.getStatus());
-        mapa.put("actualizada", deuda.getUpdatedAt());
-        return mapa;
+    private DebtSummaryResponse resumen(Debt deuda) {
+        return DebtSummaryResponse.from(deuda, saldo(deuda));
     }
 
-    private Map<String, Object> cargoPublico(DebtCharge cargo) {
-        Map<String, Object> mapa = new LinkedHashMap<>();
-        mapa.put("concepto", cargo.getConcept());
-        mapa.put("periodo", cargo.getPeriod());
-        mapa.put("monto", cargo.getAmount());
-        mapa.put("vencimiento", cargo.getDueDate());
-        return mapa;
-    }
-
-    private Map<String, Object> cuotaPublica(Installment cuota) {
-        Map<String, Object> mapa = new LinkedHashMap<>();
-        mapa.put("id", cuota.getId());
-        mapa.put("numero", cuota.getNumber());
-        mapa.put("vencimiento", cuota.getDueDate());
-        mapa.put("monto", cuota.getAmount());
-        mapa.put("estado", cuota.getStatus() == Installment.Status.void_ ? "anulada" : cuota.getStatus());
-        mapa.put("pagadaEn", cuota.getPaidAt());
-        return mapa;
-    }
-
-    private Map<String, Object> eventoPublico(DebtEvent evento) {
-        Map<String, Object> mapa = new LinkedHashMap<>();
-        mapa.put("tipo", evento.getType());
-        mapa.put("quien", evento.getActor());
-        mapa.put("monto", evento.getAmount());
-        mapa.put("moneda", evento.getCurrency());
-        mapa.put("referencia", evento.getReference());
-        mapa.put("ocurrioEn", evento.getOccurredAt());
-        return mapa;
+    private DebtDetailResponse detalle(Debt deuda) {
+        return new DebtDetailResponse(
+                resumen(deuda),
+                charges.findByDebtOrderByDueDateAsc(deuda).stream().map(DebtDetailResponse.Cargo::from).toList(),
+                installments.findByDebtOrderByNumberAsc(deuda).stream().map(DebtDetailResponse.Cuota::from).toList(),
+                events.findByDebtOrderByOccurredAtAsc(deuda).stream().map(DebtDetailResponse.Suceso::from).toList());
     }
 }

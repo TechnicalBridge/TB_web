@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, dinero, fecha } from "../api";
+import { obtenerDeuda, repactar, simularPlan } from "../api/deudas";
+import { dinero, fecha } from "../utils/formato";
 
 /**
  * Simular un plan de cuotas y aceptarlo.
@@ -18,13 +19,13 @@ export default function Repact() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api(`/debts/${id}`).then(setDeuda).catch((err) => setError(err.message));
+    obtenerDeuda(id).then(setDeuda).catch((err) => setError(err.message));
   }, [id]);
 
   useEffect(() => {
-    api(`/debts/${id}/simulate?months=${meses}`)
-      .then((data) => {
-        setPlan(data.plan);
+    simularPlan(id, meses)
+      .then((nuevo) => {
+        setPlan(nuevo);
         setError("");
       })
       .catch((err) => setError(err.message));
@@ -34,7 +35,7 @@ export default function Repact() {
     setBusy(true);
     setError("");
     try {
-      await api(`/debts/${id}/repact`, { method: "POST", body: { months: meses } });
+      await repactar(id, meses);
       navigate(`/app/pagar/${id}`);
     } catch (err) {
       setError(err.message);

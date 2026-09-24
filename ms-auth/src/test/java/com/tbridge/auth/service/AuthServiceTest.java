@@ -1,13 +1,13 @@
 package com.tbridge.auth.service;
 
-import com.tbridge.auth.domain.AccessCode;
-import com.tbridge.auth.domain.AccessLog;
-import com.tbridge.auth.repo.AccessCodeRepository;
-import com.tbridge.auth.repo.AccessLogRepository;
-import com.tbridge.auth.repo.MagicLinkRepository;
-import com.tbridge.auth.repo.StaffUserRepository;
+import com.tbridge.auth.model.AccessCode;
+import com.tbridge.auth.model.AccessLog;
+import com.tbridge.auth.repository.AccessCodeRepository;
+import com.tbridge.auth.repository.AccessLogRepository;
+import com.tbridge.auth.repository.MagicLinkRepository;
+import com.tbridge.auth.repository.StaffUserRepository;
 import com.tbridge.common.jwt.JwtService;
-import com.tbridge.common.web.ApiException;
+import com.tbridge.common.exception.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,8 +80,7 @@ class AuthServiceTest {
     }
 
     private String emitir(String rut) {
-        return String.valueOf(auth.emitirCodigo(rut, List.of("whatsapp", "correo"), "prueba")
-                .get("codigo"));
+        return auth.emitirCodigo(rut, List.of("whatsapp", "correo"), "prueba").codigo();
     }
 
     @Test
@@ -91,7 +89,7 @@ class AuthServiceTest {
         AuthService.Sesion sesion = auth.entrarConCodigo("16482337-7", codigo, "1.2.3.4");
 
         assertNotNull(sesion.token());
-        assertEquals("16482337-7", sesion.user().get("rut"));
+        assertEquals("16482337-7", sesion.user().rut());
     }
 
     @Test

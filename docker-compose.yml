@@ -8,10 +8,14 @@
 #        servicios se levantan a mano con Maven, que es como se programa,
 #        porque recompilar una imagen en cada cambio seria insoportable.
 #
-#    docker compose --profile app up -d --build
+#    docker compose --profile app up -d --build --wait
 #        Todo: la infraestructura mas los cuatro servicios de Spring, el
-#        asistente y el portal. Nada instalado en la maquina —ni JDK, ni Node,
-#        ni Python— y el portal queda en http://localhost:8080
+#        asistente y el portal, a la par. Nada instalado en la maquina —ni
+#        JDK, ni Node, ni Python—. El portal queda en http://localhost:8080 y
+#        la documentacion de toda la API en http://localhost:8080/swagger-ui.html
+#
+#  Cada servicio tiene su propio Dockerfile (ms-auth/Dockerfile, ...), que se
+#  construye desde esta carpeta porque necesita el pom padre y common.
 #
 #  Las contrasenas salen de variables de entorno con un valor por omision de
 #  desarrollo. Para cualquier otra cosa, un archivo .env al lado de este.
@@ -100,7 +104,7 @@ services:
 
   ms-auth:
     profiles: ["app"]
-    build: { context: ., args: { MODULO: ms-auth } }
+    build: { context: ., dockerfile: ms-auth/Dockerfile }
     image: tbridge/ms-auth:1.0.0
     restart: unless-stopped
     depends_on:
@@ -130,7 +134,7 @@ services:
       SMTP_AUTH: "false"
       SMTP_STARTTLS: "false"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8081/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8081/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -141,7 +145,7 @@ services:
 
   ms-debt:
     profiles: ["app"]
-    build: { context: ., args: { MODULO: ms-debt } }
+    build: { context: ., dockerfile: ms-debt/Dockerfile }
     image: tbridge/ms-debt:1.0.0
     restart: unless-stopped
     depends_on:
@@ -158,7 +162,7 @@ services:
       RABBIT_USER: ${RABBIT_USER:-guest}
       RABBIT_PASSWORD: ${RABBIT_PASSWORD:-guest}
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8083/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8083/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -167,7 +171,7 @@ services:
 
   ms-payments:
     profiles: ["app"]
-    build: { context: ., args: { MODULO: ms-payments } }
+    build: { context: ., dockerfile: ms-payments/Dockerfile }
     image: tbridge/ms-payments:1.0.0
     restart: unless-stopped
     depends_on:
@@ -189,7 +193,7 @@ services:
       BCENTRAL_USER: ${BCENTRAL_USER:-}
       BCENTRAL_PASS: ${BCENTRAL_PASS:-}
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8084/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8084/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -222,7 +226,7 @@ services:
 
   gateway:
     profiles: ["app"]
-    build: { context: ., args: { MODULO: gateway } }
+    build: { context: ., dockerfile: gateway/Dockerfile }
     image: tbridge/gateway:1.0.0
     restart: unless-stopped
     depends_on:
@@ -238,7 +242,7 @@ services:
       #  El limite de peticiones por IP, por minuto. Se declara aca para poder
       #  subirlo durante la prueba de capacidad: todo el trafico de k6 sale de
       #  una sola IP, y con el cupo de fabrica la prueba mediria el limitador
-      #  en vez del sistema. Ver pruebas/carga/README.md
+      #  en vez del sistema. Ver rendimiento/README.md
       RATE_AUTH_CAPACITY:   ${RATE_AUTH_CAPACITY:-10}
       RATE_GLOBAL_CAPACITY: ${RATE_GLOBAL_CAPACITY:-120}
       #  Quien puede hacerle peticiones con credenciales desde otro origen. El
@@ -248,7 +252,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${PORTAL_PORT:-8080},http://127.0.0.1:${PORTAL_PORT:-8080}}
       #  En que proxies se confia para saber la IP del cliente (el nginx del
       #  portal vive en una red de Docker, 172.16 a 172.31). El valor por
-      #  omision es el mismo del application.yml, y NO puede quedar vacio: una
+      #  omision es el mismo del application.properties del gateway, y NO puede quedar vacio: una
       #  lista vacia hace que el gateway vuelva a borrar la IP del cliente, y
       #  todos los intentos fallidos se cuentan como si fueran de una sola
       #  persona.
@@ -287,7 +291,7 @@ services:
   #  Perfil "carga": las pruebas de rendimiento.
   # ===========================================================================
   #  No levanta nada: se corre a demanda, una vez por escenario.
-  #      docker compose --profile carga run --rm k6 run /carga/capacidad.js
+  #      docker compose --profile carga run --rm k6 run /rendimiento/capacidad.js
   #
   #  Va dentro de la red de compose a proposito, para entrar por el portal
   #  igual que un navegador y poder pedirle un codigo a ms-auth por dentro.
@@ -305,7 +309,7 @@ services:
       RATE_AUTH_CAPACITY:   ${RATE_AUTH_CAPACITY:-10}
       RATE_GLOBAL_CAPACITY: ${RATE_GLOBAL_CAPACITY:-120}
     volumes:
-      - ./pruebas/carga:/carga:ro
+      - ./rendimiento:/rendimiento:ro
 
 #  Ningun servicio de la aplicacion publica su puerto: al portal se entra por
 #  el 8080 y de ahi en adelante todo viaja por la red interna de Docker. El

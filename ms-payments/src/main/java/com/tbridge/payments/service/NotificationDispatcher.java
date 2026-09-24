@@ -1,10 +1,10 @@
 package com.tbridge.payments.service;
 
 import com.tbridge.common.events.PagoConfirmado;
-import com.tbridge.payments.domain.DebtNotification;
-import com.tbridge.payments.domain.Payment;
-import com.tbridge.payments.repo.DebtNotificationRepository;
-import com.tbridge.payments.repo.PaymentRepository;
+import com.tbridge.payments.model.DebtNotification;
+import com.tbridge.payments.model.Payment;
+import com.tbridge.payments.repository.DebtNotificationRepository;
+import com.tbridge.payments.repository.PaymentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;

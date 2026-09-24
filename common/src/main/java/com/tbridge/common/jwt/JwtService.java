@@ -53,11 +53,7 @@ public class JwtService {
         return vida;
     }
 
-    public String issue(String id, String email, String role, String name) {
-        return issue(id, email, role, name, null);
-    }
-
-    /** Con RUT: es lo que los servicios usan para acotar lo que cada quien ve. */
+    /** El RUT es lo que los servicios usan para acotar lo que cada quien ve. */
     public String issue(String id, String email, String role, String name, String rut) {
         Instant now = Instant.now();
         return Jwts.builder()

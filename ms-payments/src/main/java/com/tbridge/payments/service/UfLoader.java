@@ -1,7 +1,9 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.payments.domain.UfValue;
-import com.tbridge.payments.repo.UfValueRepository;
+import com.tbridge.payments.client.BancoCentralClient;
+import com.tbridge.payments.dto.response.UfCargaResponse;
+import com.tbridge.payments.model.UfValue;
+import com.tbridge.payments.repository.UfValueRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -11,9 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Mantiene cargada la UF: al arrancar y todos los dias en la manana de Chile.
@@ -29,10 +29,10 @@ public class UfLoader {
     private static final Logger log = LoggerFactory.getLogger(UfLoader.class);
     private static final ZoneId CHILE = ZoneId.of("America/Santiago");
 
-    private final BancoCentralUf bancoCentral;
+    private final BancoCentralClient bancoCentral;
     private final UfValueRepository valores;
 
-    public UfLoader(BancoCentralUf bancoCentral, UfValueRepository valores) {
+    public UfLoader(BancoCentralClient bancoCentral, UfValueRepository valores) {
         this.bancoCentral = bancoCentral;
         this.valores = valores;
     }
@@ -55,26 +55,23 @@ public class UfLoader {
     }
 
     /** Baja el rango y guarda lo publicado. Nunca lanza: una falla se reintenta manana. */
-    public Map<String, Object> cargar() {
+    public UfCargaResponse cargar() {
         LocalDate hoy = LocalDate.now(CHILE);
-        Map<String, Object> resultado = new LinkedHashMap<>();
         try {
             List<UfValue> publicados = bancoCentral.obtener(hoy.minusDays(7), hoy.plusDays(40));
             valores.saveAll(publicados);
             LocalDate hasta = publicados.stream().map(UfValue::getDay).max(LocalDate::compareTo).orElse(null);
-            resultado.put("cargados", publicados.size());
-            resultado.put("hasta", hasta);
             log.info("UF del Banco Central: {} dias cargados, hasta el {}", publicados.size(), hasta);
             if (valores.findById(hoy).isEmpty()) {
                 log.warn("El Banco Central no trajo la UF de hoy ({}): los cobros en UF se detienen", hoy);
             }
+            return UfCargaResponse.exito(publicados.size(), hasta);
         } catch (InterruptedException corte) {
             Thread.currentThread().interrupt();
-            resultado.put("error", "interrumpido");
+            return UfCargaResponse.fallo("interrumpido");
         } catch (Exception fallo) {
             log.warn("No se pudo cargar la UF del Banco Central: {}", fallo.getMessage());
-            resultado.put("error", fallo.getMessage());
+            return UfCargaResponse.fallo(fallo.getMessage());
         }
-        return resultado;
     }
 }

@@ -1,7 +1,7 @@
 package com.tbridge.auth.service;
 
-import com.tbridge.auth.domain.Session;
-import com.tbridge.auth.repo.SessionRepository;
+import com.tbridge.auth.model.Session;
+import com.tbridge.auth.repository.SessionRepository;
 
 import java.time.Instant;
 import java.util.ArrayList;

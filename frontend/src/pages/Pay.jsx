@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, dinero, ESTADO_CUOTA, fecha } from "../api";
+import { obtenerDeuda } from "../api/deudas";
+import { abrirCobro, obtenerPago } from "../api/pagos";
+import { dinero, ESTADO_CUOTA, estadoDe, fecha } from "../utils/formato";
 
 const PASARELAS = [
   { id: "webpay", label: "Webpay" },
@@ -25,7 +27,7 @@ export default function Pay() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const cargar = () => api(`/debts/${id}`).then(setDeuda);
+  const cargar = () => obtenerDeuda(id).then(setDeuda);
 
   useEffect(() => {
     cargar().catch((err) => setError(err.message));
@@ -36,7 +38,7 @@ export default function Pay() {
     if (!pago || pago.status === "paid") return;
     const t = setInterval(async () => {
       try {
-        setPago(await api(`/payments/${pago.id}`));
+        setPago(await obtenerPago(pago.id));
       } catch {
         /* se reintenta en el proximo ciclo */
       }
@@ -49,7 +51,7 @@ export default function Pay() {
     if (pago?.status !== "paid" || acreditado) return;
     const saldoAntes = Number(deuda?.saldo);
     const t = setInterval(async () => {
-      const nueva = await api(`/debts/${id}`).catch(() => null);
+      const nueva = await obtenerDeuda(id).catch(() => null);
       if (nueva && Number(nueva.saldo) < saldoAntes) {
         setDeuda(nueva);
         setAcreditado(true);
@@ -71,10 +73,7 @@ export default function Pay() {
     setBusy(true);
     setError("");
     try {
-      const data = await api("/payments/checkout", {
-        method: "POST",
-        body: { debtId: Number(id), installmentId: pagaCuota ? proxima.id : null, gateway: pasarela },
-      });
+      const data = await abrirCobro(Number(id), pagaCuota ? proxima.id : null, pasarela);
       setPago(data);
       window.open(data.checkoutUrl, "_blank", "noopener,width=480,height=720");
     } catch (err) {
@@ -151,7 +150,7 @@ export default function Pay() {
                 </thead>
                 <tbody>
                   {deuda.cuotas.map((c) => {
-                    const estado = ESTADO_CUOTA[c.estado] || { texto: c.estado, clase: "badge-muted" };
+                    const estado = estadoDe(ESTADO_CUOTA, c.estado);
                     return (
                       <tr key={c.id}>
                         <td>{c.numero}</td>

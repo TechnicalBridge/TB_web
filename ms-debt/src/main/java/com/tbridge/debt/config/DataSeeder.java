@@ -1,19 +1,19 @@
 package com.tbridge.debt.config;
 
-import com.tbridge.debt.domain.Batch;
-import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.domain.DebtCharge;
-import com.tbridge.debt.domain.DebtEvent;
-import com.tbridge.debt.domain.Debtor;
-import com.tbridge.debt.domain.Installment;
-import com.tbridge.debt.domain.Organization;
-import com.tbridge.debt.repo.BatchRepository;
-import com.tbridge.debt.repo.DebtChargeRepository;
-import com.tbridge.debt.repo.DebtEventRepository;
-import com.tbridge.debt.repo.DebtRepository;
-import com.tbridge.debt.repo.DebtorRepository;
-import com.tbridge.debt.repo.InstallmentRepository;
-import com.tbridge.debt.repo.OrganizationRepository;
+import com.tbridge.debt.model.Batch;
+import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.model.DebtCharge;
+import com.tbridge.debt.model.DebtEvent;
+import com.tbridge.debt.model.Debtor;
+import com.tbridge.debt.model.Installment;
+import com.tbridge.debt.model.Organization;
+import com.tbridge.debt.repository.BatchRepository;
+import com.tbridge.debt.repository.DebtChargeRepository;
+import com.tbridge.debt.repository.DebtEventRepository;
+import com.tbridge.debt.repository.DebtRepository;
+import com.tbridge.debt.repository.DebtorRepository;
+import com.tbridge.debt.repository.InstallmentRepository;
+import com.tbridge.debt.repository.OrganizationRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 

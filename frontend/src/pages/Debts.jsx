@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, dinero, downloadCertificate, ESTADO_DEUDA, rutLegible } from "../api";
+import { descargarCertificado, listarDeudas } from "../api/deudas";
+import { dinero, ESTADO_DEUDA, estadoDe, rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 
 /** Suma por moneda: pesos y UF no se pueden sumar entre si. */
@@ -16,8 +17,8 @@ export default function Debts() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api("/debts")
-      .then((data) => setDeudas(data.debts || []))
+    listarDeudas()
+      .then(setDeudas)
       .catch((err) => {
         setError(err.status === 404 ? "" : err.message);
         setDeudas([]);
@@ -75,7 +76,7 @@ export default function Debts() {
             </thead>
             <tbody>
               {deudas.map((d) => {
-                const estado = ESTADO_DEUDA[d.estado] || { texto: d.estado, clase: "badge-muted" };
+                const estado = estadoDe(ESTADO_DEUDA, d.estado);
                 return (
                   <tr key={d.id}>
                     <td>{d.acreedor}<span className="sub">{d.externalId}</span></td>
@@ -85,7 +86,7 @@ export default function Debts() {
                     <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {d.estado === "paid" ? (
                         <button className="btn btn-cyan btn-sm" type="button"
-                                onClick={() => downloadCertificate(d.id)}>
+                                onClick={() => descargarCertificado(d.id)}>
                           Certificado
                         </button>
                       ) : null}

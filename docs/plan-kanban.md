@@ -1,7 +1,8 @@
 # Estado respecto del Plan de Trabajo Kanban
 
 Este documento contrasta lo construido con el *Plan de Trabajo Kanban y Arquitectura de Software*
-(`Proyecto_Capstone_Kanban_Arquitectura (1).pdf`, en la raíz del repositorio). Cada tarea del
+(un PDF que estuvo en la raíz de este repositorio hasta el 24-09-2026; se recupera del historial
+con `git checkout 73f488e -- "Proyecto_Capstone_Kanban_Arquitectura (1).pdf"`). Cada tarea del
 backlog dice dónde quedó; cada decisión que se aparta del plan dice por qué.
 
 Estado al 22-09-2026.
@@ -27,7 +28,7 @@ deliberados; se explican más abajo. Lo que queda pendiente está al final.
 | MS-Auth: generación de UUID y envío SMTP | Hecha | `ms-auth`, `AuthService.pedirEnlace`, `MailService` |
 | Rate limiting (Bucket4j) | Hecha | `gateway`, 10 peticiones por minuto en `/api/auth/**` |
 | Validar token y emitir JWT | Hecha | `common/jwt`, `AuthService` |
-| Inicializar React (Zustand, Axios, Tailwind) | Hecha | `frontend/` |
+| Inicializar React (Zustand, Axios, Tailwind) | Hecha. Tailwind se retiró el 24-09-2026: los estilos son propios y no usaba ninguna de sus clases | `frontend/` |
 | Maquetar login passwordless | Hecha | `frontend/src/pages/Login.jsx` |
 | Captura del UUID desde la URL y sesión JWT | Hecha | `frontend/src/pages/Magic.jsx` |
 
@@ -129,7 +130,9 @@ Patrimonio Inmuebles  ──cartera──►  APOFYX  ──cartera──►  Da
 ```
 
 Cada sistema funciona solo y se conecta con los demás únicamente por el contrato versionado de
-`docs/integracion/`. La cadena está probada de punta a punta en `pruebas/`.
+`docs/integracion/`. La cadena completa se verificó de punta a punta con los tres sistemas arriba
+(71 comprobaciones, 24-09-2026); cada servicio la cubre además con sus pruebas unitarias y de
+controlador.
 
 ## Pendiente
 

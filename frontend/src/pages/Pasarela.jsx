@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import axios from "axios";
-import { dinero } from "../api";
+import { confirmarPagoPublico, pagoPublico } from "../api/pagos";
+import { dinero } from "../utils/formato";
 
 const NOMBRES = { webpay: "Webpay", mercadopago: "Mercado Pago", khipu: "Khipu" };
 
@@ -19,20 +19,18 @@ export default function Pasarela() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    axios
-      .get(`/api/payments/public/${id}`, { params: { sig } })
-      .then((res) => setPago(res.data))
-      .catch((err) => setError(err.response?.data?.error || "Enlace de pago inválido"));
+    pagoPublico(id, sig)
+      .then(setPago)
+      .catch((err) => setError(err.status === 401 ? "Enlace de pago inválido" : err.message));
   }, [id, sig]);
 
   async function confirmar() {
     setBusy(true);
     setError("");
     try {
-      const res = await axios.post(`/api/payments/public/${id}/confirm`, null, { params: { sig } });
-      setPago(res.data);
+      setPago(await confirmarPagoPublico(id, sig));
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.message);
     } finally {
       setBusy(false);
     }

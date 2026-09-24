@@ -1,33 +1,32 @@
 package com.tbridge.auth.service;
 
-import com.tbridge.auth.domain.AccessCode;
-import com.tbridge.auth.domain.AccessLog;
-import com.tbridge.auth.domain.MagicLink;
-import com.tbridge.auth.domain.Session;
-import com.tbridge.auth.domain.StaffUser;
-import com.tbridge.auth.repo.AccessCodeRepository;
-import com.tbridge.auth.repo.AccessLogRepository;
-import com.tbridge.auth.repo.MagicLinkRepository;
-import com.tbridge.auth.repo.StaffUserRepository;
+import com.tbridge.auth.model.AccessCode;
+import com.tbridge.auth.model.AccessLog;
+import com.tbridge.auth.model.MagicLink;
+import com.tbridge.auth.model.Session;
+import com.tbridge.auth.model.StaffUser;
+import com.tbridge.auth.dto.response.CodigoEmitidoResponse;
+import com.tbridge.auth.dto.response.EnlaceResponse;
+import com.tbridge.auth.dto.response.UsuarioResponse;
+import com.tbridge.auth.repository.AccessCodeRepository;
+import com.tbridge.auth.repository.AccessLogRepository;
+import com.tbridge.auth.repository.MagicLinkRepository;
+import com.tbridge.auth.repository.StaffUserRepository;
 import com.tbridge.common.jwt.JwtService;
-import com.tbridge.common.web.ApiException;
+import com.tbridge.common.exception.ApiException;
+import com.tbridge.common.util.Hash;
+import com.tbridge.common.util.Rut;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Como entra cada quien.
@@ -58,7 +57,6 @@ public class AuthService {
     private static final String ALFABETO = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
     private static final int LARGO_CODIGO = 6;
 
-    private static final Pattern RUT = Pattern.compile("^\\d{7,8}-[\\dK]$");
     private static final SecureRandom AZAR = new SecureRandom();
 
     /** Mas de esto desde un mismo origen en diez minutos huele a fuerza bruta. */
@@ -81,7 +79,7 @@ public class AuthService {
      * <p>El JWT va en el cuerpo de la respuesta y la llave de renovacion en una
      * cookie: por eso viajan separados, y el controlador arma cada uno.
      */
-    public record Sesion(String token, Map<String, Object> user, SessionService.Llave llave) {}
+    public record Sesion(String token, UsuarioResponse user, SessionService.Llave llave) {}
 
     public AuthService(
             AccessCodeRepository codigos,
@@ -119,7 +117,7 @@ public class AuthService {
      * parte: en la base solo queda su huella.
      */
     @Transactional
-    public Map<String, Object> emitirCodigo(String rutCrudo, List<String> canales, String paraQue) {
+    public CodigoEmitidoResponse emitirCodigo(String rutCrudo, List<String> canales, String paraQue) {
         String rut = normalizarRut(rutCrudo);
         String codigo = generarCodigo();
 
@@ -131,13 +129,8 @@ public class AuthService {
         registro.setIssuedFor(paraQue);
         codigos.save(registro);
 
-        Map<String, Object> cuerpo = new LinkedHashMap<>();
-        cuerpo.put("codigo", codigo);
-        cuerpo.put("rut", rut);
-        cuerpo.put("canales", canales);
-        cuerpo.put("expiraEn", registro.getExpiresAt());
-        cuerpo.put("comoSeUsa", "Entra a " + publicUrl + " y escribe tu RUT y el codigo");
-        return cuerpo;
+        return new CodigoEmitidoResponse(codigo, rut, canales, registro.getExpiresAt(),
+                "Entra a " + publicUrl + " y escribe tu RUT y el codigo");
     }
 
     // ------------------------------------------------------------------
@@ -153,7 +146,7 @@ public class AuthService {
      * al azar saldria gratis.
      */
     public Sesion entrarConCodigo(String rutCrudo, String codigoCrudo, String ip) {
-        String ipHash = ip == null ? null : sha256(ip);
+        String ipHash = ip == null ? null : Hash.sha256(ip);
         frenarFuerzaBruta(ipHash);
 
         String rut = normalizarRut(rutCrudo);
@@ -179,7 +172,7 @@ public class AuthService {
             anotar(rut, AccessLog.Method.code, AccessLog.Outcome.expired, ipHash);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "El codigo expiro. Pide uno nuevo.");
         }
-        if (!igualesEnTiempoConstante(registro.getCodeHash(), huella(rut, codigo))) {
+        if (!Hash.igualesEnTiempoConstante(registro.getCodeHash(), huella(rut, codigo))) {
             registro.fallo();
             codigos.save(registro);
             anotar(rut, AccessLog.Method.code, AccessLog.Outcome.invalid, ipHash);
@@ -207,7 +200,7 @@ public class AuthService {
      * eso dura quince minutos y no veinticuatro horas.
      */
     @Transactional
-    public Map<String, Object> pedirEnlace(String rutCrudo, String email) {
+    public EnlaceResponse pedirEnlace(String rutCrudo, String email) {
         String rut = rutCrudo == null || rutCrudo.isBlank() ? null : normalizarRut(rutCrudo);
         if (email == null || !email.contains("@")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Correo no valido");
@@ -215,7 +208,7 @@ public class AuthService {
         String token = UUID.randomUUID().toString();
 
         MagicLink enlace = new MagicLink();
-        enlace.setTokenHash(sha256(token));
+        enlace.setTokenHash(Hash.sha256(token));
         enlace.setDebtorRut(rut);
         enlace.setEmail(email.trim().toLowerCase(Locale.ROOT));
         enlace.setExpiresAt(Instant.now().plus(magicTtlMinutes, ChronoUnit.MINUTES));
@@ -224,17 +217,14 @@ public class AuthService {
         String url = publicUrl + "/magic?token=" + token;
         correo.enviarEnlace(enlace.getEmail(), url, magicTtlMinutes);
 
-        Map<String, Object> cuerpo = new LinkedHashMap<>();
-        cuerpo.put("ok", true);
-        cuerpo.put("mensaje", "Si ese correo esta en cartera, recibiras un enlace de acceso.");
-        cuerpo.put("expiraEnMinutos", magicTtlMinutes);
-        return cuerpo;
+        return new EnlaceResponse(true, "Si ese correo esta en cartera, recibiras un enlace de acceso.",
+                magicTtlMinutes);
     }
 
     @Transactional
     public Sesion entrarConEnlace(String token, String ip) {
-        String ipHash = ip == null ? null : sha256(ip);
-        MagicLink enlace = enlaces.findByTokenHash(sha256(token == null ? "" : token.trim()))
+        String ipHash = ip == null ? null : Hash.sha256(ip);
+        MagicLink enlace = enlaces.findByTokenHash(Hash.sha256(token == null ? "" : token.trim()))
                 .orElse(null);
         if (enlace == null || !enlace.vigente()) {
             anotar(enlace == null ? null : enlace.getDebtorRut(),
@@ -270,18 +260,18 @@ public class AuthService {
      * vigente. Al deudor no hay a quien darlo de baja: no tiene cuenta.
      */
     public Sesion renovar(String llave, String ip) {
-        String ipHash = ip == null ? null : sha256(ip);
+        String ipHash = ip == null ? null : Hash.sha256(ip);
         SessionService.Renovada renovada = sesiones.renovar(llave, ipHash);
 
         if (renovada.role() == Session.Role.DEBTOR) {
-            return new Sesion(jwtDeDeudor(renovada.rut()), usuarioDeudor(renovada.rut()), renovada.llave());
+            return new Sesion(jwtDeDeudor(renovada.rut()), UsuarioResponse.deudor(renovada.rut()), renovada.llave());
         }
         StaffUser staff = personal.findByEmailIgnoreCase(renovada.email()).orElse(null);
         if (staff == null || !staff.habilitado()) {
             sesiones.revocarFamilia(renovada.familia());
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Ese acceso ya no esta habilitado");
         }
-        return new Sesion(jwtDePersonal(staff), usuarioPersonal(staff), renovada.llave());
+        return new Sesion(jwtDePersonal(staff), UsuarioResponse.personal(staff), renovada.llave());
     }
 
     public void cerrar(String llave) {
@@ -290,12 +280,12 @@ public class AuthService {
 
     private Sesion sesionDeDeudor(String rut, String ipHash) {
         SessionService.Llave llave = sesiones.abrir(Session.Role.DEBTOR, rut, null, ipHash);
-        return new Sesion(jwtDeDeudor(rut), usuarioDeudor(rut), llave);
+        return new Sesion(jwtDeDeudor(rut), UsuarioResponse.deudor(rut), llave);
     }
 
     private Sesion sesionDePersonal(StaffUser staff, String ipHash) {
         SessionService.Llave llave = sesiones.abrir(Session.Role.CREDITOR, null, staff.getEmail(), ipHash);
-        return new Sesion(jwtDePersonal(staff), usuarioPersonal(staff), llave);
+        return new Sesion(jwtDePersonal(staff), UsuarioResponse.personal(staff), llave);
     }
 
     private String jwtDeDeudor(String rut) {
@@ -305,23 +295,6 @@ public class AuthService {
     private String jwtDePersonal(StaffUser staff) {
         return jwt.issue(String.valueOf(staff.getId()), staff.getEmail(),
                 "CREDITOR", staff.getFullName(), staff.getOrgRut());
-    }
-
-    private static Map<String, Object> usuarioDeudor(String rut) {
-        Map<String, Object> usuario = new LinkedHashMap<>();
-        usuario.put("rut", rut);
-        usuario.put("role", "DEBTOR");
-        return usuario;
-    }
-
-    private static Map<String, Object> usuarioPersonal(StaffUser staff) {
-        Map<String, Object> usuario = new LinkedHashMap<>();
-        usuario.put("id", staff.getId());
-        usuario.put("nombre", staff.getFullName());
-        usuario.put("correo", staff.getEmail());
-        usuario.put("empresaRut", staff.getOrgRut());
-        usuario.put("role", "CREDITOR");
-        return usuario;
     }
 
     // ------------------------------------------------------------------
@@ -347,31 +320,13 @@ public class AuthService {
         bitacora.save(AccessLog.de(rut, metodo, resultado, ipHash));
     }
 
+    /** El RUT en su forma canonica, o 400 si el digito verificador no calza. */
     static String normalizarRut(String crudo) {
-        String limpio = (crudo == null ? "" : crudo).trim().toUpperCase(Locale.ROOT)
-                .replace(".", "").replace(" ", "");
-        if (!limpio.contains("-") && limpio.length() > 1) {
-            limpio = limpio.substring(0, limpio.length() - 1) + "-"
-                    + limpio.charAt(limpio.length() - 1);
-        }
-        if (!RUT.matcher(limpio).matches() || !digitoVerificadorCorrecto(limpio)) {
+        String rut = Rut.normalizar(crudo);
+        if (!Rut.esValido(rut)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "RUT no valido");
         }
-        return limpio;
-    }
-
-    /** Modulo 11: el mismo calculo que valida APOFYX al recibir la cartera. */
-    static boolean digitoVerificadorCorrecto(String rut) {
-        String[] partes = rut.split("-");
-        int suma = 0;
-        int factor = 2;
-        for (int i = partes[0].length() - 1; i >= 0; i--) {
-            suma += Character.getNumericValue(partes[0].charAt(i)) * factor;
-            factor = factor == 7 ? 2 : factor + 1;
-        }
-        int resto = 11 - suma % 11;
-        String esperado = resto == 11 ? "0" : resto == 10 ? "K" : String.valueOf(resto);
-        return esperado.equals(partes[1]);
+        return rut;
     }
 
     private static String generarCodigo() {
@@ -389,33 +344,7 @@ public class AuthService {
      * unico, y un codigo filtrado no sirve para el RUT de otra persona.
      */
     static String huella(String rut, String codigo) {
-        return sha256(rut + ":" + codigo);
-    }
-
-    /**
-     * Comparar sin delatar cuanto coincide.
-     *
-     * Una comparacion normal se detiene en el primer caracter distinto, y ese
-     * tiempo, medido muchas veces, revela el valor.
-     */
-    private static boolean igualesEnTiempoConstante(String a, String b) {
-        if (a == null || b == null || a.length() != b.length()) {
-            return false;
-        }
-        int diferencia = 0;
-        for (int i = 0; i < a.length(); i++) {
-            diferencia |= a.charAt(i) ^ b.charAt(i);
-        }
-        return diferencia == 0;
-    }
-
-    static String sha256(String texto) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(texto.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
-            throw new IllegalStateException("No se pudo calcular la huella", e);
-        }
+        return Hash.sha256(rut + ":" + codigo);
     }
 
     private static String canalesComoJson(List<String> canales) {

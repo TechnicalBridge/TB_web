@@ -1,7 +1,7 @@
 package com.tbridge.auth.service;
 
-import com.tbridge.auth.domain.Session;
-import com.tbridge.common.web.ApiException;
+import com.tbridge.auth.model.Session;
+import com.tbridge.common.exception.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 

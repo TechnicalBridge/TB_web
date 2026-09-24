@@ -59,14 +59,16 @@ a las 11 de la noche si quiere, y el acreedor se entera sin que nadie escriba un
 | Capa | Tecnología | Por qué |
 | --- | --- | --- |
 | **Lenguajes** | Java 25, JavaScript (ES2022), Python 3.13 | |
-| **Backend** | Spring Boot 3.5 · Spring Cloud Gateway · Spring Security · Spring Data JPA | Cuatro microservicios independientes |
+| **Backend** | Spring Boot 3.5 · Spring Cloud Gateway · Spring Security · Spring Data JPA · Bean Validation | Cuatro microservicios independientes |
+| **API** | springdoc-openapi (Swagger) · Spring HATEOAS · Spring Boot Actuator | Documentación de todos los endpoints en una página; respuestas que dicen qué se puede hacer después; salud para Docker |
 | **Asistente** | FastAPI + Uvicorn | El único servicio que no es de Spring: la librería de lenguaje natural vive en Python |
-| **Frontend** | React 18 · React Router 7 · Vite · Zustand · Tailwind 4 · Recharts | |
+| **Frontend** | React 18 · React Router 7 · Vite · Zustand · Recharts · CSS propio | |
 | **Base de datos** | **MySQL 8.4**, una por servicio | El mismo motor que usa APOFYX, para no tener dos en el proyecto |
 | **Migraciones** | Flyway, con `ddl-auto: validate` | El esquema se versiona; Hibernate no lo cambia a espaldas de nadie |
 | **Mensajería** | RabbitMQ 3.13 | Lleva el aviso de pago entre servicios |
 | **Autenticación** | JWT (JJWT) · códigos de un solo uso | Sin contraseñas |
 | **Contenedores** | Docker · Docker Compose | Nueve contenedores, una orden |
+| **Pruebas** | JUnit 5 · Mockito · MockMvc · k6 | Unitarias, de la capa web y de rendimiento |
 | **Integración continua** | GitHub Actions | Corre las pruebas en cada push |
 | **Servidor web** | nginx (sin privilegios) | Sirve el portal compilado y hace de proxy al gateway |
 | **Correo** | Mailpit | Buzón de prueba: recibe los códigos sin mandárselos a nadie |
@@ -86,15 +88,17 @@ Lo único que hace falta es **Docker Desktop** corriendo.
 ```powershell
 git clone https://github.com/TechnicalBridge/TB_web.git
 cd TB_web
-docker compose --profile app up -d --wait
+docker compose --profile app up -d --build --wait
 ```
 
-`--wait` devuelve el control recién cuando los nueve contenedores están **sanos**, no cuando
-arrancaron. La primera vez demora unos minutos porque compila; después son segundos.
+Levanta el backend y el portal **a la par**. `--wait` devuelve el control recién cuando los
+nueve contenedores están **sanos**, no cuando arrancaron. La primera vez demora unos minutos
+porque compila; después son segundos.
 
 | | |
 | --- | --- |
 | **Portal** | http://localhost:8080 |
+| **Documentación de la API (Swagger)** | http://localhost:8080/swagger-ui.html |
 | Buzón de prueba (los códigos llegan acá) | http://localhost:8025 |
 | RabbitMQ | http://localhost:15672 · `guest` / `guest` |
 | Base de datos | `127.0.0.1:3308` · `tbridge` / `tbridge_pass` |
@@ -123,16 +127,39 @@ Con las imágenes no se programa: recompilar en cada cambio sería insoportable.
 infraestructura en Docker y los servicios en la máquina.
 
 Hace falta **Docker Desktop**, un **JDK 25** (no un JRE: Maven compila), **Node 22+** y
-**Python 3.13+**.
+**Python 3.13+**. Si `JAVA_HOME` apunta a otro Java, se corrige en cada terminal:
+`$env:JAVA_HOME = "C:\Program Files\Java\jdk-25"`.
 
 ```powershell
-docker compose up -d          # solo MySQL, RabbitMQ y el buzón
-npm install
-npm run install:all
-npm run dev                   # gateway, los cuatro servicios y el portal
+docker compose up -d                 # solo MySQL, RabbitMQ y el buzón
+.\mvnw.cmd -q install -DskipTests    # compila todo y deja common instalado para los servicios
 ```
 
-El portal queda en http://localhost:5173, servido por Vite con recarga automática.
+Después, **una terminal por pieza**. El perfil `dev` muestra el SQL y el detalle de cada ruta:
+
+```powershell
+.\mvnw.cmd -pl ms-auth spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -pl ms-debt spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -pl ms-payments spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -pl gateway spring-boot:run "-Dspring-boot.run.profiles=dev"
+```
+
+```powershell
+cd ms-ai
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8085
+```
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+El portal queda en http://localhost:5173, servido por Vite con recarga automática, y Swagger en
+http://localhost:5173/swagger-ui.html. Si cambias algo en `common`, vuelve a correr el `install`:
+los servicios usan la copia instalada, no el código.
 
 ---
 
@@ -180,7 +207,7 @@ flowchart TD
     P -->|"/api/*"| G["Gateway · Spring Cloud Gateway<br/>CORS · límite de peticiones · enrutamiento"]
 
     G -->|"/api/auth/** · /api/me"| A["ms-auth<br/>códigos de acceso y JWT"]
-    G -->|"/api/debts/** · /api/analytics/**"| D["ms-debt<br/>deudas, cuotas y cartera"]
+    G -->|"/api/debts/** · /api/analytics/** · /api/v1/**"| D["ms-debt<br/>deudas, cuotas y cartera"]
     G -->|"/api/payments/**"| Y["ms-payments<br/>cobros y UF"]
     G -->|"/api/ai/**"| I["ms-ai<br/>asistente, solo lectura"]
 
@@ -200,7 +227,7 @@ flowchart TD
 
 | Pieza | Qué hace |
 | --- | --- |
-| **portal** | React con Zustand y Tailwind. En producción se compila y lo sirve nginx, que además hace de proxy hacia el gateway: el navegador ve un solo origen y no hay CORS que resolver |
+| **portal** | React con Zustand y CSS propio. En producción se compila y lo sirve nginx, que además hace de proxy hacia el gateway: el navegador ve un solo origen y no hay CORS que resolver |
 | **gateway** | La única puerta. CORS, límite de peticiones con Bucket4j y enrutamiento. Lo que no pasa por aquí, no entra |
 | **ms-auth** | Código de acceso (RUT + 6 caracteres, un solo uso, 24 h) y enlace de respaldo por correo, que es también como entra el personal de las empresas. Emite el JWT |
 | **ms-debt** | Deudas, cargos y cuotas; simulación y aceptación de planes (3 a 24 meses, sin interés); ingesta de la cartera v1 por API o CSV; eventos de vuelta a quien entregó la cartera; resumen para el dashboard y certificado PDF de deuda pagada |
@@ -209,6 +236,47 @@ flowchart TD
 | **MySQL 8.4** | Una base por servicio, con esquema versionado en Flyway ([`db/README.md`](db/README.md)) |
 | **RabbitMQ** | Lleva el aviso de pago de ms-payments a ms-debt. Si está apagado, el mismo aviso va por HTTP; en los dos casos sale de una bandeja con reintentos, así que no se pierde |
 
+### Cómo está organizado cada servicio
+
+Los tres servicios con base de datos tienen la misma forma, así que quien conoce uno se ubica en
+los otros:
+
+```
+com/tbridge/<servicio>/
+├── config/        seguridad, Swagger (OpenApiConfig), RabbitMQ, datos de ejemplo
+├── controller/    los endpoints: traducen HTTP y delegan, sin reglas de negocio
+├── service/       las reglas de negocio
+├── repository/    el acceso a la base (Spring Data JPA)
+├── model/         las entidades, una por tabla
+├── dto/request/   lo que entra, validado con Bean Validation
+├── dto/response/  lo que sale, documentado para Swagger
+├── assembler/     los enlaces de HATEOAS de cada recurso
+├── client/        las llamadas a otros sistemas (otro servicio, el Banco Central)
+└── exception/     los errores propios del servicio
+```
+
+`common` es la librería que comparten: el JWT, el manejo de errores (todos responden
+`{"error": "..."}` con el código que corresponde) y el RUT. El gateway no tiene base: solo
+`config/` (las rutas) y `filter/` (el límite de peticiones).
+
+**Swagger.** Cada servicio documenta sus endpoints en tres grupos según quién los llama —el
+**portal**, el **contrato de integración** y lo **interno**— y el gateway los junta en una sola
+página: http://localhost:8080/swagger-ui.html. El botón *Authorize* recibe el JWT del portal, la
+clave de API del contrato o la clave interna.
+
+**HATEOAS.** Las respuestas del portal traen `_links` con lo que se puede hacer después, según el
+estado y quién mira: una deuda pendiente le ofrece al deudor `simular`, `repactar` y `pagar`; a la
+empresa, `enviar-codigo`; una deuda pagada, el `certificado`. Las listas vienen en
+`_embedded` (`_embedded.debts`). Los enlaces salen con la dirección pública
+(`http://localhost:8080/...`), no con la del contenedor, porque cada servicio lee las cabeceras
+`X-Forwarded-*` que le pasa el gateway. El contrato `/api/v1` no lleva enlaces: su forma está
+publicada y la leen sistemas de otras empresas.
+
+**Configuración.** Cada servicio tiene `application.properties` (todo con
+`${VARIABLE:valor por omisión}`), `application-dev.properties` para programar y
+`application-test.properties` para las pruebas. RabbitMQ se enciende con `EVENTS_RABBIT=true`, y
+de esa sola propiedad dependen la cola, el listener y su indicador de salud.
+
 ### Comunicación entre servicios
 
 Tres formas, y cada una está donde está por una razón:
@@ -216,6 +284,7 @@ Tres formas, y cada una está donde está por una razón:
 | Entre quiénes | Cómo | Por qué así |
 | --- | --- | --- |
 | Navegador → servicios | HTTP por el gateway, con JWT | Una sola puerta que revisar |
+| Sistemas de las agencias → ms-debt | HTTP por el gateway (`/api/v1`), con clave de API | Entran por la misma puerta, con su límite de peticiones |
 | ms-payments → ms-debt | **RabbitMQ**, cola `ms-debt.pagos-confirmados` | El pago ya ocurrió: si ms-debt está caído, el aviso espera en la cola en vez de perderse |
 | ms-debt → ms-auth, ms-payments → ms-debt | HTTP interno con `X-Internal-Key`, fuera del gateway | Son llamadas entre servicios, no de usuarios. El gateway no las expone |
 | APOFYX ↔ DataBridge | HTTP con clave de API, y eventos firmados con HMAC-SHA256 | Son empresas distintas: ninguna entra en la base de la otra |
@@ -419,16 +488,19 @@ componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
 | **Seguridad** · autorización | Cada sesión se identifica por RUT. Un deudor ve y paga solo lo suyo; una agencia ve solo la cartera que le corresponde por mandato | `DebtService.acreedorDe` |
 | **Seguridad** · integridad | Los eventos van firmados con HMAC-SHA256, caducan a los 5 minutos y se descartan si llegan repetidos | `docs/integracion/README.md` §8 |
 | **Seguridad** · superficie | De la aplicación, **solo el portal publica un puerto**. Comprobado: `curl` a 8081, 8083, 8084 y 8085 desde la máquina no obtiene respuesta. MySQL, RabbitMQ y el buzón sí publican, **a propósito**, para revisarlos en desarrollo; en un despliegue real esas tres líneas `ports:` se borran | `docker-compose.yml` |
-| **Seguridad** · contenedores | Ninguna imagen corre como root: los servicios usan el usuario `10001` y el portal la nginx sin privilegios, que escucha en el 8080 porque un proceso sin privilegios no puede tomar el 80. Las imágenes de Java llevan solo el JRE, sin compilador ni código fuente | `Dockerfile` |
-| **Rendimiento** · medido | Con 100 personas a la vez, **p95 de 7 ms y cero errores** en 32.500 peticiones. En estrés, holgado hasta 1.000 peticiones por segundo, empieza a doler hacia las 1.500 y **toca techo en unas 1.800**, donde se pone lento pero sigue sin fallar. Detalle y máquina en [`pruebas/carga/`](pruebas/carga/README.md) | `pruebas/carga/` |
+| **Seguridad** · contenedores | Ninguna imagen corre como root: los servicios usan el usuario `10001` y el portal la nginx sin privilegios, que escucha en el 8080 porque un proceso sin privilegios no puede tomar el 80. Las imágenes de Java llevan solo el JRE, sin compilador ni código fuente | `*/Dockerfile` |
+| **Seguridad** · entradas | Cada petición del portal entra como un tipo con sus reglas (`@NotBlank`, `@Min`, `@Pattern`...), y lo que no cumple se responde con `400` y un mensaje para la persona, antes de llegar a la lógica. Un JSON mal escrito o una ruta que no existe responden `400` y `404`, no `500` | `dto/request/`, `common/ApiExceptionHandler` |
+| **Rendimiento** · medido | Con 100 personas a la vez, **cero errores** en unas 32.000 peticiones y un p95 de 7 a 12 ms según el día (11,8 ms el 24-09). Comparada lado a lado con la versión anterior, la refactorización a DTOs y HATEOAS no cambió la latencia de los servicios; el gateway suma unos 0,3 ms. En estrés, holgado hasta 1.000 peticiones por segundo, empieza a doler hacia las 1.500 y **toca techo en unas 1.800**, donde se pone lento pero sigue sin fallar. Detalle y máquina en [`rendimiento/`](rendimiento/README.md) | `rendimiento/` |
 | **Rendimiento** · límite de peticiones | Dos capas: el gateway deja 10 por minuto en `/api/auth/**` y 120 globales por IP, y `ms-auth` bloquea diez minutos al origen que falla diez códigos. **Medido:** el gateway corta en la petición 11, se recarga solo, y lo que pasa lo frena `ms-auth` | `gateway/RateLimitFilter`, `AuthService` |
 | **Rendimiento** · consultas | Trece índices en `tb_debt` para los caminos que se usan: `ix_debt_creditor_status` (la cartera de un acreedor), `ix_debt_debtor` (lo que debe una persona), `ix_batch_creditor`. Los `UNIQUE` hacen doble trabajo: `uq_payment_gateway` evita cobrar dos veces la misma transacción y además es el índice con que se busca | `V1__esquema_inicial.sql` |
-| **Rendimiento** · memoria | La JVM lee el límite del contenedor (`MaxRAMPercentage=75`), no el de la máquina, y cada servicio tiene su tope declarado | `Dockerfile` |
+| **Rendimiento** · memoria | La JVM lee el límite del contenedor (`MaxRAMPercentage=75`), no el de la máquina, y cada servicio tiene su tope declarado | `*/Dockerfile` |
+| **Rendimiento** · portal | La página de la empresa, que trae los gráficos, se descarga solo al entrar a ella: el deudor baja 264 kB en vez de 685 kB | `frontend/src/App.jsx` |
 | **Escalabilidad** | Ningún servicio guarda sesión: la identidad viaja en el JWT, así que `docker compose up --scale gateway=3` funciona sin más. Cada servicio tiene su base y el trabajo pesado va por colas. **Límite conocido:** ms-debt y ms-payments tienen tareas programadas (`EventDispatcher`, `CampanaAvanceService`, `NotificationDispatcher`, `UfLoader`) que correrían en cada copia y harían el trabajo dos veces; replicarlos exige coordinarlas primero. Replicables hoy: gateway, ms-ai y portal | |
-| **Disponibilidad** | Los nueve contenedores declaran `healthcheck` y ninguno arranca antes que aquel del que depende. `restart: unless-stopped` los repone si se caen | `docker-compose.yml` |
-| **Disponibilidad** · entrega | Todo lo que sale hacia otro sistema pasa por una bandeja con reintentos (1 min, 5 min, 30 min, 2 h, 6 h, 24 h). Si DataBridge está caído, APOFYX sigue recibiendo carteras y lo pendiente se entrega solo cuando vuelve — y hay una prueba que lo demuestra | `outbox`, `pruebas/sin-databridge.mjs` |
+| **Disponibilidad** | Los nueve contenedores declaran `healthcheck` y ninguno arranca antes que aquel del que depende. La salud de los servicios la da Actuator (`/actuator/health`), que incluye la conexión a la base: un servicio sin base no se declara sano. `restart: unless-stopped` los repone si se caen | `docker-compose.yml` |
+| **Disponibilidad** · entrega | Todo lo que sale hacia otro sistema pasa por una bandeja con reintentos (1 min, 5 min, 30 min, 2 h, 6 h, 24 h). Si DataBridge está caído, APOFYX sigue recibiendo carteras y lo pendiente se entrega solo cuando vuelve | `outbox`, `NotificationDispatcherTest` |
 | **Portabilidad** | Una orden levanta el sistema entero en cualquier máquina con Docker, sin instalar JDK, Node ni Python | `docker-compose.yml` |
-| **Mantenibilidad** | `ddl-auto: validate` se niega a arrancar si las entidades y las tablas no calzan; Flyway versiona cada cambio de esquema | `application.yml` |
+| **Mantenibilidad** | Los tres servicios tienen la misma estructura de paquetes ([§6](#cómo-está-organizado-cada-servicio)). `ddl-auto: validate` se niega a arrancar si las entidades y las tablas no calzan; Flyway versiona cada cambio de esquema | `application.properties` |
+| **Documentación** | Todos los endpoints en Swagger, con sus respuestas posibles y ejemplos reales (RUT válidos, montos en CLP y UF) | http://localhost:8080/swagger-ui.html |
 
 > **Límites conocidos.** El gateway guarda un contador por cada IP que ve y no lo olvida nunca:
 > con clientes reales eso es poco, pero en un despliegue largo convendría que expiraran. Y las
@@ -443,15 +515,22 @@ componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
 
 | Imagen | Con qué | Tamaño |
 | --- | --- | --- |
-| `tbridge/gateway`, `tbridge/ms-auth`, `tbridge/ms-debt`, `tbridge/ms-payments` | [`Dockerfile`](Dockerfile), un solo archivo para los cuatro con `--build-arg MODULO=` | 563 – 616 MB |
+| `tbridge/ms-auth` · `tbridge/ms-debt` · `tbridge/ms-payments` · `tbridge/gateway` | Uno por servicio: [`ms-auth/Dockerfile`](ms-auth/Dockerfile), [`ms-debt/Dockerfile`](ms-debt/Dockerfile), [`ms-payments/Dockerfile`](ms-payments/Dockerfile), [`gateway/Dockerfile`](gateway/Dockerfile) | 563 – 616 MB |
 | `tbridge/ms-ai` | [`ms-ai/Dockerfile`](ms-ai/Dockerfile) | 280 MB |
 | `tbridge/portal` | [`frontend/Dockerfile`](frontend/Dockerfile), compila con Node y sirve con nginx | 83 MB |
 
-Los cuatro servicios de Java salen de **un solo Dockerfile**: se construyen igual y solo cambian
-en qué módulo empaquetan. Son **dos etapas** —la primera compila con Maven y el JDK, la segunda
-se queda solo con el JRE y el `.jar`—, así que ni el código fuente ni el compilador viajan a la
-imagen final. Y como la etapa que compila no depende del módulo, Docker la reutiliza: el proyecto
-se compila **una vez** para los cuatro.
+Cada servicio de Java tiene **su propio Dockerfile** y compila solo lo suyo
+(`mvn -pl <servicio> -am`: el servicio y `common`). Se construyen desde la raíz de TB_web porque
+necesitan el `pom.xml` padre:
+
+```powershell
+docker build -f ms-debt/Dockerfile -t tbridge/ms-debt .
+```
+
+Son **dos etapas** —la primera compila con Maven y el JDK, la segunda se queda solo con el JRE y
+el `.jar`—, así que ni el código fuente ni el compilador viajan a la imagen final. Las
+dependencias de Maven quedan en un caché de Docker entre construcciones: se bajan una vez, no en
+cada cambio de código.
 
 El [`docker-compose.yml`](docker-compose.yml) orquesta los nueve contenedores con tres perfiles:
 sin perfil levanta solo la infraestructura, y `--profile app` levanta el sistema entero.
@@ -459,7 +538,9 @@ sin perfil levanta solo la infraestructura, y `--profile app` levanta el sistema
 ### Variables de entorno
 
 Todas tienen un valor por omisión de desarrollo, así que el sistema levanta sin configurar nada.
-Para cambiarlas, un archivo `.env` al lado del `docker-compose.yml`.
+Para cambiarlas, un archivo `.env` al lado del `docker-compose.yml`: [`.env.example`](.env.example)
+las trae todas, agrupadas por servicio y comentadas. El mismo `.env` lo leen los servicios cuando
+se corren con Maven.
 
 | Variable | Por omisión | Para qué |
 | --- | --- | --- |
@@ -477,6 +558,8 @@ Para cambiarlas, un archivo `.env` al lado del `docker-compose.yml`.
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
+| `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP |
+| `SWAGGER_ENABLED` | `true` | Apagar la documentación, por ejemplo en producción |
 
 **Los valores por omisión son de desarrollo y están escritos en un archivo público: no sirven
 para nada que no sea una demostración.**
@@ -486,19 +569,23 @@ para nada que no sea una demostración.**
 ## 11. Pruebas
 
 ```powershell
-.\mvnw.cmd test                                  # Java: common, gateway y los tres servicios
-cd ms-ai ; python -m unittest discover tests     # el asistente
+.\mvnw.cmd test                                                # Java: common, gateway y los tres servicios
+cd ms-ai ; .venv\Scripts\python.exe -m unittest discover tests  # el asistente
 ```
+
+Cada servicio tiene sus pruebas en `src/test/java`, con la misma estructura de paquetes que el
+código: `service/` para las reglas de negocio y `controller/` para la capa web. **Ninguna necesita
+base de datos**, así que corren en segundos en cualquier equipo.
 
 | Tipo | Qué cubre | Dónde |
 | --- | --- | --- |
-| **Unitarias** | Once clases en Java —57 pruebas— y un archivo en Python, **sin base de datos**, para que corran en segundos: repactación (3 a 24 cuotas, redondeo por moneda), el JWT, el código de acceso, la firma de los webhooks, la respuesta del Banco Central y el analizador de sentimiento. Una de ellas convierte la plantilla CSV del contrato y comprueba que da exactamente las mismas deudas que el ejemplo JSON: los dos formatos son un solo contrato | `*/src/test/java`, `ms-ai/tests` |
-| **De integración** | Las de punta a punta: levantan **los tres sistemas y sus bases a la vez** y recorren la cadena por HTTP, como lo haría una persona. Cuatro recorridos: la ida, la ida con DataBridge apagado, la vuelta del pago y el portal completo. **71 comprobaciones** | [`pruebas/`](pruebas/README.md) |
-| **De seguridad** | En cada push, **CodeQL** (análisis estático de Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot. Pruebas unitarias de las reglas de sesión —rotación, robo, revocación— y de a qué IP se le cree. Y con tráfico real: los dos frenos contra fuerza bruta, que una IP inventada no da un cupo nuevo, y que los puertos de los servicios no responden desde afuera | `.github/workflows/`, `pruebas/carga/limite.js` |
-| **De rendimiento** | Con **k6**: cómo lo siente una persona (100 usuarios, p95 de 7 ms) y dónde está el techo (unas 1.800 peticiones por segundo). La prueba de estrés encontró que nginx se quedaba sin puertos a las 500 por segundo; ya está arreglado | [`pruebas/carga/`](pruebas/carga/README.md) |
+| **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados (`@Mock`, `@InjectMocks`): que cada quien vea solo lo suyo, que el monto del cobro salga de ms-debt y no del navegador, que un pago avisado dos veces se abone una, que repactar anule las cuotas en vez de borrarlas, la sesión revocable (rotación, robo, dos pestañas), el código de acceso, la UF, la firma de los eventos. Una prueba fija byte a byte el JSON de un evento firmado: si cambiara, APOFYX lo rechazaría | `*/src/test/java/.../service/` |
+| **De integración de la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON de verdad, y los servicios simulados (`@MockitoBean`): `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, la forma de cada respuesta, los `_links` de HATEOAS según quién mira y con la dirección pública, la cookie de la sesión, y los nombres del contrato v1 intactos | `*/src/test/java/.../controller/` |
+| **De seguridad** | En cada push, **CodeQL** (análisis estático de Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot (también para las imágenes base de Docker). Con tráfico real: los dos frenos contra fuerza bruta y que una IP inventada no da un cupo nuevo | `.github/workflows/`, [`rendimiento/limite.js`](rendimiento/limite.js) |
+| **De rendimiento** (k6) | Cómo lo siente una persona (100 usuarios, p95 de 7 a 12 ms según el día) y dónde está el techo (unas 1.800 peticiones por segundo). La prueba de estrés encontró que nginx se quedaba sin puertos a las 500 por segundo; ya está arreglado | [`rendimiento/`](rendimiento/README.md) |
 
-Las unitarias corren solas en **GitHub Actions** con cada push. Las de punta a punta necesitan
-los tres repositorios en la misma máquina, así que se corren a mano.
+**144 pruebas en Java y 12 en Python.** Corren solas en **GitHub Actions** con cada push; las de
+rendimiento necesitan el sistema arriba y se corren a mano.
 
 ---
 
@@ -528,7 +615,8 @@ detalle de lo que debe y repactar sin interés. A la agencia, una cartera que se
 
 ## Recorrido de demostración
 
-1. **La cartera llega por API o por archivo.** APOFYX la entrega con `POST /api/v1/carteras`;
+1. **La cartera llega por API o por archivo.** APOFYX la entrega con `POST /api/v1/carteras`
+   (en Swagger: *Deudas - contrato de integracion v1*);
    quien no tiene integración arrastra el CSV del contrato al portal. Las dos entradas usan la
    misma ingesta: mismas validaciones, aceptación parcial e idempotencia.
 2. **La empresa entra.** En *Soy una empresa*, `camila.reyes@apofyx.cl` pide su enlace; llega al

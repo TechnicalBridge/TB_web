@@ -1,8 +1,9 @@
 name: CI
 
 # Cada push y cada pull request corren las pruebas de todas las piezas. Ninguna
-# necesita base de datos: las pruebas de los servicios son de unidad, y las de
-# punta a punta viven en pruebas/ porque necesitan los tres sistemas arriba.
+# necesita base de datos: las de los servicios son unitarias (JUnit y Mockito,
+# con los repositorios simulados) y de controlador (@WebMvcTest). Las de
+# rendimiento viven en rendimiento/ y necesitan el sistema arriba.
 on:
   push:
   pull_request:

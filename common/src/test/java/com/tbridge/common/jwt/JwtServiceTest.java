@@ -18,18 +18,19 @@ class JwtServiceTest {
 
     @Test
     void roundTripClaims() {
-        String token = jwt.issue("u-1", "ana@correo.com", "DEBTOR", "Ana Pérez");
+        String token = jwt.issue("u-1", "ana@correo.com", "DEBTOR", "Ana Pérez", "16482337-7");
         JwtPrincipal principal = jwt.toPrincipal(jwt.parse(token));
         assertEquals("u-1", principal.id());
         assertEquals("ana@correo.com", principal.email());
         assertEquals("DEBTOR", principal.role());
         assertEquals("Ana Pérez", principal.name());
+        assertEquals("16482337-7", principal.rut());
         assertTrue(principal.isDebtor());
     }
 
     @Test
     void rejectsTamperedToken() {
-        String token = jwt.issue("u-1", "ana@correo.com", "DEBTOR", "Ana");
+        String token = jwt.issue("u-1", "ana@correo.com", "DEBTOR", "Ana", "16482337-7");
         assertThrows(Exception.class, () -> jwt.parse(token + "x"));
     }
 

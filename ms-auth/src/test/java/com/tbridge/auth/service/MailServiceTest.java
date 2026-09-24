@@ -1,0 +1,62 @@
+package com.tbridge.auth.service;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.mail.MailSendException;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class MailServiceTest {
+
+    @Mock
+    private JavaMailSender smtp;
+
+    @Mock
+    private ObjectProvider<JavaMailSender> proveedor;
+
+    private MailService correo(String host) {
+        when(proveedor.getIfAvailable()).thenReturn(smtp);
+        return new MailService(proveedor, "noreply@technicalbridge.local", "http://localhost:8080/", host);
+    }
+
+    @Test
+    void el_correo_del_codigo_no_trae_ningun_enlace() {
+        correo("mailpit").enviarCodigo("felipe.rojas@correo.cl", "K7M2QX", "Patrimonio Inmuebles");
+
+        ArgumentCaptor<SimpleMailMessage> enviado = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(smtp).send(enviado.capture());
+        String texto = enviado.getValue().getText();
+        assertTrue(texto.contains("K7M2QX"));
+        assertTrue(texto.contains("Patrimonio Inmuebles"));
+        //  La direccion va escrita, pero nada que se pueda cliquear hacia otro lado.
+        assertFalse(texto.contains("?token="));
+    }
+
+    @Test
+    void sin_smtp_no_intenta_mandar_nada() {
+        correo("").enviarCodigo("felipe.rojas@correo.cl", "K7M2QX", null);
+        verify(smtp, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void si_el_smtp_falla_el_acceso_no_se_cae() {
+        MailService servicio = correo("mailpit");
+        doThrow(new MailSendException("sin conexion")).when(smtp).send(any(SimpleMailMessage.class));
+
+        assertDoesNotThrow(() -> servicio.enviarEnlace("camila.reyes@apofyx.cl", "http://localhost:8080/magic?token=x", 15));
+    }
+}

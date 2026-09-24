@@ -1,10 +1,12 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.web.ApiException;
-import com.tbridge.payments.domain.UfValue;
-import com.tbridge.payments.repo.UfValueRepository;
+import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.dto.response.UfResponse;
+import com.tbridge.payments.model.UfValue;
+import com.tbridge.payments.repository.UfValueRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -50,5 +52,15 @@ public class UfService {
     /** Pesos, redondeados al entero: no existe el medio peso. */
     public long aPesos(BigDecimal montoUf, BigDecimal valorUf) {
         return montoUf.multiply(valorUf).setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    /** Carga a mano el valor de un dia, cuando el Banco Central no esta disponible. */
+    @Transactional
+    public UfResponse cargarAMano(LocalDate dia, BigDecimal valor) {
+        if (valor.signum() <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La UF tiene que ser positiva");
+        }
+        UfValue guardado = valores.save(new UfValue(dia, valor.setScale(2, RoundingMode.HALF_UP), "manual"));
+        return new UfResponse(guardado.getDay(), guardado.getValue(), guardado.getSource());
     }
 }

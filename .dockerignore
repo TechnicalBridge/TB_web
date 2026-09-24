@@ -1,30 +1,25 @@
-# Lo que NO viaja al demonio de Docker al construir.
+# Lo que NO viaja al demonio de Docker al construir las imagenes de Java.
 #
-# Sin este archivo el contexto se lleva los target/ de Maven, los
-# node_modules del front y el historial de git: cientos de megas que solo
-# hacen lenta cada construccion.
+# Cada Dockerfile copia solo los pom y el codigo que necesita, pero Docker
+# manda la carpeta entera como contexto: sin este archivo viajarian los
+# target/ de Maven y el historial de git, cientos de megas que solo hacen
+# lenta cada construccion.
 
 **/target/
-**/node_modules/
-**/dist/
-**/.venv/
-**/venv/
-**/__pycache__/
-**/*.pyc
-
 .git/
 .github/
 .idea/
 .mvn/wrapper/maven-wrapper.jar
 
-# Las pruebas de punta a punta levantan los tres sistemas desde fuera: no son
-# parte de ninguna imagen.
-pruebas/
+# El portal y el asistente tienen su propio contexto de construccion (su
+# carpeta), con su propio .dockerignore.
+frontend/
+ms-ai/
 
+# Documentacion y pruebas de rendimiento: no son parte de ninguna imagen.
 docs/
+rendimiento/
 db/README.md
 *.md
-*.pdf
-*.png
 *.log
 .env

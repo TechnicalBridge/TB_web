@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, dinero, ESTADO_DEUDA, fecha, rutLegible } from "../api";
+import { resumenDeCartera } from "../api/analitica";
+import { enviarCodigo as pedirCodigo, listarDeudas } from "../api/deudas";
+import { dinero, ESTADO_DEUDA, estadoDe, fecha, rutLegible } from "../utils/formato";
 import CargaCsv from "../components/CargaCsv";
 import { EstadoCartera, RecuperadoPorDia } from "../components/Graficos";
 import { useAuth } from "../store/authStore";
@@ -22,9 +24,9 @@ export default function DataBridge() {
   const [error, setError] = useState("");
 
   async function refrescar() {
-    const [r, d] = await Promise.all([api("/analytics/summary"), api("/debts")]);
+    const [r, d] = await Promise.all([resumenDeCartera(), listarDeudas()]);
     setResumen(r);
-    setDeudas(d.debts || []);
+    setDeudas(d);
   }
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export default function DataBridge() {
   async function enviarCodigo(deuda) {
     setAvisos((a) => ({ ...a, [deuda.id]: { enviando: true } }));
     try {
-      const r = await api(`/debts/${deuda.id}/codigo`, { method: "POST" });
+      const r = await pedirCodigo(deuda.id);
       setAvisos((a) => ({ ...a, [deuda.id]: { ok: `Enviado a ${r.destino}` } }));
     } catch (err) {
       setAvisos((a) => ({ ...a, [deuda.id]: { error: err.message } }));
@@ -121,7 +123,7 @@ export default function DataBridge() {
             </thead>
             <tbody>
               {visibles.map((d) => {
-                const estado = ESTADO_DEUDA[d.estado] || { texto: d.estado, clase: "badge-muted" };
+                const estado = estadoDe(ESTADO_DEUDA, d.estado);
                 const aviso = avisos[d.id];
                 const cobrable = d.estado === "open" || d.estado === "repacted";
                 return (

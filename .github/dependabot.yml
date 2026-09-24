@@ -1,7 +1,7 @@
 # =============================================================================
 #  Dependencias vulnerables — Dependabot
 # =============================================================================
-#  Revisa las dependencias de los cuatro ecosistemas que usa este repositorio
+#  Revisa las dependencias de los cinco ecosistemas que usa este repositorio
 #  y abre un pull request cuando aparece una version con una vulnerabilidad
 #  corregida.
 #
@@ -35,3 +35,10 @@ updates:
     directory: /
     schedule: { interval: monthly }
     commit-message: { prefix: "deps(ci)" }
+
+  #  Las imagenes base de cada Dockerfile (JDK, JRE, Node, nginx, Python):
+  #  una imagen vieja trae las vulnerabilidades de su sistema operativo.
+  - package-ecosystem: docker
+    directories: [/ms-auth, /ms-debt, /ms-payments, /gateway, /frontend, /ms-ai]
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "deps(docker)" }

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { rutLegible } from "../api";
+import { rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import Logo from "./Logo";
 import Chatbot from "./Chatbot";

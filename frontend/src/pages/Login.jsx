@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
-import { rutLegible } from "../api";
+import { rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 
 /**

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store/authStore";
 import Layout from "./components/Layout";
@@ -8,11 +9,15 @@ import Debts from "./pages/Debts";
 import Repact from "./pages/Repact";
 import Pay from "./pages/Pay";
 import Pasarela from "./pages/Pasarela";
-import DataBridge from "./pages/DataBridge";
+
+//  El portal de empresas trae los graficos (recharts), que pesan mas que todo
+//  el resto junto. Se descarga solo al entrar ahi: el deudor nunca lo baja.
+const DataBridge = lazy(() => import("./pages/DataBridge"));
+const cargando = <div className="main">Cargando Technical Bridge…</div>;
 
 function Guard({ children, role }) {
   const { user, ready, homeFor } = useAuth();
-  if (!ready) return <div className="main">Cargando Technical Bridge…</div>;
+  if (!ready) return cargando;
   if (!user) return <Navigate to="/" replace />;
   if (role && user.role !== role) return <Navigate to={homeFor(user)} replace />;
   return children;
@@ -20,7 +25,7 @@ function Guard({ children, role }) {
 
 function PublicOnly({ children }) {
   const { user, ready, homeFor } = useAuth();
-  if (!ready) return <div className="main">Cargando Technical Bridge…</div>;
+  if (!ready) return cargando;
   if (user) return <Navigate to={homeFor(user)} replace />;
   return children;
 }
@@ -74,7 +79,7 @@ export default function App() {
           </Guard>
         }
       >
-        <Route index element={<DataBridge />} />
+        <Route index element={<Suspense fallback={cargando}><DataBridge /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

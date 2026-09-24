@@ -1,32 +1,28 @@
 package com.tbridge.debt.service;
 
+import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.jwt.JwtPrincipal;
-import com.tbridge.common.web.ApiException;
-import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.domain.DebtEvent;
-import com.tbridge.debt.domain.Debtor;
-import com.tbridge.debt.repo.DebtEventRepository;
-import org.springframework.beans.factory.annotation.Value;
+import com.tbridge.debt.client.AuthClient;
+import com.tbridge.debt.dto.response.CodigoEnviadoResponse;
+import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.model.DebtEvent;
+import com.tbridge.debt.model.Debtor;
+import com.tbridge.debt.repository.DebtEventRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Hacerle llegar al deudor su codigo de acceso.
  *
  * <p>Es lo que hara el motor de campana cuando exista: la cartera llega, la
  * campana dice por que canales, y a cada deudor le llega su codigo. Mientras
- * tanto lo dispara a mano el personal del acreedor, deuda por deuda.
+ * tanto lo dispara a mano el personal de la empresa, deuda por deuda.
  *
  * <p><b>El codigo nunca vuelve a quien lo pidio.</b> ms-auth lo genera y lo
- * manda al correo del deudor; esta respuesta solo dice a donde se mando. Si el
- * personal pudiera verlo, podria entrar como el deudor.
+ * manda al correo del deudor; esta respuesta solo dice a donde se mando.
  */
 @Service
 @Transactional
@@ -34,20 +30,15 @@ public class AccesoService {
 
     private final DebtService debts;
     private final DebtEventRepository events;
-    private final RestClient rest = RestClient.create();
-    private final String authUrl;
-    private final String internalKey;
+    private final AuthClient auth;
 
-    public AccesoService(DebtService debts, DebtEventRepository events,
-                         @Value("${app.auth-url:http://127.0.0.1:8081}") String authUrl,
-                         @Value("${app.internal-key}") String internalKey) {
+    public AccesoService(DebtService debts, DebtEventRepository events, AuthClient auth) {
         this.debts = debts;
         this.events = events;
-        this.authUrl = authUrl.replaceAll("/$", "");
-        this.internalKey = internalKey;
+        this.auth = auth;
     }
 
-    public Map<String, Object> enviarCodigo(JwtPrincipal user, Long debtId) {
+    public CodigoEnviadoResponse enviarCodigo(JwtPrincipal user, Long debtId) {
         if (user == null || !user.isCreditor()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "El codigo lo envia el acreedor, no el deudor");
         }
@@ -61,37 +52,16 @@ public class AccesoService {
                     "El deudor no tiene correo registrado, y el envio por WhatsApp aun no esta conectado");
         }
 
-        Map<String, Object> pedido = new LinkedHashMap<>();
-        pedido.put("rut", deudor.getRut());
-        pedido.put("canales", List.of("correo"));
-        pedido.put("correo", deudor.getEmail());
-        pedido.put("acreedor", deuda.getCreditor().getTradeName());
-        pedido.put("paraQue", deuda.getExternalId());
+        AuthClient.CodigoEmitido emitido = auth.emitirCodigo(new AuthClient.PedidoDeCodigo(
+                deudor.getRut(), List.of("correo"), deudor.getEmail(), deuda.getCreditor().getTradeName(),
+                deuda.getExternalId()));
 
-        Map<?, ?> emitido;
-        try {
-            emitido = rest.post()
-                    .uri(authUrl + "/internal/codigos")
-                    .header("X-Internal-Key", internalKey)
-                    .body(pedido)
-                    .retrieve()
-                    .body(Map.class);
-        } catch (RestClientException e) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "No se pudo emitir el codigo: el servicio de acceso no responde");
-        }
+        //  Queda en la historia de la deuda: es el primer paso del embudo que
+        //  la agencia mide (contrato, campana.avance).
+        String destino = enmascarar(deudor.getEmail());
+        events.save(DebtEvent.de(deuda, DebtEvent.Type.code_sent, DebtEvent.Actor.agency).conReferencia(destino));
 
-        //  Queda registrado en la historia de la deuda: es el primer paso del
-        //  embudo que la agencia mide (contrato, campana.avance).
-        events.save(DebtEvent.de(deuda, DebtEvent.Type.code_sent, DebtEvent.Actor.agency)
-                .conReferencia(enmascarar(deudor.getEmail())));
-
-        Map<String, Object> respuesta = new LinkedHashMap<>();
-        respuesta.put("enviado", true);
-        respuesta.put("canal", "correo");
-        respuesta.put("destino", enmascarar(deudor.getEmail()));
-        respuesta.put("expiraEn", emitido == null ? null : emitido.get("expiraEn"));
-        return respuesta;
+        return new CodigoEnviadoResponse(true, "correo", destino, emitido == null ? null : emitido.expiraEn());
     }
 
     /** felipe.rojas@correo.cl -> fe**********@correo.cl: se reconoce sin exponerlo. */

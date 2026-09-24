@@ -1,9 +1,9 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.common.web.ApiException;
-import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.dto.InstallmentPreview;
-import com.tbridge.debt.dto.RepactPlan;
+import com.tbridge.common.exception.ApiException;
+import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.dto.response.InstallmentPreview;
+import com.tbridge.debt.dto.response.RepactPlan;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 

@@ -38,6 +38,20 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
+    <!-- Enlaces en las respuestas del portal: que se puede hacer despues. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-hateoas</artifactId>
+    </dependency>
+    <!-- /actuator/health: la base de datos incluida, para el healthcheck de Docker. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    </dependency>
     <!-- MySQL y Flyway en vez de H2 con ddl-auto. Ver db/README.md. -->
     <dependency>
       <groupId>com.mysql</groupId>

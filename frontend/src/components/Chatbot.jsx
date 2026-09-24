@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../api";
+import { preguntarAlAsistente } from "../api/asistente";
 
 const welcome = {
   role: "assistant",
@@ -21,8 +21,8 @@ export default function Chatbot() {
     setText("");
     setBusy(true);
     try {
-      const data = await api("/ai/chat", { method: "POST", body: { message: content, messages: next } });
-      setMessages([...next, { role: "assistant", content: data.reply }]);
+      const respuesta = await preguntarAlAsistente(content, next);
+      setMessages([...next, { role: "assistant", content: respuesta }]);
     } catch (err) {
       setMessages([...next, { role: "assistant", content: err.message || "MS-AI no está disponible." }]);
     } finally {

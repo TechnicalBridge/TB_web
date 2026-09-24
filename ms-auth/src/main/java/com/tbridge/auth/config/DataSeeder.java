@@ -1,7 +1,7 @@
 package com.tbridge.auth.config;
 
-import com.tbridge.auth.domain.StaffUser;
-import com.tbridge.auth.repo.StaffUserRepository;
+import com.tbridge.auth.model.StaffUser;
+import com.tbridge.auth.repository.StaffUserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;

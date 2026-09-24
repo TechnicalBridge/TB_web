@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { dinero } from "../api";
+import { dinero } from "../utils/formato";
 
 const COLORES = { activas: "#ffd48a", enConvenio: "#3ec6e0", pagadas: "#3dcf70", retiradas: "#5c7185" };
 const TOOLTIP = { background: "#0a1628", border: "1px solid rgba(126,223,240,0.2)", borderRadius: 12 };

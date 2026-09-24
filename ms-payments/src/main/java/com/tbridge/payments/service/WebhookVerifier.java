@@ -1,5 +1,6 @@
 package com.tbridge.payments.service;
 
+import com.tbridge.common.util.Hash;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,13 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 
+/**
+ * La firma de los enlaces de pago y de los avisos de la pasarela.
+ *
+ * <p>HMAC-SHA256 de "pago:monto:deuda". El monto se normaliza antes de firmar
+ * (150000, 150000.0 y 150000.00 son lo mismo), para que la firma no dependa de
+ * como lo escribio cada lado.
+ */
 @Service
 public class WebhookVerifier {
 
@@ -28,11 +36,7 @@ public class WebhookVerifier {
             return false;
         }
         String expected = sign(paymentId, amount, debtId);
-        return constantTimeEq(expected, signature);
-    }
-
-    public boolean same(String expected, String actual) {
-        return expected != null && actual != null && constantTimeEq(expected, actual);
+        return Hash.igualesEnTiempoConstante(expected, signature);
     }
 
     static String normalizeAmount(String amount) {
@@ -51,16 +55,5 @@ public class WebhookVerifier {
         } catch (Exception e) {
             throw new IllegalStateException("No se pudo firmar el webhook", e);
         }
-    }
-
-    private static boolean constantTimeEq(String a, String b) {
-        if (a.length() != b.length()) {
-            return false;
-        }
-        int result = 0;
-        for (int i = 0; i < a.length(); i++) {
-            result |= a.charAt(i) ^ b.charAt(i);
-        }
-        return result == 0;
     }
 }

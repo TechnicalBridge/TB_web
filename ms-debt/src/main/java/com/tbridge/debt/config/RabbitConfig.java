@@ -13,27 +13,30 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * La cola de avisos de pago, solo si EVENTS_RABBIT=true.
+ *
+ * <p>Los nombres salen de {@link PagoConfirmado}, igual que en ms-payments:
+ * cuando cada servicio tenia los suyos, no calzaban y RabbitMQ descartaba cada
+ * pago en silencio.
+ */
 @Configuration
 @ConditionalOnProperty(name = "events.rabbit", havingValue = "true")
 public class RabbitConfig {
 
-    public static final String EXCHANGE = PagoConfirmado.EXCHANGE;
-    public static final String QUEUE = PagoConfirmado.QUEUE;
-    public static final String ROUTING_KEY = PagoConfirmado.ROUTING_KEY;
-
     @Bean
     public TopicExchange pagosExchange() {
-        return new TopicExchange(EXCHANGE, true, false);
+        return new TopicExchange(PagoConfirmado.EXCHANGE, true, false);
     }
 
     @Bean
     public Queue pagoQueue() {
-        return new Queue(QUEUE, true);
+        return new Queue(PagoConfirmado.QUEUE, true);
     }
 
     @Bean
     public Binding pagoBinding(Queue pagoQueue, TopicExchange pagosExchange) {
-        return BindingBuilder.bind(pagoQueue).to(pagosExchange).with(ROUTING_KEY);
+        return BindingBuilder.bind(pagoQueue).to(pagosExchange).with(PagoConfirmado.ROUTING_KEY);
     }
 
     @Bean

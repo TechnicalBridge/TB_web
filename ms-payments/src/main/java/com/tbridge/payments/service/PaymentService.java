@@ -1,14 +1,20 @@
 package com.tbridge.payments.service;
 
+import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.jwt.JwtPrincipal;
-import com.tbridge.common.web.ApiException;
-import com.tbridge.payments.domain.DebtNotification;
-import com.tbridge.payments.domain.Payment;
-import com.tbridge.payments.domain.PaymentEvent;
-import com.tbridge.payments.domain.UfValue;
-import com.tbridge.payments.repo.DebtNotificationRepository;
-import com.tbridge.payments.repo.PaymentEventRepository;
-import com.tbridge.payments.repo.PaymentRepository;
+import com.tbridge.payments.client.DebtClient;
+import com.tbridge.payments.dto.request.CheckoutRequest;
+import com.tbridge.payments.dto.request.WebhookRequest;
+import com.tbridge.payments.dto.response.HistoriaResponse;
+import com.tbridge.payments.dto.response.PaymentEventResponse;
+import com.tbridge.payments.dto.response.PaymentResponse;
+import com.tbridge.payments.model.DebtNotification;
+import com.tbridge.payments.model.Payment;
+import com.tbridge.payments.model.PaymentEvent;
+import com.tbridge.payments.model.UfValue;
+import com.tbridge.payments.repository.DebtNotificationRepository;
+import com.tbridge.payments.repository.PaymentEventRepository;
+import com.tbridge.payments.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -18,10 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * El cobro.
@@ -46,7 +50,7 @@ public class PaymentService {
     private final PaymentEventRepository eventos;
     private final DebtNotificationRepository avisos;
     private final WebhookVerifier verifier;
-    private final DebtGateway deudas;
+    private final DebtClient deudas;
     private final UfService uf;
     private final String publicUrl;
 
@@ -55,7 +59,7 @@ public class PaymentService {
             PaymentEventRepository eventos,
             DebtNotificationRepository avisos,
             WebhookVerifier verifier,
-            DebtGateway deudas,
+            DebtClient deudas,
             UfService uf,
             @Value("${app.public-url}") String publicUrl
     ) {
@@ -73,27 +77,23 @@ public class PaymentService {
     // ------------------------------------------------------------------
 
     @Transactional
-    public Map<String, Object> checkout(JwtPrincipal user, Map<String, Object> body) {
+    public PaymentResponse checkout(JwtPrincipal user, CheckoutRequest pedido) {
         if (user != null && user.isCreditor()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "El acreedor no paga deudas");
         }
-        Long debtId = numero(body.get("debtId"));
-        Long installmentId = numero(body.get("installmentId"));
-        if (debtId == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Indica que deuda quieres pagar");
-        }
-        Payment.Gateway gateway = pasarela(body.get("gateway"));
-
         //  Solo se paga lo propio, y lo propio se decide por RUT: es lo unico
         //  que trae la sesion de un deudor, que entra con su codigo, sin
-        //  cuenta ni correo. Antes se pasaba el correo, que en un deudor es
-        //  nulo, y la comprobacion se saltaba: cualquiera podia abrir el cobro
-        //  de una deuda ajena y ver su monto.
+        //  cuenta ni correo.
         if (user == null || user.rut() == null) {
             throw new ApiException(HttpStatus.FORBIDDEN, "La sesion no identifica al deudor");
         }
+        Payment.Gateway gateway = pasarela(pedido.gateway());
+
         //  El monto y a quien se le debe salen de ms-debt, no del cuerpo.
-        var deuda = deudas.obtener(debtId, installmentId, user.rut());
+        DebtClient.DebtSnapshot deuda = deudas.obtener(pedido.debtId(), pedido.installmentId());
+        if (!user.rut().equalsIgnoreCase(deuda.debtorRut())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es tuya");
+        }
 
         Payment pago = new Payment();
         pago.setDebtId(deuda.debtId());
@@ -113,9 +113,7 @@ public class PaymentService {
         payments.save(pago);
         eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.created, PaymentEvent.Source.portal));
 
-        Map<String, Object> respuesta = publico(pago);
-        respuesta.put("checkoutUrl", enlaceDePago(pago));
-        return respuesta;
+        return PaymentResponse.from(pago).conEnlaceDePago(enlaceDePago(pago));
     }
 
     private String enlaceDePago(Payment pago) {
@@ -123,17 +121,12 @@ public class PaymentService {
     }
 
     /**
-     * La firma del enlace de pago.
-     *
-     * No se guarda: se recalcula. Guardar una firma que se puede derivar es
-     * una copia mas que puede quedar desincronizada.
+     * La firma del enlace de pago. No se guarda: se recalcula. Guardar una
+     * firma que se puede derivar es una copia mas que puede desincronizarse.
      */
     private String firma(Payment pago) {
-        return verifier.sign(
-                String.valueOf(pago.getId()),
-                pago.getAmount().toPlainString(),
-                String.valueOf(pago.getDebtId())
-        );
+        return verifier.sign(String.valueOf(pago.getId()), pago.getAmount().toPlainString(),
+                String.valueOf(pago.getDebtId()));
     }
 
     // ------------------------------------------------------------------
@@ -143,50 +136,43 @@ public class PaymentService {
     /**
      * Un pago, si a quien pregunta le corresponde verlo: al deudor, los suyos;
      * a la empresa, los de su cartera. Todo por RUT, que es lo que traen las
-     * sesiones. Antes se comparaba el correo: el deudor, que no tiene, no
-     * podia ver su propio pago, y a la empresa no se le revisaba nada.
+     * sesiones.
      */
-    public Map<String, Object> get(JwtPrincipal user, Long id) {
+    public PaymentResponse get(JwtPrincipal user, Long id) {
+        return PaymentResponse.from(visible(user, id));
+    }
+
+    public PaymentResponse publicGet(Long id, String sig) {
+        return PaymentResponse.from(conFirmaValida(id, sig));
+    }
+
+    /** Lo que ve cada quien: el acreedor, SOLO lo suyo. */
+    public List<PaymentResponse> list(JwtPrincipal user) {
+        if (user == null || user.rut() == null) {
+            return List.of();
+        }
+        List<Payment> filas = user.isCreditor()
+                ? payments.findByCreditorRutOrderByCreatedAtDesc(user.rut())
+                : payments.findByDebtorRutOrderByCreatedAtDesc(user.rut());
+        return filas.stream().map(PaymentResponse::from).toList();
+    }
+
+    /** El libro de un pago, para el panel y para auditar. */
+    public HistoriaResponse historia(JwtPrincipal user, Long id) {
+        visible(user, id);
+        return new HistoriaResponse(eventos.findByPaymentIdOrderByIdAsc(id).stream()
+                .map(PaymentEventResponse::from)
+                .toList());
+    }
+
+    private Payment visible(JwtPrincipal user, Long id) {
         Payment pago = buscar(id);
         String suyo = user == null ? null
                 : user.isCreditor() ? pago.getCreditorRut() : pago.getDebtorRut();
         if (!mismo(user == null ? null : user.rut(), suyo)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "No puedes ver este pago");
         }
-        return publico(pago);
-    }
-
-    public Map<String, Object> publicGet(Long id, String sig) {
-        return publico(conFirmaValida(id, sig));
-    }
-
-    /**
-     * Lo que ve cada quien.
-     *
-     * <p>El acreedor ve SOLO lo suyo. Antes esta consulta era findAll() para
-     * cualquier acreedor: todos veian los pagos de todos.
-     */
-    public List<Map<String, Object>> list(JwtPrincipal user) {
-        if (user.rut() == null) {
-            return List.of();
-        }
-        List<Payment> filas = user.isCreditor()
-                ? payments.findByCreditorRutOrderByCreatedAtDesc(user.rut())
-                : payments.findByDebtorRutOrderByCreatedAtDesc(user.rut());
-        return filas.stream().map(this::publico).toList();
-    }
-
-    /** El libro de un pago, para el panel y para auditar. */
-    public List<Map<String, Object>> historia(JwtPrincipal user, Long id) {
-        get(user, id);
-        return eventos.findByPaymentIdOrderByIdAsc(id).stream().map(evento -> {
-            Map<String, Object> fila = new LinkedHashMap<>();
-            fila.put("tipo", evento.getType());
-            fila.put("origen", evento.getSource());
-            fila.put("firmaValida", evento.getSignatureOk());
-            fila.put("ocurrioEn", evento.getOccurredAt());
-            return fila;
-        }).toList();
+        return pago;
     }
 
     // ------------------------------------------------------------------
@@ -194,9 +180,8 @@ public class PaymentService {
     // ------------------------------------------------------------------
 
     @Transactional
-    public Map<String, Object> confirmPublic(Long id, String sig) {
-        Payment pago = conFirmaValida(id, sig);
-        return confirmar(pago, PaymentEvent.Source.portal, null, null);
+    public PaymentResponse confirmPublic(Long id, String sig) {
+        return confirmar(conFirmaValida(id, sig), PaymentEvent.Source.portal, null, null);
     }
 
     /**
@@ -207,33 +192,25 @@ public class PaymentService {
      * unico (gateway, gateway_txn_id) por si el codigo se equivoca.
      */
     @Transactional
-    public Map<String, Object> webhook(String gateway, Map<String, Object> body, String signatureHeader) {
-        Long id = numero(body.get("paymentId"));
-        if (id == null) {
-            id = numero(body.get("id"));
-        }
+    public PaymentResponse webhook(WebhookRequest aviso, String signatureHeader) {
+        Long id = aviso.pago();
         if (id == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El aviso no dice que pago es");
         }
         Payment pago = buscar(id);
 
-        String sig = signatureHeader == null || signatureHeader.isBlank()
-                ? texto(body.get("signature")) : signatureHeader;
-        boolean firmaOk = verifier.matches(
-                sig, String.valueOf(pago.getId()),
-                pago.getAmount().toPlainString(), String.valueOf(pago.getDebtId())
-        );
+        String sig = signatureHeader == null || signatureHeader.isBlank() ? aviso.signature() : signatureHeader;
+        boolean firmaOk = verifier.matches(sig, String.valueOf(pago.getId()),
+                pago.getAmount().toPlainString(), String.valueOf(pago.getDebtId()));
 
         if (!firmaOk) {
             //  Un aviso con firma invalida no se aplica, pero se guarda:
             //  alguien mandando avisos falsos es algo que hay que poder ver.
-            eventos.save(PaymentEvent
-                    .de(pago.getId(), PaymentEvent.Type.failed, PaymentEvent.Source.webhook)
+            eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.failed, PaymentEvent.Source.webhook)
                     .conFirma(false));
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Firma criptografica invalida");
         }
-
-        return confirmar(pago, PaymentEvent.Source.webhook, texto(body.get("txnId")), true);
+        return confirmar(pago, PaymentEvent.Source.webhook, aviso.txnId(), true);
     }
 
     /** El monto en pesos, con el valor de la UF del dia en Chile si la deuda es en UF. */
@@ -247,27 +224,23 @@ public class PaymentService {
         }
     }
 
-    private Map<String, Object> confirmar(Payment pago, PaymentEvent.Source origen,
-                                          String txnId, Boolean firmaOk) {
+    private PaymentResponse confirmar(Payment pago, PaymentEvent.Source origen, String txnId, Boolean firmaOk) {
         //  Idempotencia: el pago ya cobrado se devuelve tal cual.
         if (pago.getStatus() == Payment.Status.paid) {
-            return publico(pago);
+            return PaymentResponse.from(pago);
         }
-
         //  Solo los cobros abiertos antes de que se fijaran al abrir.
         if (pago.getAmountClp() == null) {
             fijarPesos(pago);
         }
 
-        pago.setGatewayTxnId(txnId == null || txnId.isBlank()
-                ? "int-" + pago.getId() : txnId);
+        pago.setGatewayTxnId(txnId == null || txnId.isBlank() ? "int-" + pago.getId() : txnId.trim());
         pago.setStatus(Payment.Status.paid);
         pago.setPaidAt(Instant.now());
 
         try {
             payments.save(pago);
-            eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.paid, origen)
-                    .conFirma(firmaOk));
+            eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.paid, origen).conFirma(firmaOk));
             //  El aviso queda encolado aqui, en la misma transaccion. Si
             //  ms-debt esta caido, el pago igual quedo guardado.
             if (avisos.findByPaymentId(pago.getId()).isEmpty()) {
@@ -275,10 +248,9 @@ public class PaymentService {
             }
         } catch (DataIntegrityViolationException choque) {
             //  El unico de la pasarela salto: ese aviso ya se habia aplicado.
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "Ese pago de la pasarela ya estaba registrado");
+            throw new ApiException(HttpStatus.CONFLICT, "Ese pago de la pasarela ya estaba registrado");
         }
-        return publico(pago);
+        return PaymentResponse.from(pago);
     }
 
     // ------------------------------------------------------------------
@@ -299,48 +271,15 @@ public class PaymentService {
         return pago;
     }
 
-    private Map<String, Object> publico(Payment pago) {
-        Map<String, Object> mapa = new LinkedHashMap<>();
-        mapa.put("id", pago.getId());
-        mapa.put("debtId", pago.getDebtId());
-        mapa.put("installmentId", pago.getInstallmentId());
-        mapa.put("amount", pago.getAmount());
-        mapa.put("currency", pago.getCurrency());
-        mapa.put("amountClp", pago.getAmountClp());
-        mapa.put("ufValue", pago.getUfValue());
-        mapa.put("gateway", pago.getGateway());
-        mapa.put("status", pago.getStatus());
-        mapa.put("paidAt", pago.getPaidAt());
-        mapa.put("createdAt", pago.getCreatedAt());
-        return mapa;
-    }
-
     private static boolean mismo(String a, String b) {
         return a != null && b != null && a.equalsIgnoreCase(b);
     }
 
-    private static String texto(Object valor) {
-        return valor == null ? "" : String.valueOf(valor).trim();
-    }
-
-    private static Long numero(Object valor) {
-        if (valor == null) {
-            return null;
-        }
+    private static Payment.Gateway pasarela(String valor) {
         try {
-            String limpio = String.valueOf(valor).trim();
-            return limpio.isEmpty() ? null : Long.valueOf(limpio);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static Payment.Gateway pasarela(Object valor) {
-        try {
-            return Payment.Gateway.valueOf(texto(valor).toLowerCase(Locale.ROOT));
+            return Payment.Gateway.valueOf((valor == null ? "" : valor.trim()).toLowerCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Pasarela no soportada (Mercado Pago, Khipu o Webpay)");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Pasarela no soportada (Mercado Pago, Khipu o Webpay)");
         }
     }
 }

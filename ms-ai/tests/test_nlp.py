@@ -5,7 +5,7 @@ Pruebas del motor local. Solo usan la biblioteca estandar:
 
 import unittest
 
-from app.nlp import dinero, local_reply, sentimiento, totales
+from app.services.nlp import dinero, local_reply, sentimiento, totales
 
 # Tal como las entrega ms-debt (GET /api/debts).
 DEUDAS = [

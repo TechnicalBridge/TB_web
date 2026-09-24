@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, rutLegible } from "../api";
+import { cargarCartera, opcionesDeCarga } from "../api/deudas";
+import { hoyEnChile, rutLegible } from "../utils/formato";
 
 const COLUMNAS = [
   "deuda_id", "accion", "motivo_retiro", "deudor_rut", "deudor_tipo", "deudor_nombre", "deudor_correo",
@@ -11,10 +12,6 @@ const EJEMPLO = [
   "CTR-2024-007;registrar;;76991245-2;empresa;Comercial Ñandú SpA;administracion@nandu.cl;;UF;Arriendo local comercial;;Arriendo julio;2026-07;38,5;2026-07-05",
   "CTR-2025-022;retirar;pago_directo;;;;;;;;;;;;",
 ];
-
-function hoyEnChile() {
-  return new Date().toLocaleDateString("sv-SE", { timeZone: "America/Santiago" });
-}
 
 /** La plantilla del contrato, con BOM para que Excel respete las tildes. */
 function descargarPlantilla() {
@@ -45,7 +42,7 @@ export default function CargaCsv({ onCargada }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api("/debts/cartera/opciones")
+    opcionesDeCarga()
       .then((data) => {
         setOpciones(data);
         setAcreedor(data.acreedores?.[0]?.rut || "");
@@ -68,7 +65,7 @@ export default function CargaCsv({ onCargada }) {
     form.append("acreedor_rut", acreedor);
     if (campana) form.append("campana_id_externo", campana);
     try {
-      const r = await api("/debts/cartera", { method: "POST", body: form });
+      const r = await cargarCartera(form);
       setResultado(r);
       onCargada?.();
     } catch (err) {

@@ -1,23 +1,20 @@
 package com.tbridge.auth.service;
 
-import com.tbridge.auth.domain.Session;
-import com.tbridge.auth.repo.SessionRepository;
-import com.tbridge.common.web.ApiException;
+import com.tbridge.auth.model.Session;
+import com.tbridge.auth.repository.SessionRepository;
+import com.tbridge.common.exception.ApiException;
+import com.tbridge.common.util.Hash;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.UUID;
 
 /**
@@ -160,12 +157,6 @@ public class SessionService {
     }
 
     static String huella(String valor) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest((valor == null ? "" : valor).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return Hash.sha256(valor);
     }
 }

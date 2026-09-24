@@ -1,8 +1,8 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.common.web.ApiException;
-import com.tbridge.debt.domain.Debt;
-import com.tbridge.debt.dto.RepactPlan;
+import com.tbridge.common.exception.ApiException;
+import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.dto.response.RepactPlan;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
