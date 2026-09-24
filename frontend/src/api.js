@@ -1,14 +1,68 @@
 import axios from "axios";
 
-const TOKEN_KEY = "tb_session";
+/**
+ * La sesion vive en dos piezas.
+ *
+ * El JWT, que dura quince minutos, se guarda EN MEMORIA: en una variable de
+ * este modulo, que muere al cerrar la pestana. Antes vivia en localStorage,
+ * donde cualquier script de la pagina lo podia leer y llevarselo, y duraba una
+ * semana.
+ *
+ * La llave de renovacion la guarda el navegador en una cookie que este codigo
+ * no puede leer: solo sabe pedir "dame el JWT siguiente".
+ */
+let token = null;
 
-export function getSessionToken() {
-  return localStorage.getItem(TOKEN_KEY);
+//  Las versiones anteriores dejaban aca un JWT de siete dias. Se borra al
+//  cargar, para que no quede uno viejo y vigente en ningun navegador.
+try {
+  localStorage.removeItem("tb_session");
+} catch {
+  /* sin acceso al almacenamiento: no hay nada que borrar */
 }
 
-export function setSessionToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+export function getSessionToken() {
+  return token;
+}
+
+export function setSessionToken(nuevo) {
+  token = nuevo || null;
+}
+
+let alPerderLaSesion = () => {};
+
+/** Lo que hay que hacer cuando la sesion ya no se puede renovar. */
+export function onSesionPerdida(fn) {
+  alPerderLaSesion = fn;
+}
+
+let renovando = null;
+
+/**
+ * Pide un JWT nuevo con la cookie.
+ *
+ * Si varias peticiones vencen a la vez, todas esperan la MISMA renovacion: una
+ * sola llamada, no una por peticion. Y si responde 409 —otra pestana la acaba
+ * de renovar— se reintenta una vez: para entonces el navegador ya tiene la
+ * cookie nueva.
+ */
+export function renovarSesion() {
+  if (!renovando) {
+    const pedir = () => axios.post("/api/auth/refresh");
+    renovando = pedir()
+      .catch((err) => {
+        if (err.response?.status !== 409) throw err;
+        return new Promise((listo) => setTimeout(listo, 300)).then(pedir);
+      })
+      .then((res) => {
+        setSessionToken(res.data.token);
+        return res.data;
+      })
+      .finally(() => {
+        renovando = null;
+      });
+  }
+  return renovando;
 }
 
 export const client = axios.create({
@@ -16,9 +70,11 @@ export const client = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+/** Las rutas de /auth consiguen la sesion: no la llevan ni la renuevan. */
+const esDeAutenticacion = (config) => String(config?.url || "").startsWith("/auth/");
+
 client.interceptors.request.use((config) => {
-  const token = getSessionToken();
-  if (token) {
+  if (token && !esDeAutenticacion(config)) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   // Un archivo va como multipart: el navegador pone el Content-Type con su
@@ -36,7 +92,22 @@ client.interceptors.request.use((config) => {
  */
 client.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
+    //  Un 401 en medio de algo casi siempre es el JWT que vencio: se renueva
+    //  y se repite la peticion UNA vez. Si renovar tampoco funciona, la sesion
+    //  se termino de verdad y la pantalla vuelve al inicio.
+    const original = err.config;
+    if (err.response?.status === 401 && original && !original._reintento && !esDeAutenticacion(original)) {
+      original._reintento = true;
+      try {
+        await renovarSesion();
+        return client.request(original);
+      } catch {
+        setSessionToken(null);
+        alPerderLaSesion();
+      }
+    }
+
     const data = err.response?.data;
     const mensaje =
       data?.error?.mensaje || (typeof data?.error === "string" ? data.error : null) ||

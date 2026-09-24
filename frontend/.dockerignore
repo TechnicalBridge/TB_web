@@ -1,0 +1,6 @@
+# El contexto de esta imagen es la carpeta frontend/, asi que necesita su
+# propio .dockerignore: el de la raiz no llega hasta aca.
+node_modules/
+dist/
+.env
+*.log

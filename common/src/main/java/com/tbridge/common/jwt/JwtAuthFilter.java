@@ -36,11 +36,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      * controlador pudiera siquiera mirarla.
      *
      * <p>{@code /internal} va con clave interna y tampoco pasa por aqui.
+     *
+     * <p>{@code /api/auth/} es donde se consigue la sesion, asi que no puede
+     * exigirla. Y hay un caso que lo hace obligatorio: renovar se pide justo
+     * cuando el JWT vencio, y si el navegador lo manda igual en la cabecera,
+     * este filtro respondia 401 antes de que el controlador alcanzara a mirar
+     * la llave de renovacion. {@code /api/me} no esta bajo esa ruta y sigue
+     * pidiendo el JWT.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String ruta = request.getRequestURI();
-        return ruta.startsWith("/api/v1/") || ruta.startsWith("/internal/");
+        return ruta.startsWith("/api/v1/") || ruta.startsWith("/internal/")
+                || ruta.startsWith("/api/auth/");
     }
 
     @Override

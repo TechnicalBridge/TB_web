@@ -79,7 +79,50 @@ export async function hasta(fn, segundos = 45) {
 //  Permiso: estas pruebas vacian tablas de las bases de desarrollo
 // ---------------------------------------------------------------------------
 
+/**
+ * Los contenedores de la aplicacion de DataBridge que esten corriendo.
+ *
+ * Si la pila de Docker (`--profile app`) esta arriba mientras corren estas
+ * pruebas, hay dos ms-debt contra la misma base y dos consumidores en la misma
+ * cola de pagos: RabbitMQ reparte los mensajes entre los dos, los despachadores
+ * de eventos compiten, y limpiarBases() vacia tablas que otro proceso esta
+ * usando. Las pruebas pasarian o fallarian por azar.
+ *
+ * Se reconocen por la etiqueta de servicio que pone Compose. No sirve la
+ * imagen: si se reconstruye mientras los contenedores corren, el nombre
+ * tbridge/... pasa a la imagen nueva y los que siguen corriendo quedan
+ * identificados solo por un hash. Tampoco el nombre del proyecto, que cambia
+ * si alguien clona el repositorio en otra carpeta.
+ *
+ * Solo los tres que chocan de verdad: tocan la base, y ms-debt y ms-payments
+ * ademas tienen tareas programadas y consumen la cola.
+ */
+const CHOCAN = new Set(['ms-auth', 'ms-debt', 'ms-payments']);
+
+export function pilaDeContenedores() {
+  try {
+    return execFileSync('docker', ['ps', '--format', '{{.Names}}|{{.Label "com.docker.compose.service"}}'],
+      { encoding: 'utf8' })
+      .split(/\r?\n/).map((l) => l.split('|')).filter(([, servicio]) => CHOCAN.has(servicio))
+      .map(([nombre]) => nombre);
+  } catch {
+    return [];   // sin Docker no hay pila que choque; ya fallara despues por la base
+  }
+}
+
 export function exigirPermiso() {
+  const arriba = pilaDeContenedores();
+  if (arriba.length) {
+    console.log(`La pila de contenedores de DataBridge esta corriendo:
+  ${arriba.join(', ')}
+
+Estas pruebas levantan sus propios servicios contra la misma base y la misma cola de
+pagos, y con los dos a la vez los resultados dependen del azar. Apagala primero —las
+bases y RabbitMQ siguen arriba, que es lo que las pruebas necesitan:
+
+  docker compose --profile app stop gateway ms-auth ms-debt ms-payments ms-ai portal`);
+    process.exit(2);
+  }
   if (process.argv.includes('--limpiar-bases') || process.env.PRUEBAS_LIMPIAR === '1') return;
   console.log(`Esta prueba VACIA las tablas de cartera, pagos y eventos de las bases de desarrollo
 (tb_debt y tb_payments de DataBridge, y la cartera e integracion de APOFYX) para partir de cero.
@@ -127,6 +170,47 @@ export function arrancar({ cmd, args, cwd, listo, env = {}, capturar, espera = 2
 
 const CLASE = { gateway: 'Gateway', 'ms-auth': 'Auth', 'ms-debt': 'Debt', 'ms-payments': 'Payments' };
 
+/** El archivo mas nuevo de un arbol, en milisegundos. */
+function masNuevo(ruta) {
+  const info = fs.statSync(ruta);
+  if (!info.isDirectory()) return info.mtimeMs;
+  return Math.max(info.mtimeMs, ...fs.readdirSync(ruta).map((f) => masNuevo(path.join(ruta, f))));
+}
+
+let comunRevisado = false;
+
+/**
+ * Deja instalado en el repositorio local de Maven el `common` que esta en el
+ * codigo, si el instalado es mas viejo o no existe.
+ *
+ * Cada servicio arranca con `mvnw -pl <modulo>`, y asi Maven NO compila
+ * `common` desde el codigo: usa la copia instalada en ~/.m2. Si esa copia es
+ * vieja, el servicio corre sus clases nuevas contra un `common` viejo y se cae
+ * en la primera llamada a algo que no existia. Y en un equipo recien clonado
+ * no hay ninguna copia: ningun servicio llega siquiera a arrancar.
+ */
+function comunAlDia(jdk) {
+  if (comunRevisado) return;
+  comunRevisado = true;
+  const carpeta = path.join(os.homedir(), '.m2', 'repository', 'com', 'tbridge', 'tbridge-common');
+  const jars = fs.existsSync(carpeta)
+    ? fs.readdirSync(carpeta).flatMap((v) => {
+        const dir = path.join(carpeta, v);
+        return fs.statSync(dir).isDirectory()
+          ? fs.readdirSync(dir).filter((f) => f.endsWith('.jar')).map((f) => path.join(dir, f)) : [];
+      })
+    : [];
+  const instalado = jars.length ? Math.max(...jars.map((j) => fs.statSync(j).mtimeMs)) : 0;
+  //  Solo el codigo y los pom: target/ cambia en cada compilacion y haria
+  //  reinstalar siempre.
+  const codigo = Math.max(masNuevo(path.join(TB, 'pom.xml')),
+    masNuevo(path.join(TB, 'common', 'pom.xml')), masNuevo(path.join(TB, 'common', 'src')));
+  if (instalado >= codigo) return;
+  console.log(instalado ? '(common cambio: instalandolo de nuevo)' : '(instalando common, la primera vez)');
+  execFileSync(MVNW, ['-q', '-pl', 'common', '-am', 'install', '-DskipTests'],
+    { cwd: TB, stdio: 'inherit', shell: WIN, env: { ...process.env, JAVA_HOME: jdk } });
+}
+
 /** Un servicio de DataBridge con Maven. */
 export const servicio = (modulo, env = {}, capturar) => {
   const jdk = javaHome();
@@ -135,6 +219,7 @@ export const servicio = (modulo, env = {}, capturar) => {
       + 'Instala el JDK 25 o deja JAVA_HOME apuntando a el.\n'
       + `JAVA_HOME dice ahora: ${process.env.JAVA_HOME || '(nada)'}`);
   }
+  comunAlDia(jdk);
   return arrancar({
     cmd: MVNW, args: ['-q', '-pl', modulo, 'spring-boot:run'], cwd: TB,
     listo: `Started ${CLASE[modulo]}Application`, env: { JAVA_HOME: jdk, ...env }, capturar,

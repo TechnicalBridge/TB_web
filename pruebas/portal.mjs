@@ -46,6 +46,14 @@ async function pagar(token, debtId, installmentId, antesDeConfirmar) {
 }
 const cargarUf = (valor) => http(`${URLS.pay}/internal/uf`, { method: 'POST', interna: true, body: { dia: hoyEnChile(), valor } });
 
+/** La cookie de la llave de renovacion en una respuesta, separada en valor y atributos. */
+function llaveDe(headers) {
+  const linea = (headers.getSetCookie?.() || []).find((c) => c.startsWith('tb_renovacion='));
+  if (!linea) return null;
+  const [par, ...atributos] = linea.split(';');
+  return { valor: par.slice('tb_renovacion='.length), atributos: atributos.join(';') };
+}
+
 try {
   titulo('0. RabbitMQ, DataBridge completo y el frontend');
   execFileSync('docker', ['compose', 'up', '-d', 'rabbitmq'], { cwd: TB, stdio: 'ignore' });
@@ -161,6 +169,36 @@ try {
   ok(resumen.recuperadoPorDia?.CLP?.length === 30 && Number(resumen.recuperadoPorDia.CLP.at(-1).monto) > 0,
     'el grafico trae los 30 dias con lo recuperado hoy');
   ok(resumen.porAcreedor?.some((a) => a.acreedor === 'Patrimonio Inmuebles'), 'y el desglose por acreedor');
+
+  //  Por el proxy de Vite y el gateway, como un navegador: la cookie tiene que
+  //  sobrevivir a los dos saltos con sus atributos intactos.
+  titulo('7. La sesion se renueva y se cierra de verdad');
+  const emision = (await http(`${URLS.auth}/internal/codigos`, {
+    method: 'POST', interna: true,
+    body: { rut: '16482337-7', canales: ['correo'], correo: 'felipe.rojas@correo.cl',
+      acreedor: 'Patrimonio Inmuebles', paraQue: 'e2e-sesion' },
+  })).body;
+  const entrada = await http(`${WEB}/auth/acceso`, { method: 'POST', body: { rut: '16.482.337-7', codigo: emision.codigo } });
+  const primera = llaveDe(entrada.headers);
+  ok(primera?.valor && /HttpOnly/i.test(primera.atributos) && /SameSite=Strict/i.test(primera.atributos)
+    && /Path=\/api\/auth/i.test(primera.atributos),
+    'la llave de renovacion llega en una cookie HttpOnly, SameSite=Strict y solo para /api/auth');
+  ok(entrada.body.expiraEnSegundos === 900, `el JWT dura 15 minutos, no una semana (${entrada.body.expiraEnSegundos} s)`);
+
+  const conLlave = (llave) => ({ method: 'POST', headers: { Cookie: `tb_renovacion=${llave}` } });
+  const renovada = await http(`${WEB}/auth/refresh`, conLlave(primera.valor));
+  const segunda = llaveDe(renovada.headers);
+  ok(renovada.status === 200 && renovada.body.token && segunda?.valor && segunda.valor !== primera.valor,
+    'renovar entrega un JWT nuevo y cambia la llave');
+  ok((await http(`${WEB}/debts`, { token: renovada.body.token })).status === 200, 'y el JWT nuevo sirve');
+  ok((await http(`${WEB}/auth/refresh`, conLlave(primera.valor))).status === 409,
+    'la llave recien cambiada pide reintentar en vez de cerrar todo: puede ser otra pestana');
+
+  const salida = await http(`${WEB}/auth/logout`, conLlave(segunda.valor));
+  ok(salida.status === 204 && /Max-Age=0/i.test(llaveDe(salida.headers)?.atributos || ''),
+    'cerrar sesion responde 204 y le dice al navegador que borre la cookie');
+  ok((await http(`${WEB}/auth/refresh`, conLlave(segunda.valor))).status === 401,
+    'despues de cerrar, la llave ya no renueva: la sesion se cerro en el servidor, no solo en el navegador');
 } catch (e) {
   ok(false, e.message);
 } finally {

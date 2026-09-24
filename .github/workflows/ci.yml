@@ -50,3 +50,33 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  seguridad:
+    name: Dependencias vulnerables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Rompe el build si hay algo de severidad alta o critica. Lo moderado se
+      # revisa por Dependabot, que abre un pull request: no tiene sentido
+      # bloquear a todo el equipo por algo que no es explotable hoy.
+      - name: npm audit del portal
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: pip-audit del asistente
+        run: |
+          pip install pip-audit
+          pip-audit -r ms-ai/requirements.txt
+
+      # Maven no se audita aca a proposito: OWASP dependency-check necesita una
+      # clave de la API del NVD y agrega varios minutos a cada push. Esa capa la
+      # cubren Dependabot (.github/dependabot.yml) y CodeQL (codeql.yml).

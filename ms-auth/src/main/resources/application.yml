@@ -36,6 +36,9 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET:tbridge-dev-secret-change-me-32chars}
+  # Poco a proposito: el JWT no se puede revocar, se valida solo con la firma.
+  # Lo que mantiene a alguien adentro mas tiempo es la llave de renovacion.
+  ttl-minutes: ${JWT_TTL_MINUTES:15}
 
 app:
   public-url: ${PUBLIC_URL:http://localhost:5173}
@@ -44,6 +47,12 @@ app:
   # y el deudor puede leerlo horas despues. El enlace, en cambio, es el camino
   # de excepcion y conviene que viva poco.
   code-ttl-hours: ${CODE_TTL_HOURS:24}
+  # Cuanto dura una sesion desde que se entra, se use o no. Renovar no la
+  # alarga: pasado este plazo hay que volver a entrar con un codigo o enlace.
+  refresh-ttl-hours: ${REFRESH_TTL_HOURS:168}
+  # Encender con HTTPS. Apagado porque todo este proyecto se sirve por HTTP, y
+  # una cookie Secure sobre HTTP el navegador la descarta sin avisar.
+  cookie-secure: ${COOKIE_SECURE:false}
   internal-key: ${INTERNAL_KEY:tbridge-internal-dev}
   from-email: ${MAIL_FROM:noreply@technicalbridge.local}
 

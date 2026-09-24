@@ -3,6 +3,7 @@ package com.tbridge.auth.service;
 import com.tbridge.auth.domain.AccessCode;
 import com.tbridge.auth.domain.AccessLog;
 import com.tbridge.auth.domain.MagicLink;
+import com.tbridge.auth.domain.Session;
 import com.tbridge.auth.domain.StaffUser;
 import com.tbridge.auth.repo.AccessCodeRepository;
 import com.tbridge.auth.repo.AccessLogRepository;
@@ -68,10 +69,19 @@ public class AuthService {
     private final StaffUserRepository personal;
     private final AccessLogRepository bitacora;
     private final JwtService jwt;
+    private final SessionService sesiones;
     private final MailService correo;
     private final String publicUrl;
     private final long codeTtlHours;
     private final long magicTtlMinutes;
+
+    /**
+     * Una sesion recien abierta o renovada.
+     *
+     * <p>El JWT va en el cuerpo de la respuesta y la llave de renovacion en una
+     * cookie: por eso viajan separados, y el controlador arma cada uno.
+     */
+    public record Sesion(String token, Map<String, Object> user, SessionService.Llave llave) {}
 
     public AuthService(
             AccessCodeRepository codigos,
@@ -79,6 +89,7 @@ public class AuthService {
             StaffUserRepository personal,
             AccessLogRepository bitacora,
             JwtService jwt,
+            SessionService sesiones,
             MailService correo,
             @Value("${app.public-url}") String publicUrl,
             @Value("${app.code-ttl-hours:24}") long codeTtlHours,
@@ -89,6 +100,7 @@ public class AuthService {
         this.personal = personal;
         this.bitacora = bitacora;
         this.jwt = jwt;
+        this.sesiones = sesiones;
         this.correo = correo;
         this.publicUrl = publicUrl.replaceAll("/$", "");
         this.codeTtlHours = codeTtlHours;
@@ -140,7 +152,7 @@ public class AuthService {
      * que rechaza el intento se llevaria el contador con ella: probar codigos
      * al azar saldria gratis.
      */
-    public Map<String, Object> entrarConCodigo(String rutCrudo, String codigoCrudo, String ip) {
+    public Sesion entrarConCodigo(String rutCrudo, String codigoCrudo, String ip) {
         String ipHash = ip == null ? null : sha256(ip);
         frenarFuerzaBruta(ipHash);
 
@@ -179,7 +191,9 @@ public class AuthService {
         codigos.save(registro);
         anotar(rut, AccessLog.Method.code, AccessLog.Outcome.granted, ipHash);
 
-        return sesionDeDeudor(rut);
+        //  La sesion se abre en su propia transaccion (SessionService), porque
+        //  este metodo no tiene una a proposito: ver el comentario de arriba.
+        return sesionDeDeudor(rut, ipHash);
     }
 
     // ------------------------------------------------------------------
@@ -218,7 +232,7 @@ public class AuthService {
     }
 
     @Transactional
-    public Map<String, Object> entrarConEnlace(String token, String ip) {
+    public Sesion entrarConEnlace(String token, String ip) {
         String ipHash = ip == null ? null : sha256(ip);
         MagicLink enlace = enlaces.findByTokenHash(sha256(token == null ? "" : token.trim()))
                 .orElse(null);
@@ -236,37 +250,78 @@ public class AuthService {
         if (staff != null && staff.habilitado()) {
             staff.setLastLoginAt(Instant.now());
             personal.save(staff);
-            return sesionDePersonal(staff);
+            return sesionDePersonal(staff, ipHash);
         }
         if (enlace.getDebtorRut() == null) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Ese correo no tiene acceso");
         }
-        return sesionDeDeudor(enlace.getDebtorRut());
+        return sesionDeDeudor(enlace.getDebtorRut(), ipHash);
     }
 
     // ------------------------------------------------------------------
     //  Sesiones
     // ------------------------------------------------------------------
 
-    private Map<String, Object> sesionDeDeudor(String rut) {
-        String token = jwt.issue(rut, null, "DEBTOR", null, rut);
+    /**
+     * Cambia la llave de renovacion por un JWT nuevo y la llave siguiente.
+     *
+     * <p>Al personal se lo vuelve a buscar en cada renovacion: si lo dieron de
+     * baja, pierde el acceso en cuanto vence su JWT, aunque su llave siga
+     * vigente. Al deudor no hay a quien darlo de baja: no tiene cuenta.
+     */
+    public Sesion renovar(String llave, String ip) {
+        String ipHash = ip == null ? null : sha256(ip);
+        SessionService.Renovada renovada = sesiones.renovar(llave, ipHash);
+
+        if (renovada.role() == Session.Role.DEBTOR) {
+            return new Sesion(jwtDeDeudor(renovada.rut()), usuarioDeudor(renovada.rut()), renovada.llave());
+        }
+        StaffUser staff = personal.findByEmailIgnoreCase(renovada.email()).orElse(null);
+        if (staff == null || !staff.habilitado()) {
+            sesiones.revocarFamilia(renovada.familia());
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Ese acceso ya no esta habilitado");
+        }
+        return new Sesion(jwtDePersonal(staff), usuarioPersonal(staff), renovada.llave());
+    }
+
+    public void cerrar(String llave) {
+        sesiones.cerrar(llave);
+    }
+
+    private Sesion sesionDeDeudor(String rut, String ipHash) {
+        SessionService.Llave llave = sesiones.abrir(Session.Role.DEBTOR, rut, null, ipHash);
+        return new Sesion(jwtDeDeudor(rut), usuarioDeudor(rut), llave);
+    }
+
+    private Sesion sesionDePersonal(StaffUser staff, String ipHash) {
+        SessionService.Llave llave = sesiones.abrir(Session.Role.CREDITOR, null, staff.getEmail(), ipHash);
+        return new Sesion(jwtDePersonal(staff), usuarioPersonal(staff), llave);
+    }
+
+    private String jwtDeDeudor(String rut) {
+        return jwt.issue(rut, null, "DEBTOR", null, rut);
+    }
+
+    private String jwtDePersonal(StaffUser staff) {
+        return jwt.issue(String.valueOf(staff.getId()), staff.getEmail(),
+                "CREDITOR", staff.getFullName(), staff.getOrgRut());
+    }
+
+    private static Map<String, Object> usuarioDeudor(String rut) {
         Map<String, Object> usuario = new LinkedHashMap<>();
         usuario.put("rut", rut);
         usuario.put("role", "DEBTOR");
-        return Map.of("token", token, "user", usuario);
+        return usuario;
     }
 
-    private Map<String, Object> sesionDePersonal(StaffUser staff) {
-        String token = jwt.issue(
-                String.valueOf(staff.getId()), staff.getEmail(),
-                "CREDITOR", staff.getFullName(), staff.getOrgRut());
+    private static Map<String, Object> usuarioPersonal(StaffUser staff) {
         Map<String, Object> usuario = new LinkedHashMap<>();
         usuario.put("id", staff.getId());
         usuario.put("nombre", staff.getFullName());
         usuario.put("correo", staff.getEmail());
         usuario.put("empresaRut", staff.getOrgRut());
         usuario.put("role", "CREDITOR");
-        return Map.of("token", token, "user", usuario);
+        return usuario;
     }
 
     // ------------------------------------------------------------------

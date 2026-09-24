@@ -40,6 +40,7 @@ class AuthServiceTest {
 
     private final List<AccessCode> guardados = new ArrayList<>();
     private final List<AccessLog> bitacora = new ArrayList<>();
+    private final SesionesEnMemoria sesiones = new SesionesEnMemoria();
     private AuthService auth;
 
     @BeforeEach
@@ -49,7 +50,9 @@ class AuthServiceTest {
         StaffUserRepository personal = mock(StaffUserRepository.class);
         AccessLogRepository registro = mock(AccessLogRepository.class);
         MailService correo = mock(MailService.class);
-        JwtService jwt = new JwtService("unit-test-secret-key-32-chars!!");
+        JwtService jwt = new JwtService("unit-test-secret-key-32-chars!!!", 15);
+        SessionService sesiones = new SessionService(this.sesiones.repositorio,
+                java.time.Duration.ofDays(7), java.time.Clock.systemUTC());
 
         when(codigos.save(any())).thenAnswer(llamada -> {
             AccessCode codigo = llamada.getArgument(0);
@@ -73,7 +76,7 @@ class AuthServiceTest {
         when(personal.findByEmailIgnoreCase(any())).thenReturn(Optional.empty());
         when(enlaces.findByTokenHash(any())).thenReturn(Optional.empty());
 
-        auth = new AuthService(codigos, enlaces, personal, registro, jwt, correo,
+        auth = new AuthService(codigos, enlaces, personal, registro, jwt, sesiones, correo,
                 "http://localhost:5173", 24, 15);
     }
 
@@ -85,10 +88,21 @@ class AuthServiceTest {
     @Test
     void el_codigo_abre_la_sesion_y_lleva_el_rut() {
         String codigo = emitir("16482337-7");
-        Map<String, Object> sesion = auth.entrarConCodigo("16482337-7", codigo, "1.2.3.4");
+        AuthService.Sesion sesion = auth.entrarConCodigo("16482337-7", codigo, "1.2.3.4");
 
-        assertNotNull(sesion.get("token"));
-        assertEquals("16482337-7", ((Map<?, ?>) sesion.get("user")).get("rut"));
+        assertNotNull(sesion.token());
+        assertEquals("16482337-7", sesion.user().get("rut"));
+    }
+
+    @Test
+    void entrar_abre_una_sesion_revocable_y_la_llave_no_queda_escrita() {
+        String codigo = emitir("16482337-7");
+        AuthService.Sesion sesion = auth.entrarConCodigo("16482337-7", codigo, "1.2.3.4");
+
+        assertEquals(1, sesiones.filas.size());
+        String guardada = sesiones.filas.get(0).getRefreshHash();
+        assertNotEquals(sesion.llave().valor(), guardada);
+        assertEquals(SessionService.huella(sesion.llave().valor()), guardada);
     }
 
     @Test

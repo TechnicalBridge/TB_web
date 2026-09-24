@@ -1,0 +1,37 @@
+# =============================================================================
+#  Dependencias vulnerables — Dependabot
+# =============================================================================
+#  Revisa las dependencias de los cuatro ecosistemas que usa este repositorio
+#  y abre un pull request cuando aparece una version con una vulnerabilidad
+#  corregida.
+#
+#  Es la capa que cubre Maven: OWASP dependency-check necesita una clave de la
+#  API del NVD y agrega varios minutos a cada push, y para el tamano de este
+#  proyecto esto cubre lo mismo sin ese costo.
+# =============================================================================
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps(java)" }
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps(portal)" }
+
+  - package-ecosystem: pip
+    directory: /ms-ai
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "deps(ms-ai)" }
+
+  #  Las propias acciones de GitHub tambien son codigo de terceros que corre
+  #  con permisos sobre el repositorio.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    commit-message: { prefix: "deps(ci)" }

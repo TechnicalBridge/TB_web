@@ -1,0 +1,9 @@
+# El contexto de esta imagen es ms-ai/, asi que el .dockerignore de la raiz
+# no la alcanza.
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+tests/
+.env

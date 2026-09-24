@@ -1,3 +1,22 @@
+# =============================================================================
+#  DataBridge completo.
+# =============================================================================
+#  Dos formas de usarlo:
+#
+#    docker compose up -d
+#        Solo la infraestructura: MySQL, RabbitMQ y el buzon de prueba. Los
+#        servicios se levantan a mano con Maven, que es como se programa,
+#        porque recompilar una imagen en cada cambio seria insoportable.
+#
+#    docker compose --profile app up -d --build
+#        Todo: la infraestructura mas los cuatro servicios de Spring, el
+#        asistente y el portal. Nada instalado en la maquina —ni JDK, ni Node,
+#        ni Python— y el portal queda en http://localhost:8080
+#
+#  Las contrasenas salen de variables de entorno con un valor por omision de
+#  desarrollo. Para cualquier otra cosa, un archivo .env al lado de este.
+# =============================================================================
+
 services:
   # ---------------------------------------------------------------------------
   #  MySQL 8.4 — el mismo motor que usa APOFYX, para no tener dos en el
@@ -40,12 +59,19 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: tbridge-rabbit
+    restart: unless-stopped
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # ---------------------------------------------------------------------------
   #  Buzon de prueba, solo para desarrollo. Recibe los correos que manda
@@ -63,6 +89,229 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+  # ===========================================================================
+  #  Perfil "app": el sistema entero, sin instalar nada en la maquina.
+  # ===========================================================================
+  #  Lo que se repite en ms-auth, ms-debt y ms-payments esta en las anclas de
+  #  aqui abajo (&nombre), para no copiar y pegar catorce lineas por servicio
+  #  y que despues se desalineen.
+  # ===========================================================================
+
+  ms-auth:
+    profiles: ["app"]
+    build: { context: ., args: { MODULO: ms-auth } }
+    image: tbridge/ms-auth:1.0.0
+    restart: unless-stopped
+    depends_on:
+      mysql: { condition: service_healthy }
+    environment:
+      <<: &base
+        DB_HOST: mysql
+        DB_PORT: "3306"
+        DB_USER: ${MYSQL_USER:-tbridge}
+        DB_PASSWORD: ${MYSQL_PASSWORD:-tbridge_pass}
+        #  El mismo secreto en los tres: un JWT que firma ms-auth lo tienen
+        #  que poder verificar ms-debt y ms-payments. El gateway no lo usa.
+        JWT_SECRET: ${JWT_SECRET:-tbridge-dev-secret-change-me-32chars}
+        INTERNAL_KEY: ${INTERNAL_KEY:-tbridge-internal-dev}
+        PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      PORT: "8081"
+      #  La sesion: un JWT corto que nadie puede revocar, y una llave de
+      #  renovacion que si. Ver ms-auth/src/main/resources/db/migration/V2.
+      JWT_TTL_MINUTES:   ${JWT_TTL_MINUTES:-15}
+      REFRESH_TTL_HOURS: ${REFRESH_TTL_HOURS:-168}
+      #  Encender detras de HTTPS. Con HTTP el navegador descarta una cookie
+      #  Secure sin avisar, y la sesion se caeria a los quince minutos.
+      COOKIE_SECURE:     ${COOKIE_SECURE:-false}
+      #  Los correos van al buzon de prueba, no a nadie de verdad.
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_AUTH: "false"
+      SMTP_STARTTLS: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8081/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy: &limites
+      resources:
+        limits: { memory: 640M }
+
+  ms-debt:
+    profiles: ["app"]
+    build: { context: ., args: { MODULO: ms-debt } }
+    image: tbridge/ms-debt:1.0.0
+    restart: unless-stopped
+    depends_on:
+      mysql:    { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      ms-auth:  { condition: service_started }
+    environment:
+      <<: *base
+      PORT: "8083"
+      DB_NAME: tb_debt
+      AUTH_URI: http://ms-auth:8081
+      EVENTS_RABBIT: "true"
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:-guest}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:-guest}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8083/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy: *limites
+
+  ms-payments:
+    profiles: ["app"]
+    build: { context: ., args: { MODULO: ms-payments } }
+    image: tbridge/ms-payments:1.0.0
+    restart: unless-stopped
+    depends_on:
+      mysql:    { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      ms-debt:  { condition: service_healthy }
+    environment:
+      <<: *base
+      PORT: "8084"
+      DB_NAME: tb_payments
+      DEBT_URI: http://ms-debt:8083
+      EVENTS_RABBIT: "true"
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:-guest}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:-guest}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-tbridge-webhook-dev}
+      #  Sin credenciales del Banco Central la UF se carga a mano; el servicio
+      #  arranca igual y lo dice en su log.
+      BCENTRAL_USER: ${BCENTRAL_USER:-}
+      BCENTRAL_PASS: ${BCENTRAL_PASS:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8084/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy: *limites
+
+  ms-ai:
+    profiles: ["app"]
+    build: { context: ./ms-ai }
+    image: tbridge/ms-ai:1.0.0
+    restart: unless-stopped
+    depends_on:
+      ms-debt: { condition: service_healthy }
+    environment:
+      DEBT_URI: http://ms-debt:8083
+      #  Sin llave contesta con reglas, que es el camino por omision.
+      XAI_API_KEY: ${XAI_API_KEY:-}
+    #  La imagen de Python no trae curl, pero si httpx, que es con lo que este
+    #  servicio le habla a ms-debt.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8085/openapi.json').status_code==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 256M }
+
+  gateway:
+    profiles: ["app"]
+    build: { context: ., args: { MODULO: gateway } }
+    image: tbridge/gateway:1.0.0
+    restart: unless-stopped
+    depends_on:
+      ms-auth:     { condition: service_healthy }
+      ms-debt:     { condition: service_healthy }
+      ms-payments: { condition: service_healthy }
+    environment:
+      GATEWAY_PORT: "8082"
+      AUTH_URI:     http://ms-auth:8081
+      DEBT_URI:     http://ms-debt:8083
+      PAYMENTS_URI: http://ms-payments:8084
+      AI_URI:       http://ms-ai:8085
+      #  El limite de peticiones por IP, por minuto. Se declara aca para poder
+      #  subirlo durante la prueba de capacidad: todo el trafico de k6 sale de
+      #  una sola IP, y con el cupo de fabrica la prueba mediria el limitador
+      #  en vez del sistema. Ver pruebas/carga/README.md
+      RATE_AUTH_CAPACITY:   ${RATE_AUTH_CAPACITY:-10}
+      RATE_GLOBAL_CAPACITY: ${RATE_GLOBAL_CAPACITY:-120}
+      #  Quien puede hacerle peticiones con credenciales desde otro origen. El
+      #  portal no lo necesita —nginx lo sirve desde el mismo—, asi que esto
+      #  solo pesa si alguien le pega al gateway directo. Sale del mismo puerto
+      #  que el portal para que cambiar uno no deje desalineado al otro.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${PORTAL_PORT:-8080},http://127.0.0.1:${PORTAL_PORT:-8080}}
+      #  En que proxies se confia para saber la IP del cliente (el nginx del
+      #  portal vive en una red de Docker, 172.16 a 172.31). El valor por
+      #  omision es el mismo del application.yml, y NO puede quedar vacio: una
+      #  lista vacia hace que el gateway vuelva a borrar la IP del cliente, y
+      #  todos los intentos fallidos se cuentan como si fueran de una sola
+      #  persona.
+      TRUSTED_PROXIES: '${TRUSTED_PROXIES:-127\.0\.0\.1|0:0:0:0:0:0:0:1|172\.(1[6-9]|2[0-9]|3[01])\..*}'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8082/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  portal:
+    profiles: ["app"]
+    build: { context: ./frontend }
+    image: tbridge/portal:1.0.0
+    restart: unless-stopped
+    depends_on:
+      gateway: { condition: service_healthy }
+    ports:
+      - "${PORTAL_PORT:-8080}:8080"
+    #  wget viene en busybox, que si trae la imagen de alpine.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { memory: 128M }
+
+  # ===========================================================================
+  #  Perfil "carga": las pruebas de rendimiento.
+  # ===========================================================================
+  #  No levanta nada: se corre a demanda, una vez por escenario.
+  #      docker compose --profile carga run --rm k6 run /carga/capacidad.js
+  #
+  #  Va dentro de la red de compose a proposito, para entrar por el portal
+  #  igual que un navegador y poder pedirle un codigo a ms-auth por dentro.
+  # ===========================================================================
+  k6:
+    profiles: ["carga"]
+    image: grafana/k6:latest
+    environment:
+      PORTAL_URI:   http://portal:8080
+      AUTH_URI:     http://ms-auth:8081
+      MAIL_URI:     http://mailpit:8025
+      INTERNAL_KEY: ${INTERNAL_KEY:-tbridge-internal-dev}
+      #  Los mismos cupos que tenga el gateway, para que limite.js compruebe
+      #  contra el numero real y no contra uno escrito a mano.
+      RATE_AUTH_CAPACITY:   ${RATE_AUTH_CAPACITY:-10}
+      RATE_GLOBAL_CAPACITY: ${RATE_GLOBAL_CAPACITY:-120}
+    volumes:
+      - ./pruebas/carga:/carga:ro
+
+#  Ningun servicio de la aplicacion publica su puerto: al portal se entra por
+#  el 8080 y de ahi en adelante todo viaja por la red interna de Docker. El
+#  unico camino hacia los servicios es el gateway, que es donde esta el
+#  limite de peticiones. El token lo verifica cada servicio por su cuenta:
+#  ninguno confia en que otro ya lo haya revisado.
 
 volumes:
   tbridge_db_data:

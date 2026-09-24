@@ -1,0 +1,17 @@
+# =============================================================================
+#  Finales de linea
+# =============================================================================
+#  Este repositorio se trabaja en Windows con core.autocrlf=true: Git guarda LF
+#  y al hacer checkout reescribe cada archivo con CRLF. Para casi todo da lo
+#  mismo. Para un script de shell, no: Linux lee la primera linea como
+#  "#!/bin/sh\r" y no encuentra el interprete.
+#
+#  mvnw es el caso de hoy: en un clon hecho en Windows llega con CRLF, y quien
+#  lo copie a Linux o a un contenedor no lo puede ejecutar.
+# =============================================================================
+*.sh    text eol=lf
+mvnw    text eol=lf
+
+# Y al reves: el lanzador de Windows necesita CRLF, o cmd.exe interpreta mal
+# algunas lineas.
+*.cmd   text eol=crlf

@@ -1,0 +1,73 @@
+# =============================================================================
+#  Analisis estatico de seguridad — CodeQL
+# =============================================================================
+#  Lee el codigo buscando patrones que terminan en vulnerabilidad: inyeccion
+#  de SQL, datos del usuario que llegan sin filtrar a una consulta o a una
+#  respuesta, secretos escritos en el codigo, criptografia mal usada.
+#
+#  Los hallazgos quedan en la pestana Security del repositorio, con fecha.
+#  No rompe el build: un hallazgo se revisa, no se ignora ni bloquea a todo el
+#  equipo hasta que alguien lo mire.
+# =============================================================================
+name: CodeQL
+
+on:
+  push:
+  pull_request:
+  schedule:
+    #  Una vez por semana: las reglas de CodeQL cambian aunque el codigo no.
+    - cron: '0 6 * * 1'
+
+jobs:
+  analizar:
+    name: Analizar ${{ matrix.lenguaje }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      #  Lo minimo que necesita: leer el codigo y subir los resultados.
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lenguaje: java-kotlin
+            construir: manual
+          - lenguaje: javascript-typescript
+            construir: none
+          - lenguaje: python
+            construir: none
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 25
+        if: matrix.lenguaje == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Preparar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.lenguaje }}
+          build-mode: ${{ matrix.construir }}
+
+      # CodeQL analiza el bytecode, asi que para Java hay que compilar. Sin
+      # pruebas: aca se busca codigo vulnerable, no fallas de logica.
+      #
+      # mvn y no ./mvnw, igual que en ci.yml: el wrapper esta en git sin el bit
+      # de ejecucion (se commitea desde Windows), y en Linux daria "Permission
+      # denied". El runner de GitHub ya trae Maven instalado.
+      - name: Compilar
+        if: matrix.lenguaje == 'java-kotlin'
+        run: mvn -B -q package -DskipTests
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.lenguaje }}

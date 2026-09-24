@@ -26,17 +26,22 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     private final long globalCapacity;
     private final Duration authRefill;
     private final Duration globalRefill;
+    private final ClienteReal clientes;
 
     public RateLimitFilter(
             @Value("${ratelimit.auth-capacity:10}") long authCapacity,
             @Value("${ratelimit.auth-refill-minutes:1}") long authRefillMinutes,
             @Value("${ratelimit.global-capacity:120}") long globalCapacity,
-            @Value("${ratelimit.global-refill-minutes:1}") long globalRefillMinutes
+            @Value("${ratelimit.global-refill-minutes:1}") long globalRefillMinutes,
+            //  La misma definicion de "en quien se confia" que usa Spring Cloud
+            //  Gateway para reenviar X-Forwarded-For a los servicios.
+            @Value("${spring.cloud.gateway.server.webflux.trusted-proxies:127\\.0\\.0\\.1}") String confiables
     ) {
         this.authCapacity = authCapacity;
         this.globalCapacity = globalCapacity;
         this.authRefill = Duration.ofMinutes(Math.max(1, authRefillMinutes));
         this.globalRefill = Duration.ofMinutes(Math.max(1, globalRefillMinutes));
+        this.clientes = new ClienteReal(confiables);
     }
 
     @Override
@@ -46,8 +51,14 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
         String path = request.getURI().getPath();
-        boolean authPath = path.startsWith("/api/auth/");
-        String ip = clientIp(request);
+        //  El cupo estrecho protege secretos que se pueden adivinar —el codigo
+        //  de seis caracteres— y el envio de correos. Renovar y cerrar sesion
+        //  no son eso: la llave tiene 256 bits al azar. Contarlos aca hacia que
+        //  recargar la pagina diez veces en un minuto dejara a alguien afuera,
+        //  porque cada recarga renueva la sesion. Van al cupo general.
+        boolean authPath = path.startsWith("/api/auth/")
+                && !path.equals("/api/auth/refresh") && !path.equals("/api/auth/logout");
+        String ip = clientes.de(request);
         String key = (authPath ? "auth:" : "api:") + ip;
         Bucket bucket = buckets.computeIfAbsent(key, k -> authPath ? authBucket() : globalBucket());
         if (bucket.tryConsume(1)) {
@@ -74,17 +85,6 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 .refillGreedy(globalCapacity, globalRefill)
                 .build();
         return Bucket.builder().addLimit(limit).build();
-    }
-
-    private static String clientIp(ServerHttpRequest request) {
-        String forwarded = request.getHeaders().getFirst("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        if (request.getRemoteAddress() != null && request.getRemoteAddress().getAddress() != null) {
-            return request.getRemoteAddress().getAddress().getHostAddress();
-        }
-        return "unknown";
     }
 
     @Override

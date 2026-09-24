@@ -6,7 +6,7 @@ export default function Magic() {
   const [params] = useSearchParams();
   const token = params.get("token") || "";
   const navigate = useNavigate();
-  const { entrarConEnlace, homeFor } = useAuth();
+  const { entrarConEnlace, homeFor, ready } = useAuth();
   const [mensaje, setMensaje] = useState("Validando el enlace…");
   const [fallo, setFallo] = useState(false);
   // En desarrollo React monta dos veces; el enlace es de un solo uso y el
@@ -14,6 +14,12 @@ export default function Magic() {
   const usado = useRef(false);
 
   useEffect(() => {
+    // Primero termina de resolverse la sesion que pudiera haber: al cargar,
+    // la pagina intenta renovarla, y eso es una llamada de red. Si el enlace
+    // entrara en paralelo y esa renovacion fallara despues, su resultado
+    // pisaria la sesion recien abierta y la persona quedaria afuera. Las
+    // paginas de login no tienen el problema: PublicOnly ya las hace esperar.
+    if (!ready) return;
     if (usado.current) return;
     usado.current = true;
     if (!token) {
@@ -27,7 +33,7 @@ export default function Magic() {
         setMensaje(err.message);
         setFallo(true);
       });
-  }, [token]);
+  }, [token, ready]);
 
   return (
     <div className="auth-panel" style={{ minHeight: "100vh" }}>
