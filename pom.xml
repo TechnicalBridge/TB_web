@@ -32,7 +32,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>25</maven.compiler.release>
     <spring-cloud.version>2025.0.3</spring-cloud.version>
-    <jjwt.version>0.12.6</jjwt.version>
+    <jjwt.version>0.13.0</jjwt.version>
   </properties>
 
   <dependencyManagement>
