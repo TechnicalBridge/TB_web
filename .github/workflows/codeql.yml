@@ -41,7 +41,7 @@ jobs:
             construir: none
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: JDK 25
         if: matrix.lenguaje == 'java-kotlin'
