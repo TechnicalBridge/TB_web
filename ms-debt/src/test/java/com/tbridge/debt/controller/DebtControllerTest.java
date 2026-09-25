@@ -75,7 +75,7 @@ class DebtControllerTest {
         return new DebtSummaryResponse(3L, "CTR-2024-007", "Patrimonio Inmuebles", "76418902-7",
                 "Comercial Nandu SpA", "76991245-2", "Arriendo local comercial", Debt.Currency.UF,
                 new BigDecimal("115.50"), new BigDecimal("115.50"), BigDecimal.ZERO, estado,
-                Instant.parse("2026-09-24T12:00:00Z"));
+                Instant.parse("2026-09-24T12:00:00Z"), 0, 1, false);
     }
 
     @Test
@@ -86,6 +86,8 @@ class DebtControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$._embedded.debts[0].externalId").value("CTR-2024-007"))
                 .andExpect(jsonPath("$._embedded.debts[0].saldo").value(115.50))
+                .andExpect(jsonPath("$._embedded.debts[0].cuotasPagadas").value(0))
+                .andExpect(jsonPath("$._embedded.debts[0].cuotasTotales").value(1))
                 .andExpect(jsonPath("$._embedded.debts[0]._links.self.href").value(PUBLICA + "/api/debts/3"))
                 .andExpect(jsonPath("$._links.self.href").value(PUBLICA + "/api/debts"));
     }

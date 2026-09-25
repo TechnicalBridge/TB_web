@@ -90,7 +90,7 @@ public class PaymentService {
         Payment.Gateway gateway = pasarela(pedido.gateway());
 
         //  El monto y a quien se le debe salen de ms-debt, no del cuerpo.
-        DebtClient.DebtSnapshot deuda = deudas.obtener(pedido.debtId(), pedido.installmentId());
+        DebtClient.DebtSnapshot deuda = deudas.obtener(pedido.debtId(), pedido.installmentIds());
         if (!user.rut().equalsIgnoreCase(deuda.debtorRut())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es tuya");
         }

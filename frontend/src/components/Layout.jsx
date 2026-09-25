@@ -3,59 +3,81 @@ import { rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import Logo from "./Logo";
 import Chatbot from "./Chatbot";
+import TemaToggle from "./TemaToggle";
+import { IconoCartera, IconoDocumento, IconoSalir } from "./Iconos";
 
-const debtorLinks = [{ to: "/app", label: "Mis pagos", end: true }];
-const creditorLinks = [{ to: "/databridge", label: "Cartera", end: true }];
+const debtorLinks = [{ to: "/app", label: "Mis deudas", end: true, Icono: IconoDocumento }];
+const creditorLinks = [{ to: "/databridge", label: "Cartera", end: true, Icono: IconoCartera }];
+
+/** Las iniciales para el circulo del usuario: "Camila Reyes" -> "CR". */
+function iniciales(nombre) {
+  return String(nombre || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0].toUpperCase())
+    .join("");
+}
 
 export default function Layout({ variant }) {
   const { user, logout } = useAuth();
-  const links = variant === "creditor" ? creditorLinks : debtorLinks;
-  const brand = variant === "creditor" ? "DATABRIDGE" : "TECHNICAL BRIDGE";
-  const sub = variant === "creditor" ? "Portal de empresas" : "Portal de pago";
+  const esEmpresa = variant === "creditor";
+  const links = esEmpresa ? creditorLinks : debtorLinks;
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-row" style={{ marginBottom: 18 }}>
-          <Logo size={44} />
+        <div className="brand-row">
+          <Logo size={42} />
           <div>
-            <div className="brand-name" style={{ fontSize: 13 }}>{brand}</div>
-            <div className="brand-sub" style={{ letterSpacing: "0.06em" }}>{sub}</div>
+            <div className="brand-name">{esEmpresa ? "DataBridge" : "Technical Bridge"}</div>
+            <div className="brand-sub">{esEmpresa ? "Portal de empresas" : "Portal de pago"}</div>
           </div>
         </div>
-        {links.map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
-            {l.label}
+        {links.map(({ to, label, end, Icono }) => (
+          <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+            <Icono />
+            {label}
           </NavLink>
         ))}
         <div className="sidebar-foot">
+          <TemaToggle conTexto />
           <div className="user-chip">
-            {user?.role === "CREDITOR" ? (
-              <>
-                <b>{user?.nombre}</b>
-                <span>{user?.correo}</span>
-              </>
-            ) : (
-              <>
-                <b>RUT {rutLegible(user?.rut)}</b>
-                <span>Sesión con código de acceso</span>
-              </>
-            )}
+            <span className="avatar">{esEmpresa ? iniciales(user?.nombre) : "TB"}</span>
+            <div>
+              {esEmpresa ? (
+                <>
+                  <b>{user?.nombre}</b>
+                  <span>{user?.correo}</span>
+                </>
+              ) : (
+                <>
+                  <b>RUT {rutLegible(user?.rut)}</b>
+                  <span>Sesión con código de acceso</span>
+                </>
+              )}
+            </div>
           </div>
-          <button className="btn btn-ghost" onClick={logout}>Cerrar sesión</button>
+          <button className="btn btn-ghost btn-block" onClick={logout}>
+            <IconoSalir />
+            Cerrar sesión
+          </button>
         </div>
       </aside>
-      <div className="main">
+      <main className="main">
         <Outlet />
-      </div>
-      {variant === "debtor" ? <Chatbot /> : null}
-      <nav className="mobile-bar" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {links.map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => (isActive ? "active" : "")}>
-            {l.label}
+      </main>
+      {esEmpresa ? null : <Chatbot />}
+      <nav className="mobile-bar">
+        {links.map(({ to, label, end, Icono }) => (
+          <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? "active" : "")}>
+            <Icono />
+            {label}
           </NavLink>
         ))}
-        <button type="button" onClick={logout} style={{ background: "transparent", border: 0, color: "inherit" }}>
+        <TemaToggle conTexto />
+        <button type="button" onClick={logout}>
+          <IconoSalir />
           Salir
         </button>
       </nav>

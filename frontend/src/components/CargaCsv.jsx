@@ -7,9 +7,13 @@ const COLUMNAS = [
   "deudor_telefono", "moneda", "concepto", "referencias", "cargo_concepto", "cargo_periodo", "cargo_monto",
   "cargo_vencimiento",
 ];
+//  Una fila por cargo: cada deuda trae sus meses impagos, porque DataBridge
+//  cobra a deudores morosos y una deuda con un solo mes no entra.
 const EJEMPLO = [
   "CTR-2025-014;registrar;;16482337-7;persona;Felipe Rojas Muñoz;felipe.rojas@correo.cl;+56987654321;CLP;Arriendo mensual;contrato=CTR-2025-014;Arriendo agosto;2026-08;520000;2026-08-05",
+  "CTR-2025-014;registrar;;16482337-7;persona;Felipe Rojas Muñoz;felipe.rojas@correo.cl;+56987654321;CLP;Arriendo mensual;contrato=CTR-2025-014;Arriendo septiembre;2026-09;520000;2026-09-05",
   "CTR-2024-007;registrar;;76991245-2;empresa;Comercial Ñandú SpA;administracion@nandu.cl;;UF;Arriendo local comercial;;Arriendo julio;2026-07;38,5;2026-07-05",
+  "CTR-2024-007;registrar;;76991245-2;empresa;Comercial Ñandú SpA;administracion@nandu.cl;;UF;Arriendo local comercial;;Arriendo agosto;2026-08;38,5;2026-08-05",
   "CTR-2025-022;retirar;pago_directo;;;;;;;;;;;;",
 ];
 
@@ -89,10 +93,14 @@ export default function CargaCsv({ onCargada }) {
         if (e.dataTransfer.files?.[0]) setArchivo(e.dataTransfer.files[0]);
       }}
     >
-      <div className="topbar" style={{ marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>Cargar cartera (CSV)</h3>
+      <div className="card-cab">
+        <h3>Cargar cartera (CSV)</h3>
         <button type="button" className="link-btn" onClick={descargarPlantilla}>Descargar plantilla</button>
       </div>
+      <p className="hint" style={{ margin: "-4px 0 16px" }}>
+        Solo deudores morosos: una deuda entra con al menos {opciones?.minMesesImpagos ?? 2} meses impagos.
+        Las que traen menos se rechazan solas, con su motivo.
+      </p>
       {error ? <div className="error">{error}</div> : null}
 
       <div className="grid-2">
@@ -124,18 +132,18 @@ export default function CargaCsv({ onCargada }) {
         </div>
       </div>
 
-      <p className="hint" style={{ textAlign: "left", margin: "4px 0 12px" }}>
+      <p className="hint" style={{ margin: "4px 0 12px" }}>
         {archivo
           ? <>Archivo: <b>{archivo.name}</b> ({Math.ceil(archivo.size / 1024)} KB)</>
           : "Arrastra aquí el CSV, o elígelo. Separador ; y una fila por cargo, como en la plantilla."}
       </p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <label className="btn btn-ghost btn-sm" style={{ marginTop: 0 }}>
+      <div className="acciones-fila">
+        <label className="btn btn-ghost btn-sm">
           Elegir archivo
           <input type="file" accept=".csv,text/csv" hidden onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
         </label>
-        <button className="btn btn-primary btn-sm" style={{ marginTop: 0 }} disabled={!archivo || busy || !acreedor}>
-          {busy ? "Cargando…" : "Cargar"}
+        <button className="btn btn-primary btn-sm" disabled={!archivo || busy || !acreedor}>
+          {busy ? <><span className="girando" /> Cargando…</> : "Cargar"}
         </button>
       </div>
 

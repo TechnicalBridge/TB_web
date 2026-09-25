@@ -101,6 +101,23 @@ class PaymentControllerTest {
     }
 
     @Test
+    void mas_de_24_cuotas_o_una_cuota_sin_id_es_400() throws Exception {
+        String veinticinco = java.util.stream.IntStream.rangeClosed(1, 25).mapToObj(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        mvc.perform(post("/api/payments/checkout").header("Authorization", deudor())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"debtId\":3,\"installmentIds\":[" + veinticinco + "],\"gateway\":\"webpay\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Se pueden pagar hasta 24 cuotas a la vez"));
+        mvc.perform(post("/api/payments/checkout").header("Authorization", deudor())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"debtId\":3,\"installmentIds\":[12,null],\"gateway\":\"webpay\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Esa cuota no existe"));
+        verify(payments, never()).checkout(any(), any());
+    }
+
+    @Test
     void la_deuda_de_otro_es_403() throws Exception {
         when(payments.checkout(any(), any())).thenThrow(new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es tuya"));
 

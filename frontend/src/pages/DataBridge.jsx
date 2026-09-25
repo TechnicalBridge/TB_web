@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { resumenDeCartera } from "../api/analitica";
 import { enviarCodigo as pedirCodigo, listarDeudas } from "../api/deudas";
-import { dinero, ESTADO_DEUDA, estadoDe, fecha, rutLegible } from "../utils/formato";
+import { dinero, ESTADO_DEUDA, fecha, rutLegible } from "../utils/formato";
+import BarraEstado from "../components/BarraEstado";
 import CargaCsv from "../components/CargaCsv";
 import { EstadoCartera, RecuperadoPorDia } from "../components/Graficos";
-import { useAuth } from "../store/authStore";
+import { IconoCalendario, IconoCartera, IconoCheck } from "../components/Iconos";
 
 /**
  * El portal de la empresa que gestiona la cartera: la agencia (APOFYX) o el
@@ -16,7 +17,6 @@ import { useAuth } from "../store/authStore";
  * codigo de acceso.
  */
 export default function DataBridge() {
-  const { user } = useAuth();
   const [resumen, setResumen] = useState(null);
   const [deudas, setDeudas] = useState([]);
   const [filtro, setFiltro] = useState("todas");
@@ -47,59 +47,57 @@ export default function DataBridge() {
 
   return (
     <div>
-      <div className="topbar">
+      <header className="topbar aparece">
         <div>
-          <h1>Cartera</h1>
-          <p>{resumen?.organizacion || user?.nombre} · {user?.nombre}</p>
+          <span className="eyebrow">{resumen?.organizacion || "DataBridge"}</span>
+          <h1>Cartera morosa</h1>
+          <p>Deudores con meses impagos, y en qué va cada uno: pendiente, en convenio o pago conciliado.</p>
         </div>
         <span className="badge badge-ok"><span className="dot" /> Contrato v1</span>
-      </div>
+      </header>
       {error ? <div className="error">{error}</div> : null}
 
-      <div className="grid-3" style={{ marginBottom: 16 }}>
-        <div className="card stat">
+      <section className="grid-3 stats bloque">
+        <div className="card stat aparece" style={{ "--i": 1 }}>
+          <IconoCartera />
           <span>Deudas en gestión</span>
           <b>{resumen?.activas ?? "–"}</b>
-          <small className="hint" style={{ margin: 0, textAlign: "left" }}>
-            {resumen ? `${resumen.enConvenio} en convenio de pago` : ""}
-          </small>
+          <small>{resumen ? `${resumen.enConvenio} en convenio de pago` : ""}</small>
         </div>
-        <div className="card stat">
-          <span>Pagadas</span>
+        <div className="card stat aparece" style={{ "--i": 2 }}>
+          <IconoCheck />
+          <span>Pagos conciliados</span>
           <b>{resumen?.pagadas ?? "–"}</b>
-          <small className="hint" style={{ margin: 0, textAlign: "left" }}>
-            {resumen ? `${resumen.retiradas} retiradas por el acreedor` : ""}
-          </small>
+          <small>{resumen ? `${resumen.retiradas} retiradas por el acreedor` : ""}</small>
         </div>
-        <div className="card stat">
+        <div className="card stat aparece" style={{ "--i": 3 }}>
+          <IconoCalendario />
           <span>Recuperado</span>
           <b className="totales">
             {(resumen?.porMoneda || []).map((m) => (
               <span key={m.moneda}>{dinero(m.recuperado, m.moneda)}</span>
             ))}
           </b>
-          <small className="hint" style={{ margin: 0, textAlign: "left" }}>
-            {(resumen?.porMoneda || []).map((m) => `${m.tasaRecuperacion}% en ${m.moneda}`).join(" · ")}
-          </small>
+          <small>{(resumen?.porMoneda || []).map((m) => `${m.tasaRecuperacion}% en ${m.moneda}`).join(" · ")}</small>
         </div>
-      </div>
+      </section>
 
-      <div className="grid-2" style={{ marginBottom: 16 }}>
+      <div className="grid-2 bloque aparece" style={{ "--i": 4, alignItems: "stretch" }}>
         <EstadoCartera resumen={resumen} />
         <RecuperadoPorDia resumen={resumen} />
       </div>
 
-      <div style={{ marginBottom: 16 }}>
+      <div className="bloque aparece" style={{ "--i": 5 }}>
         <CargaCsv onCargada={() => refrescar().catch((err) => setError(err.message))} />
       </div>
 
-      <div className="card">
-        <div className="topbar" style={{ marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Deudas</h3>
-          <div className="filters" style={{ marginBottom: 0 }}>
+      <div className="card aparece" style={{ "--i": 6 }}>
+        <div className="card-cab">
+          <h3>Deudas</h3>
+          <div className="filters">
             {["todas", "open", "repacted", "paid", "withdrawn"].map((f) => (
               <button key={f} type="button" className={`chip ${filtro === f ? "on" : ""}`} onClick={() => setFiltro(f)}>
-                {f === "todas" ? "Todas" : ESTADO_DEUDA[f].texto}
+                {f === "todas" ? "Todas" : ESTADO_DEUDA[f]}
               </button>
             ))}
           </div>
@@ -111,50 +109,51 @@ export default function DataBridge() {
               : "No hay deudas en ese estado."}
           </div>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Deudor</th>
-                <th>Acreedor</th>
-                <th>Saldo</th>
-                <th>Estado</th>
-                <th>Acceso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.map((d) => {
-                const estado = estadoDe(ESTADO_DEUDA, d.estado);
-                const aviso = avisos[d.id];
-                const cobrable = d.estado === "open" || d.estado === "repacted";
-                return (
-                  <tr key={d.id}>
-                    <td>{d.deudor}<span className="sub">{rutLegible(d.deudorRut)}</span></td>
-                    <td>{d.acreedor}<span className="sub">{d.externalId} · {d.concepto}</span></td>
-                    <td>
-                      {dinero(d.saldo, d.moneda)}
-                      <span className="sub">de {dinero(d.montoOriginal, d.moneda)}</span>
-                    </td>
-                    <td>
-                      <span className={`badge ${estado.clase}`}>{estado.texto}</span>
-                      <span className="sub">{fecha(d.actualizada)}</span>
-                    </td>
-                    <td>
-                      {cobrable ? (
-                        <button type="button" className="btn btn-cyan btn-sm" disabled={aviso?.enviando}
-                                onClick={() => enviarCodigo(d)}>
-                          {aviso?.enviando ? "Enviando…" : "Enviar código"}
-                        </button>
-                      ) : null}
-                      {aviso?.ok ? <span className="sub">{aviso.ok}</span> : null}
-                      {aviso?.error ? <span className="sub" style={{ color: "var(--danger)" }}>{aviso.error}</span> : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="tabla-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Deudor</th>
+                  <th>Acreedor</th>
+                  <th className="num">Saldo</th>
+                  <th>Estado</th>
+                  <th>Acceso</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((d) => {
+                  const aviso = avisos[d.id];
+                  const cobrable = d.estado === "open" || d.estado === "repacted";
+                  return (
+                    <tr key={d.id}>
+                      <td>{d.deudor}<span className="sub">{rutLegible(d.deudorRut)}</span></td>
+                      <td>{d.acreedor}<span className="sub">{d.externalId} · {d.concepto}</span></td>
+                      <td className="num">
+                        {dinero(d.saldo, d.moneda)}
+                        <span className="sub">de {dinero(d.montoOriginal, d.moneda)}</span>
+                      </td>
+                      <td>
+                        <BarraEstado deuda={d} compacta />
+                        <span className="sub">{fecha(d.actualizada)}</span>
+                      </td>
+                      <td>
+                        {cobrable ? (
+                          <button type="button" className="btn btn-soft btn-sm" disabled={aviso?.enviando}
+                                  onClick={() => enviarCodigo(d)}>
+                            {aviso?.enviando ? <><span className="girando" /> Enviando…</> : "Enviar código"}
+                          </button>
+                        ) : null}
+                        {aviso?.ok ? <span className="sub">{aviso.ok}</span> : null}
+                        {aviso?.error ? <span className="sub" style={{ color: "var(--danger)" }}>{aviso.error}</span> : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-        <p className="hint" style={{ textAlign: "left" }}>
+        <p className="hint">
           El código va al correo del deudor y no se muestra aquí: quien lo viera podría entrar en su lugar.
         </p>
       </div>

@@ -25,6 +25,7 @@ import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -84,6 +85,15 @@ class PaymentServiceTest {
         assertEquals(410000L, pago.amountClp());
         assertEquals(Payment.Status.created, pago.status());
         assertTrue(pago.checkoutUrl().startsWith("http://localhost:8080/pasarela/41?sig="));
+    }
+
+    @Test
+    void las_cuotas_elegidas_viajan_a_ms_debt_que_es_quien_pone_el_monto() {
+        when(deudas.obtener(3L, List.of(12L, 13L))).thenReturn(deudaDe(FELIPE, "CLP", "280000"));
+
+        PaymentResponse pago = servicio.checkout(DEUDOR, new CheckoutRequest(3L, List.of(12L, 13L), "webpay"));
+
+        assertEquals(new BigDecimal("280000"), pago.amount());
     }
 
     @Test

@@ -231,6 +231,7 @@ Las que no caben en JSON Schema las aplica cada receptor al recibir:
 | `deuda_no_encontrada` | Se pide `retirar` una deuda que el receptor no tiene |
 | `deuda_saldada` | Se pide actualizar o retirar una deuda que ya se pagó |
 | `campana_desconocida` | El `mandato` apunta a una campaña que esa agencia no registró para ese acreedor |
+| `bajo_umbral_mora` | **Solo DataBridge.** Una deuda nueva con menos meses impagos que su umbral (dos, por omisión): DataBridge cobra a deudores morosos. Se cuentan meses distintos (el `periodo` del cargo, o el mes de su vencimiento), no cargos. Una deuda que ya está en gestión puede volver con menos: el deudor pagó una parte directo |
 
 **La mora la calcula el receptor, no el emisor.** Son los días entre el vencimiento del cargo
 impago más antiguo y `fecha_corte`. Mandarla calculada abriría la puerta a que no calce con los

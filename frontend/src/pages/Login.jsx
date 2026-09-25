@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
+import TemaToggle from "../components/TemaToggle";
+import { IconoVolver } from "../components/Iconos";
 import { rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 
@@ -18,19 +20,22 @@ export default function Login({ portal }) {
 
   return (
     <div className="auth-shell">
+      <TemaToggle flotante />
       <section className="auth-hero">
-        <div className="brand-row">
-          <Logo size={72} />
+        <div className="brand-row aparece">
+          <Logo size={56} />
           <div>
-            <div className="brand-name">{esDeudor ? "TECHNICAL BRIDGE" : "DATABRIDGE"}</div>
+            <div className="brand-name">{esDeudor ? "Technical Bridge" : "DataBridge"}</div>
             <div className="brand-sub">{esDeudor ? "Portal de pago" : "Portal de empresas"}</div>
           </div>
         </div>
         <div className="hero-copy">
           {esDeudor ? (
             <>
-              <h1>Tu RUT y tu código. Nada más.</h1>
-              <p>
+              <h1 className="aparece" style={{ "--i": 1 }}>
+                Tu RUT y tu código. <span className="resalta">Nada más.</span>
+              </h1>
+              <p className="aparece" style={{ "--i": 2 }}>
                 Sin cuenta y sin contraseña. El código te llegó por correo o WhatsApp de parte de la
                 empresa con la que tienes el pago pendiente. Nunca te vamos a mandar un enlace para
                 entrar: escribe esta dirección tú mismo.
@@ -38,15 +43,20 @@ export default function Login({ portal }) {
             </>
           ) : (
             <>
-              <h1>La cartera que gestionas, al día.</h1>
-              <p>
-                Saldo, convenios y recuperación de cada deuda que entregaste. La cartera llega por la
-                API del contrato v1; los pagos, de vuelta por eventos firmados.
+              <h1 className="aparece" style={{ "--i": 1 }}>
+                Tu cartera morosa, <span className="resalta">al día.</span>
+              </h1>
+              <p className="aparece" style={{ "--i": 2 }}>
+                Saldo, convenios y pagos conciliados de cada deudor con meses impagos. La cartera
+                llega por la API del contrato v1; los pagos vuelven por eventos firmados.
               </p>
             </>
           )}
         </div>
-        <Link to="/" className="badge badge-muted">Volver</Link>
+        <Link to="/" className="btn btn-ghost btn-sm badge-link aparece" style={{ "--i": 3 }}>
+          <IconoVolver size={16} />
+          Volver
+        </Link>
       </section>
       <section className="auth-panel">
         <div className="auth-card">
@@ -85,7 +95,7 @@ function ConCodigo({ onSinCodigo }) {
 
   return (
     <form onSubmit={onSubmit}>
-      <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>Entrar</h2>
+      <h2>Entrar</h2>
       {error ? <div className="error">{error}</div> : null}
       <div className="field">
         <label htmlFor="rut">RUT</label>
@@ -111,10 +121,10 @@ function ConCodigo({ onSinCodigo }) {
           required
         />
       </div>
-      <button className="btn btn-primary" disabled={busy || codigo.length !== 6}>
-        {busy ? "Entrando…" : "Entrar"}
+      <button className="btn btn-primary btn-block" disabled={busy || codigo.length !== 6}>
+        {busy ? <><span className="girando" /> Entrando…</> : "Entrar"}
       </button>
-      <p className="hint">
+      <p className="hint centro">
         El código sirve una vez y dura 24 horas.{" "}
         <button type="button" className="link-btn" onClick={onSinCodigo}>
           ¿No te llegó?
@@ -148,9 +158,9 @@ function ConEnlace({ esDeudor, onVolver }) {
   if (enviado) {
     return (
       <div>
-        <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>Revisa tu correo</h2>
+        <h2>Revisa tu correo</h2>
         <p>{enviado.mensaje}</p>
-        <p className="hint" style={{ textAlign: "left" }}>
+        <p className="hint">
           El enlace sirve una vez y dura {enviado.expiraEnMinutos} minutos.
         </p>
         {import.meta.env.DEV ? (
@@ -165,11 +175,9 @@ function ConEnlace({ esDeudor, onVolver }) {
 
   return (
     <form onSubmit={onSubmit}>
-      <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>
-        {esDeudor ? "Recibir un enlace" : "Entrar"}
-      </h2>
+      <h2>{esDeudor ? "Recibir un enlace" : "Entrar"}</h2>
       {esDeudor ? (
-        <p className="hint" style={{ textAlign: "left", marginTop: 0 }}>
+        <p className="hint" style={{ margin: "-6px 0 16px" }}>
           Si no te llegó el código, te mandamos un enlace de un solo uso al correo que la empresa
           tiene registrado.
         </p>
@@ -194,11 +202,11 @@ function ConEnlace({ esDeudor, onVolver }) {
           required
         />
       </div>
-      <button className="btn btn-primary" disabled={busy}>
-        {busy ? "Enviando…" : "Enviar enlace"}
+      <button className="btn btn-primary btn-block" disabled={busy}>
+        {busy ? <><span className="girando" /> Enviando…</> : "Enviar enlace"}
       </button>
       {onVolver ? (
-        <p className="hint">
+        <p className="hint centro">
           <button type="button" className="link-btn" onClick={onVolver}>Tengo mi código</button>
         </p>
       ) : null}

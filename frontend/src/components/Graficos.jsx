@@ -3,34 +3,61 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { dinero } from "../utils/formato";
+import { useTema } from "../store/temaStore";
 
-const COLORES = { activas: "#ffd48a", enConvenio: "#3ec6e0", pagadas: "#3dcf70", retiradas: "#5c7185" };
-const TOOLTIP = { background: "#0a1628", border: "1px solid rgba(126,223,240,0.2)", borderRadius: 12 };
+/**
+ * Los colores de los graficos, por tema. Recharts pinta en SVG con colores
+ * fijos y no lee las variables de CSS, asi que la paleta se repite aca: si
+ * cambia index.css, cambia esto.
+ */
+const PALETA = {
+  light: {
+    activas: "#c8764b", enConvenio: "#d9a441", pagadas: "#3e7b4f", retiradas: "#c9bda8",
+    barra: "#3e7b4f", texto: "#7c7266", grilla: "#ebe1cf", fondo: "#fffdf8", borde: "#dccfb8", tinta: "#2e2a24",
+  },
+  dark: {
+    activas: "#d9a0e8", enConvenio: "#e7bd64", pagadas: "#a68cf1", retiradas: "#4a4557",
+    barra: "#a68cf1", texto: "#9d96ab", grilla: "#2d2a35", fondo: "#1c1b21", borde: "#3b3746", tinta: "#eeeaf4",
+  },
+};
+
+function usePaleta() {
+  const tema = useTema((s) => s.tema);
+  const c = PALETA[tema];
+  const tooltip = {
+    contentStyle: { background: c.fondo, border: `1px solid ${c.borde}`, borderRadius: 12, color: c.tinta },
+    itemStyle: { color: c.tinta },
+    labelStyle: { color: c.texto },
+  };
+  return { c, tooltip };
+}
 
 /** El estado de la cartera: cuenta deudas, asi que no mezcla monedas. */
 export function EstadoCartera({ resumen }) {
-  if (!resumen) return null;
+  const { c, tooltip } = usePaleta();
+  if (!resumen) return <div className="card esqueleto" style={{ minHeight: 300 }} />;
   const datos = [
     { clave: "activas", nombre: "Pendientes", valor: resumen.activas - resumen.enConvenio },
     { clave: "enConvenio", nombre: "En convenio", valor: resumen.enConvenio },
-    { clave: "pagadas", nombre: "Pagadas", valor: resumen.pagadas },
+    { clave: "pagadas", nombre: "Pago conciliado", valor: resumen.pagadas },
     { clave: "retiradas", nombre: "Retiradas", valor: resumen.retiradas },
   ].filter((d) => d.valor > 0);
 
   return (
     <div className="card">
-      <h3 style={{ marginTop: 0 }}>Estado de la cartera</h3>
+      <h3>Estado de la cartera</h3>
       {datos.length === 0 ? (
         <div className="empty">Sin deudas todavía.</div>
       ) : (
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={datos} dataKey="valor" nameKey="nombre" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                {datos.map((d) => <Cell key={d.clave} fill={COLORES[d.clave]} stroke="none" />)}
+              <Pie data={datos} dataKey="valor" nameKey="nombre" innerRadius={58} outerRadius={88} paddingAngle={3}
+                   animationDuration={900}>
+                {datos.map((d) => <Cell key={d.clave} fill={c[d.clave]} stroke="none" />)}
               </Pie>
-              <Tooltip contentStyle={TOOLTIP} formatter={(v, n) => [`${v} deuda(s)`, n]} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 12, color: "#9bb0c4" }} />
+              <Tooltip {...tooltip} formatter={(v, n) => [`${v} deuda(s)`, n]} />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: 12, color: c.texto }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -44,18 +71,21 @@ export function EstadoCartera({ resumen }) {
  * el mismo eje darian barras que no se pueden comparar.
  */
 export function RecuperadoPorDia({ resumen }) {
+  const { c, tooltip } = usePaleta();
   const series = resumen?.recuperadoPorDia || {};
   const monedas = Object.keys(series);
   const [elegida, setElegida] = useState(null);
   const moneda = monedas.includes(elegida) ? elegida : monedas[0];
   const datos = (series[moneda] || []).map((p) => ({ dia: p.dia.slice(5), monto: Number(p.monto) }));
 
+  if (!resumen) return <div className="card esqueleto" style={{ minHeight: 300 }} />;
+
   return (
     <div className="card">
-      <div className="topbar" style={{ marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>Recuperado por día</h3>
+      <div className="card-cab">
+        <h3>Recuperado por día</h3>
         {monedas.length > 1 ? (
-          <div className="filters" style={{ marginBottom: 0 }}>
+          <div className="filters">
             {monedas.map((m) => (
               <button key={m} type="button" className={`chip ${m === moneda ? "on" : ""}`} onClick={() => setElegida(m)}>
                 {m}
@@ -70,12 +100,13 @@ export function RecuperadoPorDia({ resumen }) {
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={datos}>
-              <CartesianGrid stroke="rgba(126,223,240,0.12)" vertical={false} />
-              <XAxis dataKey="dia" stroke="#9bb0c4" tick={{ fontSize: 10 }} interval={4} />
-              <YAxis stroke="#9bb0c4" tick={{ fontSize: 10 }} width={70}
+              <CartesianGrid stroke={c.grilla} vertical={false} />
+              <XAxis dataKey="dia" stroke={c.texto} tick={{ fontSize: 10 }} interval={4} />
+              <YAxis stroke={c.texto} tick={{ fontSize: 10 }} width={70}
                      tickFormatter={(v) => (moneda === "UF" ? v : `${Math.round(v / 1000)}k`)} />
-              <Tooltip contentStyle={TOOLTIP} formatter={(v) => [dinero(v, moneda), "Recuperado"]} />
-              <Bar dataKey="monto" fill="#3dcf70" radius={[6, 6, 0, 0]} />
+              <Tooltip {...tooltip} cursor={{ fill: c.grilla, opacity: 0.5 }}
+                       formatter={(v) => [dinero(v, moneda), "Recuperado"]} />
+              <Bar dataKey="monto" fill={c.barra} radius={[6, 6, 0, 0]} animationDuration={900} />
             </BarChart>
           </ResponsiveContainer>
         </div>

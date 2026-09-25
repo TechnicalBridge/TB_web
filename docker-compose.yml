@@ -157,6 +157,8 @@ services:
       PORT: "8083"
       DB_NAME: tb_debt
       AUTH_URI: http://ms-auth:8081
+      #  El alcance: una deuda entra a cobranza con al menos estos meses impagos.
+      MIN_MESES_IMPAGOS: ${MIN_MESES_IMPAGOS:-2}
       EVENTS_RABBIT: "true"
       RABBIT_HOST: rabbitmq
       RABBIT_USER: ${RABBIT_USER:-guest}

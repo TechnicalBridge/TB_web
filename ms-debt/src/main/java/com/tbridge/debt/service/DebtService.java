@@ -35,7 +35,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Las deudas.
@@ -57,6 +62,10 @@ public class DebtService {
 
     private static final Logger log = LoggerFactory.getLogger(DebtService.class);
     private static final ZoneId CHILE = ZoneId.of("America/Santiago");
+
+    /** El orden en que se pagan las cuotas: la que vence primero, primero. */
+    private static final Comparator<Installment> EN_ORDEN =
+            Comparator.comparing(Installment::getDueDate).thenComparing(Installment::getNumber);
 
     private final DebtRepository debts;
     private final DebtorRepository debtors;
@@ -277,36 +286,62 @@ public class DebtService {
 
     /**
      * Cuanto se debe y a quien, para que ms-payments no le crea al navegador.
-     * Sin cuota indicada, se cobra todo el saldo y se informa la cuota
-     * pendiente que vence primero.
+     *
+     * <p><b>Las cuotas se pagan en orden.</b> Se pueden pagar varias a la vez,
+     * pero siempre las que vencen primero: pagar la de diciembre dejando
+     * octubre impaga dejaria al deudor en mora con plata pagada. Sin cuotas
+     * indicadas se cobran todas, es decir, el saldo.
+     *
+     * <p>La cuota va en la respuesta solo cuando se paga una. Con varias va
+     * vacia, y al confirmarse el pago se imputa de la mas antigua a la mas
+     * nueva: como el monto es justo la suma de las elegidas, paga esas y
+     * ninguna otra.
      */
-    public DebtSnapshotResponse snapshotInterno(Long debtId, Long installmentId) {
+    public DebtSnapshotResponse snapshotInterno(Long debtId, List<Long> installmentIds) {
         Debt deuda = debts.findById(debtId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Deuda no encontrada"));
+        List<Installment> pendientes = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
+                .sorted(EN_ORDEN).toList();
 
-        BigDecimal monto;
-        Long cuotaId = installmentId;
-        if (installmentId != null) {
-            Installment cuota = installments.findById(installmentId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cuota no encontrada"));
-            if (!cuota.getDebt().getId().equals(deuda.getId())) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Esa cuota no es de esa deuda");
+        List<Installment> aPagar = pendientes;
+        if (installmentIds != null && !installmentIds.isEmpty()) {
+            Set<Long> pedidas = new HashSet<>(installmentIds);
+            if (pedidas.size() != installmentIds.size()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Una cuota viene dos veces");
             }
-            if (cuota.getStatus() != Installment.Status.pending) {
-                throw new ApiException(HttpStatus.CONFLICT, "Esa cuota no esta pendiente");
+            Map<Long, Installment> pendientePorId = pendientes.stream()
+                    .collect(Collectors.toMap(Installment::getId, Function.identity()));
+            for (Long id : installmentIds) {
+                if (!pendientePorId.containsKey(id)) {
+                    throw cuotaQueNoSePuedePagar(deuda, id);
+                }
             }
-            monto = cuota.getAmount();
-        } else {
-            monto = saldo(deuda);
-            cuotaId = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
-                    .min(Comparator.comparing(Installment::getDueDate))
-                    .map(Installment::getId).orElse(null);
+            aPagar = pendientes.subList(0, pedidas.size());
+            if (!aPagar.stream().map(Installment::getId).collect(Collectors.toSet()).equals(pedidas)) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "Las cuotas se pagan en orden, desde la que vence primero");
+            }
         }
+
+        BigDecimal monto = aPagar.stream().map(Installment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         if (monto.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException(HttpStatus.CONFLICT, "Esa deuda no tiene saldo por pagar");
         }
+        Long cuotaId = aPagar.size() == 1 ? aPagar.getFirst().getId() : null;
         return new DebtSnapshotResponse(deuda.getId(), deuda.getCreditor().getRut(), deuda.getDebtor().getRut(),
                 deuda.getCurrency().name(), monto, cuotaId);
+    }
+
+    /** Por que una cuota pedida no esta entre las que se pueden pagar. */
+    private ApiException cuotaQueNoSePuedePagar(Debt deuda, Long id) {
+        Installment cuota = installments.findById(id).orElse(null);
+        if (cuota == null) {
+            return new ApiException(HttpStatus.NOT_FOUND, "Cuota no encontrada");
+        }
+        if (!cuota.getDebt().getId().equals(deuda.getId())) {
+            return new ApiException(HttpStatus.BAD_REQUEST, "Esa cuota no es de esa deuda");
+        }
+        return new ApiException(HttpStatus.CONFLICT, "La cuota " + cuota.getNumber() + " ya no esta pendiente");
     }
 
     /**
@@ -346,7 +381,7 @@ public class DebtService {
             //  como cualquier abono en una cuenta corriente.
             BigDecimal porAplicar = aviso.amount() == null ? BigDecimal.ZERO : aviso.amount();
             List<Installment> pendientes = installments.findByDebtAndStatus(deuda, Installment.Status.pending).stream()
-                    .sorted(Comparator.comparing(Installment::getDueDate)).toList();
+                    .sorted(EN_ORDEN).toList();
             for (Installment cuota : pendientes) {
                 if (porAplicar.compareTo(cuota.getAmount()) < 0) {
                     break;
@@ -401,8 +436,9 @@ public class DebtService {
     //  Representacion
     // ------------------------------------------------------------------
 
+    /** Con una sola consulta de cuotas: el saldo y el avance salen de la misma lista. */
     private DebtSummaryResponse resumen(Debt deuda) {
-        return DebtSummaryResponse.from(deuda, saldo(deuda));
+        return DebtSummaryResponse.from(deuda, installments.findByDebtOrderByNumberAsc(deuda));
     }
 
     private DebtDetailResponse detalle(Debt deuda) {

@@ -24,11 +24,18 @@ docker compose --profile app up -d --wait
 
 ### Qué hace
 
-DataBridge es donde **el deudor paga**. Entra con su RUT y un código de seis caracteres que le
-llegó por correo o WhatsApp —sin cuenta, sin contraseña—, ve exactamente qué debe y a quién,
-y puede pagarlo de una vez o repactarlo en 3 a 24 cuotas sin interés. Si tiene dudas, le
-pregunta a un asistente que lee su deuda con su propia sesión. Cuando termina de pagar, descarga
-su certificado de deuda cero.
+DataBridge es donde **el deudor moroso paga**. Entra con su RUT y un código de seis caracteres
+que le llegó por correo o WhatsApp —sin cuenta, sin contraseña—, ve exactamente qué debe y a
+quién, y puede pagarlo de una vez o repactarlo en 3 a 24 cuotas sin interés. En convenio, paga
+una cuota o varias a la vez, siempre desde la que vence primero. Una barra le muestra en qué va
+cada deuda: **pendiente → en convenio → pago conciliado**. Si tiene dudas, le pregunta a un
+asistente que lee su deuda con su propia sesión. Cuando termina de pagar, descarga su certificado
+de deuda cero.
+
+**El alcance son los deudores morosos.** Una deuda entra a cobranza con al menos **dos meses
+impagos** (`MIN_MESES_IMPAGOS`); con menos todavía no es mora, y se rechaza sola al recibir la
+cartera con el código `bajo_umbral_mora`. Se cuentan meses, no cargos: el arriendo y el gasto
+común de septiembre son un solo mes.
 
 Del otro lado, la empresa que gestiona la cartera la ve al día, carga deudas nuevas por API o
 arrastrando un CSV, le envía el código al deudor y mira en un panel cuánto se ha recuperado.
@@ -111,12 +118,18 @@ El sistema arranca con una cartera de ejemplo. Para conseguir un código:
 
 ```powershell
 $cuerpo = @{ rut = "16482337-7"; canales = @("correo"); correo = "felipe.rojas@correo.cl"
-             acreedor = "Patrimonio Inmuebles"; paraQue = "CTR-2025-014" } | ConvertTo-Json
-docker compose exec ms-auth curl -s -X POST http://127.0.0.1:8081/internal/codigos `
-  -H "X-Internal-Key: tbridge-internal-dev" -H "Content-Type: application/json" -d $cuerpo
+             acreedor = "Patrimonio Inmuebles"; paraQue = "CTR-2025-014" } | ConvertTo-Json -Compress
+$cuerpo | docker compose exec -T ms-auth curl -s -X POST http://127.0.0.1:8081/internal/codigos `
+  -H "X-Internal-Key: tbridge-internal-dev" -H "Content-Type: application/json" --data-binary "@-"
 ```
 
-El código sirve **una sola vez** y dura 24 horas. También llega al buzón de prueba.
+Responde con el `codigo`. Con él se entra al portal en **Tengo un código de acceso**, con el
+RUT `16.482.337-7`. El código sirve **una sola vez** y dura 24 horas. También llega al buzón de
+prueba.
+
+> El JSON va por la entrada estándar (`--data-binary "@-"`) y no como argumento a propósito:
+> PowerShell 5.1 parte en dos un argumento que trae comillas y espacios, y `curl` recibía medio
+> JSON.
 
 > Se pide desde dentro del contenedor a propósito: los endpoints internos **no** están
 > publicados hacia afuera. Ver [§9](#9-requisitos-no-funcionales).
@@ -449,11 +462,12 @@ sequenceDiagram
     A->>A: compara SHA-256(rut:código), marca usado
     A-->>D: JWT con el RUT
 
-    D->>P: "Pagar"
+    D->>P: "Pagar" (el saldo, o las cuotas marcadas)
     P->>G: POST /api/payments/checkout
     G->>Y: con el JWT
-    Y->>M: GET /internal/debts/{id}
+    Y->>M: GET /internal/debts/{id}?installmentIds=...
     M-->>Y: monto y RUT del dueño
+    Note over M: Las cuotas tienen que ser<br/>las que vencen primero.
     Note over Y: El monto lo decide ms-debt.<br/>Si es UF, fija los pesos ahora,<br/>con la UF del día en Chile.
     Y-->>D: pasarela
 
@@ -495,6 +509,8 @@ componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
 | **Rendimiento** · consultas | Trece índices en `tb_debt` para los caminos que se usan: `ix_debt_creditor_status` (la cartera de un acreedor), `ix_debt_debtor` (lo que debe una persona), `ix_batch_creditor`. Los `UNIQUE` hacen doble trabajo: `uq_payment_gateway` evita cobrar dos veces la misma transacción y además es el índice con que se busca | `V1__esquema_inicial.sql` |
 | **Rendimiento** · memoria | La JVM lee el límite del contenedor (`MaxRAMPercentage=75`), no el de la máquina, y cada servicio tiene su tope declarado | `*/Dockerfile` |
 | **Rendimiento** · portal | La página de la empresa, que trae los gráficos, se descarga solo al entrar a ella: el deudor baja 264 kB en vez de 685 kB | `frontend/src/App.jsx` |
+| **Rendimiento** · simulador | El deslizador del plazo consulta el plan cuando lleva un segundo quieto, y guarda cada plazo ya calculado. Antes cada paso era una consulta: deslizarlo de punta a punta mandaba 18 seguidas y el gateway lo cortaba con "Demasiadas solicitudes". **Medido:** de 7 a 24 meses, una sola consulta; volver a un plazo ya visto, ninguna | `frontend/src/pages/Repact.jsx` |
+| **Usabilidad** | Tema claro (crema y verde bosque) y oscuro (negro carbón y morado): sigue al del sistema hasta que la persona elige uno, y lo recuerda. Quien pidió menos movimiento al sistema no ve animaciones. La barra de estado se anuncia como barra de progreso a los lectores de pantalla | `frontend/src/index.css`, `store/temaStore.js` |
 | **Escalabilidad** | Ningún servicio guarda sesión: la identidad viaja en el JWT, así que `docker compose up --scale gateway=3` funciona sin más. Cada servicio tiene su base y el trabajo pesado va por colas. **Límite conocido:** ms-debt y ms-payments tienen tareas programadas (`EventDispatcher`, `CampanaAvanceService`, `NotificationDispatcher`, `UfLoader`) que correrían en cada copia y harían el trabajo dos veces; replicarlos exige coordinarlas primero. Replicables hoy: gateway, ms-ai y portal | |
 | **Disponibilidad** | Los nueve contenedores declaran `healthcheck` y ninguno arranca antes que aquel del que depende. La salud de los servicios la da Actuator (`/actuator/health`), que incluye la conexión a la base: un servicio sin base no se declara sano. `restart: unless-stopped` los repone si se caen | `docker-compose.yml` |
 | **Disponibilidad** · entrega | Todo lo que sale hacia otro sistema pasa por una bandeja con reintentos (1 min, 5 min, 30 min, 2 h, 6 h, 24 h). Si DataBridge está caído, APOFYX sigue recibiendo carteras y lo pendiente se entrega solo cuando vuelve | `outbox`, `NotificationDispatcherTest` |
@@ -557,6 +573,7 @@ se corren con Maven.
 | `PUBLIC_URL` | `http://localhost:8080` | La dirección que se escribe en los correos |
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
+| `MIN_MESES_IMPAGOS` | `2` | El alcance: desde cuántos meses impagos entra una deuda a cobranza. Con menos se rechaza (`bajo_umbral_mora`) |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
 | `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP |
 | `SWAGGER_ENABLED` | `true` | Apagar la documentación, por ejemplo en producción |
@@ -579,12 +596,13 @@ base de datos**, así que corren en segundos en cualquier equipo.
 
 | Tipo | Qué cubre | Dónde |
 | --- | --- | --- |
-| **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados (`@Mock`, `@InjectMocks`): que cada quien vea solo lo suyo, que el monto del cobro salga de ms-debt y no del navegador, que un pago avisado dos veces se abone una, que repactar anule las cuotas en vez de borrarlas, la sesión revocable (rotación, robo, dos pestañas), el código de acceso, la UF, la firma de los eventos. Una prueba fija byte a byte el JSON de un evento firmado: si cambiara, APOFYX lo rechazaría | `*/src/test/java/.../service/` |
+| **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados (`@Mock`, `@InjectMocks`): que cada quien vea solo lo suyo, que el monto del cobro salga de ms-debt y no del navegador, que un pago avisado dos veces se abone una, que repactar anule las cuotas en vez de borrarlas,
+que las cuotas se paguen en orden, que solo entren deudores morosos, la sesión revocable (rotación, robo, dos pestañas), el código de acceso, la UF, la firma de los eventos. Una prueba fija byte a byte el JSON de un evento firmado: si cambiara, APOFYX lo rechazaría | `*/src/test/java/.../service/` |
 | **De integración de la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON de verdad, y los servicios simulados (`@MockitoBean`): `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, la forma de cada respuesta, los `_links` de HATEOAS según quién mira y con la dirección pública, la cookie de la sesión, y los nombres del contrato v1 intactos | `*/src/test/java/.../controller/` |
 | **De seguridad** | En cada push, **CodeQL** (análisis estático de Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot (también para las imágenes base de Docker). Con tráfico real: los dos frenos contra fuerza bruta y que una IP inventada no da un cupo nuevo | `.github/workflows/`, [`rendimiento/limite.js`](rendimiento/limite.js) |
 | **De rendimiento** (k6) | Cómo lo siente una persona (100 usuarios, p95 de 7 a 12 ms según el día) y dónde está el techo (unas 1.800 peticiones por segundo). La prueba de estrés encontró que nginx se quedaba sin puertos a las 500 por segundo; ya está arreglado | [`rendimiento/`](rendimiento/README.md) |
 
-**144 pruebas en Java y 12 en Python.** Corren solas en **GitHub Actions** con cada push; las de
+**158 pruebas en Java y 12 en Python.** Corren solas en **GitHub Actions** con cada push; las de
 rendimiento necesitan el sistema arriba y se corren a mano.
 
 ---
@@ -623,7 +641,8 @@ detalle de lo que debe y repactar sin interés. A la agencia, una cartera que se
    buzón de prueba. Ve la cartera que APOFYX entregó, aunque el acreedor sea Patrimonio.
 3. **Le envía el código al deudor.** El botón *Enviar código* lo manda al correo del deudor. La
    pantalla no lo muestra: quien lo viera podría entrar en su lugar.
-4. **El deudor entra** con su RUT y ese código, simula un plan, lo acepta y paga.
+4. **El deudor entra** con su RUT y ese código, simula un plan, lo acepta y paga una o varias
+   cuotas, en orden. La barra de su deuda avanza: pendiente → en convenio → pago conciliado.
 5. **El pago vuelve por la cadena**: ms-payments avisa a ms-debt, ms-debt emite los eventos, y
    APOFYX y Patrimonio los reciben.
 

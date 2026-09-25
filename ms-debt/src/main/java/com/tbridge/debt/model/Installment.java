@@ -73,6 +73,8 @@ public class Installment {
     public Debt getDebt() { return debt; }
     public void setDebt(Debt debt) { this.debt = debt; }
     public void setRepactation(Repactation repactation) { this.repactation = repactation; }
+    /** Si es cuota de un convenio. Lee la columna, sin cargar el convenio. */
+    public boolean enConvenio() { return repactation != null; }
     public Short getNumber() { return number; }
     public void setNumber(Short number) { this.number = number; }
     public LocalDate getDueDate() { return dueDate; }

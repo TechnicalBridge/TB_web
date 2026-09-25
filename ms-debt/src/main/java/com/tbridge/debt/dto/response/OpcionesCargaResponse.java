@@ -14,7 +14,9 @@ import java.util.List;
 @Schema(description = "Los acreedores y campanas para los que se puede cargar cartera")
 public record OpcionesCargaResponse(
         @Schema(example = "APOFYX") String organizacion,
-        List<AcreedorCarga> acreedores
+        List<AcreedorCarga> acreedores,
+        @Schema(description = "El alcance: una deuda entra desde estos meses impagos", example = "2")
+        int minMesesImpagos
 ) {
 
     @Schema(description = "Un acreedor por cuya cuenta se puede cargar")

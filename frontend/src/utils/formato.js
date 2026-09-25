@@ -34,18 +34,9 @@ export const hoyEnChile = () => new Date().toLocaleDateString("sv-SE", { timeZon
 
 /** Como se le dice a una persona el estado de su deuda. */
 export const ESTADO_DEUDA = {
-  open: { texto: "Pendiente", clase: "badge-warn" },
-  repacted: { texto: "En convenio", clase: "badge-wait" },
-  paid: { texto: "Pagada", clase: "badge-ok" },
-  withdrawn: { texto: "Retirada por el acreedor", clase: "badge-muted" },
-  disputed: { texto: "En revision", clase: "badge-muted" },
+  open: "Pendiente",
+  repacted: "En convenio",
+  paid: "Pago conciliado",
+  withdrawn: "Retirada",
+  disputed: "En revisión",
 };
-
-export const ESTADO_CUOTA = {
-  pending: { texto: "Pendiente", clase: "badge-warn" },
-  paid: { texto: "Pagada", clase: "badge-ok" },
-  anulada: { texto: "Reemplazada", clase: "badge-muted" },
-};
-
-/** El estado con su estilo, o el texto tal cual si es uno que la pantalla no conoce. */
-export const estadoDe = (tabla, estado) => tabla[estado] || { texto: estado, clase: "badge-muted" };

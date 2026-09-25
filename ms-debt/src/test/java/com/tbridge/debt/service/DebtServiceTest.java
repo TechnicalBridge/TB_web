@@ -11,6 +11,7 @@ import com.tbridge.debt.model.DebtEvent;
 import com.tbridge.debt.model.Debtor;
 import com.tbridge.debt.model.Installment;
 import com.tbridge.debt.model.Organization;
+import com.tbridge.debt.model.Repactation;
 import com.tbridge.debt.repository.DebtChargeRepository;
 import com.tbridge.debt.repository.DebtEventRepository;
 import com.tbridge.debt.repository.DebtRepository;
@@ -112,7 +113,9 @@ class DebtServiceTest {
         cuotas.add(unica);
 
         when(debts.findById(3L)).thenReturn(Optional.of(deuda));
-        when(installments.findById(12L)).thenReturn(Optional.of(unica));
+        when(installments.findById(any())).thenAnswer(llamada -> cuotas.stream()
+                .filter(c -> c.getId().equals(llamada.getArgument(0))).findFirst());
+        when(installments.findByDebtOrderByNumberAsc(deuda)).thenReturn(cuotas);
         when(installments.findByDebtAndStatus(eq(deuda), any())).thenAnswer(llamada -> cuotas.stream()
                 .filter(c -> c.getStatus() == llamada.getArgument(1)).toList());
         when(events.findByDebtOrderByOccurredAtAsc(deuda)).thenReturn(historia);
@@ -142,6 +145,101 @@ class DebtServiceTest {
         assertEquals(1, suyas.size());
         assertEquals(new BigDecimal("410000"), suyas.getFirst().saldo());
         assertEquals(BigDecimal.ZERO, suyas.getFirst().pagado());
+        assertEquals(0, suyas.getFirst().cuotasPagadas());
+        assertEquals(1, suyas.getFirst().cuotasTotales());
+        assertEquals(false, suyas.getFirst().conConvenio());
+    }
+
+    /** Pasa la deuda a un convenio de tres cuotas de 140.000, la 12 anulada. */
+    private void enConvenioDeTres() {
+        cuotas.getFirst().setStatus(Installment.Status.void_);
+        Repactation convenio = new Repactation();
+        for (long id = 13; id <= 15; id++) {
+            Installment cuota = new Installment();
+            cuota.setId(id);
+            cuota.setDebt(deuda);
+            cuota.setRepactation(convenio);
+            cuota.setNumber((short) (id - 11));
+            cuota.setDueDate(LocalDate.of(2026, 10, 5).plusMonths(id - 13));
+            cuota.setAmount(new BigDecimal("140000"));
+            cuotas.add(cuota);
+        }
+        deuda.setStatus(Debt.Status.repacted);
+    }
+
+    @Test
+    void el_avance_cuenta_las_cuotas_vigentes_y_no_las_anuladas() {
+        enConvenioDeTres();
+        cuotas.get(1).setStatus(Installment.Status.paid);
+        when(debts.findByDebtorOrderByUpdatedAtDesc(valentina)).thenReturn(List.of(deuda));
+
+        DebtSummaryResponse resumen = servicio.listFor(deudor("18905214-6")).getFirst();
+
+        assertEquals(1, resumen.cuotasPagadas());
+        assertEquals(3, resumen.cuotasTotales());
+        assertEquals(new BigDecimal("280000"), resumen.saldo());
+        assertEquals(true, resumen.conConvenio());
+    }
+
+    @Test
+    void varias_cuotas_se_cobran_juntas_si_son_las_que_vencen_primero() {
+        enConvenioDeTres();
+
+        DebtSnapshotResponse snapshot = servicio.snapshotInterno(3L, List.of(14L, 13L));
+
+        assertEquals(new BigDecimal("280000"), snapshot.amount());
+        //  Con varias no va ninguna: el pago se imputa de la mas antigua a la mas nueva.
+        assertEquals(null, snapshot.installmentId());
+    }
+
+    @Test
+    void no_se_salta_una_cuota_vieja_para_pagar_una_nueva() {
+        enConvenioDeTres();
+
+        ApiException error = assertThrows(ApiException.class, () -> servicio.snapshotInterno(3L, List.of(14L)));
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals("Las cuotas se pagan en orden, desde la que vence primero", error.getMessage());
+    }
+
+    @Test
+    void una_cuota_anulada_o_repetida_no_se_cobra() {
+        enConvenioDeTres();
+
+        assertEquals(HttpStatus.CONFLICT,
+                assertThrows(ApiException.class, () -> servicio.snapshotInterno(3L, List.of(12L))).getStatus());
+        assertEquals(HttpStatus.BAD_REQUEST,
+                assertThrows(ApiException.class, () -> servicio.snapshotInterno(3L, List.of(13L, 13L))).getStatus());
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ApiException.class, () -> servicio.snapshotInterno(3L, List.of(99L))).getStatus());
+    }
+
+    @Test
+    void pagar_el_saldo_de_un_convenio_salda_todas_las_cuotas() {
+        //  Antes el cobro del saldo llevaba la id de la primera cuota, y al
+        //  confirmarse solo esa quedaba pagada.
+        enConvenioDeTres();
+        DebtSnapshotResponse snapshot = servicio.snapshotInterno(3L, null);
+        assertEquals(new BigDecimal("420000"), snapshot.amount());
+        assertEquals(null, snapshot.installmentId());
+
+        servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 42L, 3L, snapshot.installmentId(),
+                "18905214-6", "76418902-7", snapshot.amount(), "CLP", 420000L, null, "webpay", "wp-convenio",
+                Instant.now()));
+
+        assertEquals(Debt.Status.paid, deuda.getStatus());
+    }
+
+    @Test
+    void dos_cuotas_pagadas_juntas_dejan_la_tercera_pendiente() {
+        enConvenioDeTres();
+
+        servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 43L, 3L, null, "18905214-6",
+                "76418902-7", new BigDecimal("280000"), "CLP", 280000L, null, "webpay", "wp-dos", Instant.now()));
+
+        assertEquals(List.of(Installment.Status.void_, Installment.Status.paid, Installment.Status.paid,
+                Installment.Status.pending), cuotas.stream().map(Installment::getStatus).toList());
+        assertEquals(Debt.Status.repacted, deuda.getStatus());
     }
 
     @Test

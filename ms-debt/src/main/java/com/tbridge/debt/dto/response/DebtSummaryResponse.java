@@ -1,11 +1,13 @@
 package com.tbridge.debt.dto.response;
 
 import com.tbridge.debt.model.Debt;
+import com.tbridge.debt.model.Installment;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.hateoas.server.core.Relation;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Una deuda en la lista del portal.
@@ -29,10 +31,26 @@ public record DebtSummaryResponse(
         @Schema(description = "La suma de las cuotas pendientes", example = "96.25") BigDecimal saldo,
         @Schema(example = "19.25") BigDecimal pagado,
         @Schema(example = "repacted") Debt.Status estado,
-        Instant actualizada
+        Instant actualizada,
+        @Schema(description = "Cuotas ya pagadas. Con cuotasTotales, el avance del convenio", example = "1")
+        int cuotasPagadas,
+        @Schema(description = "Cuotas vigentes: las pagadas mas las pendientes. Las anuladas no cuentan",
+                example = "6")
+        int cuotasTotales,
+        @Schema(description = "Si se paga (o se pago) con un convenio de cuotas", example = "true")
+        boolean conConvenio
 ) {
 
-    public static DebtSummaryResponse from(Debt deuda, BigDecimal saldo) {
+    /** Con las cuotas de la deuda: de ellas salen el saldo y el avance. */
+    public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas) {
+        BigDecimal saldo = cuotas.stream()
+                .filter(c -> c.getStatus() == Installment.Status.pending)
+                .map(Installment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        int pagadas = (int) cuotas.stream().filter(c -> c.getStatus() == Installment.Status.paid).count();
+        int vigentes = (int) cuotas.stream().filter(c -> c.getStatus() != Installment.Status.void_).count();
+        boolean conConvenio = cuotas.stream()
+                .anyMatch(c -> c.getStatus() != Installment.Status.void_ && c.enConvenio());
         return new DebtSummaryResponse(
                 deuda.getId(),
                 deuda.getExternalId(),
@@ -46,6 +64,9 @@ public record DebtSummaryResponse(
                 saldo,
                 deuda.getOriginalAmount().subtract(saldo),
                 deuda.getStatus(),
-                deuda.getUpdatedAt());
+                deuda.getUpdatedAt(),
+                pagadas,
+                vigentes,
+                conConvenio);
     }
 }

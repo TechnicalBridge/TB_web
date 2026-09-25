@@ -24,11 +24,14 @@ import java.util.List;
 /**
  * Datos de demostracion.
  *
- * <p>Es la misma cartera del ejemplo del contrato de integracion: Patrimonio
- * Inmuebles entrega tres arrendatarios morosos al corte del 18-09-2026, bajo
- * el mandato de APOFYX. Que sea la misma en los tres sistemas no es adorno:
- * permite seguir una deuda desde el contrato de arriendo hasta el pago sin
- * cambiar de historia a mitad de camino.
+ * <p>La cartera del ejemplo del contrato de integracion: Patrimonio Inmuebles
+ * entrega tres arrendatarios morosos al corte del 18-09-2026, bajo el mandato
+ * de APOFYX. Que sea la misma en los tres sistemas permite seguir una deuda
+ * desde el contrato de arriendo hasta el pago sin cambiar de historia.
+ *
+ * <p>Con una diferencia: aca todos cumplen el alcance de DataBridge, que cobra
+ * desde dos meses impagos. En el ejemplo del contrato Valentina debe uno solo,
+ * y por eso DataBridge rechazaria esa deuda al recibirla.
  *
  * <p>Solo siembra si la base esta vacia.
  */
@@ -99,7 +102,9 @@ public class DataSeeder implements CommandLineRunner {
 
         deuda(lote, patrimonio, valentina, "CTR-2026-031", Debt.Currency.CLP, "Arriendo mensual",
                 "{\"contrato\":\"CTR-2026-031\",\"propiedad\":\"Depto 305, Los Leones 1180, Providencia\"}",
-                List.of(cargo("Arriendo septiembre", "2026-09", 410000, LocalDate.of(2026, 9, 5))));
+                List.of(
+                        cargo("Arriendo agosto", "2026-08", 410000, LocalDate.of(2026, 8, 5)),
+                        cargo("Arriendo septiembre", "2026-09", 410000, LocalDate.of(2026, 9, 5))));
 
         deuda(lote, patrimonio, nandu, "CTR-2024-007", Debt.Currency.UF, "Arriendo local comercial",
                 "{\"contrato\":\"CTR-2024-007\",\"propiedad\":\"Local 3, Av. Italia 1320, Providencia\"}",

@@ -2,35 +2,42 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { obtenerDeuda } from "../api/deudas";
 import { abrirCobro, obtenerPago } from "../api/pagos";
-import { dinero, ESTADO_CUOTA, estadoDe, fecha } from "../utils/formato";
+import { dinero, fecha, hoyEnChile } from "../utils/formato";
+import BarraEstado from "../components/BarraEstado";
+import Cargando from "../components/Cargando";
+import { CheckAnimado, IconoCandado, IconoCheck, IconoFlecha, IconoVolver } from "../components/Iconos";
 
 const PASARELAS = [
-  { id: "webpay", label: "Webpay" },
-  { id: "mercadopago", label: "Mercado Pago" },
-  { id: "khipu", label: "Khipu" },
+  { id: "webpay", label: "Webpay", detalle: "Débito o crédito" },
+  { id: "mercadopago", label: "Mercado Pago", detalle: "Saldo o tarjeta" },
+  { id: "khipu", label: "Khipu", detalle: "Transferencia" },
 ];
 
+const porVencimiento = (a, b) => a.vencimiento.localeCompare(b.vencimiento) || a.numero - b.numero;
+
 /**
- * Pagar una cuota o el saldo.
+ * Pagar una deuda, o las cuotas de su convenio.
+ *
+ * Las cuotas se eligen EN ORDEN, desde la que vence primero: marcar la
+ * tercera marca tambien la primera y la segunda, y desmarcar la segunda
+ * desmarca las que siguen. ms-debt exige lo mismo, porque pagar diciembre
+ * dejando octubre impago dejaria al deudor en mora con plata pagada.
  *
  * El monto no lo manda la pantalla: ms-payments se lo pregunta a ms-debt. Si
- * lo mandara el navegador, bastaria editar la peticion para pagar un peso y
- * dar la deuda por saldada.
+ * lo mandara el navegador, bastaria editar la peticion para pagar un peso.
  */
 export default function Pay() {
   const { id } = useParams();
   const [deuda, setDeuda] = useState(null);
   const [pasarela, setPasarela] = useState("webpay");
-  const [modo, setModo] = useState("cuota");
+  const [cuantas, setCuantas] = useState(1);
   const [pago, setPago] = useState(null);
   const [acreditado, setAcreditado] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const cargar = () => obtenerDeuda(id).then(setDeuda);
-
   useEffect(() => {
-    cargar().catch((err) => setError(err.message));
+    obtenerDeuda(id).then(setDeuda).catch((err) => setError(err.message));
   }, [id]);
 
   // Mientras la pasarela no confirma, se consulta el pago.
@@ -60,20 +67,30 @@ export default function Pay() {
     return () => clearInterval(t);
   }, [pago?.status, acreditado]);
 
-  if (!deuda) return <div className="card">{error || "Cargando…"}</div>;
+  if (!deuda) return error ? <div className="error">{error}</div> : <Cargando tarjetas={1} />;
 
   const moneda = deuda.moneda;
-  const pendientes = (deuda.cuotas || []).filter((c) => c.estado === "pending");
-  const proxima = pendientes[0];
-  const hayVarias = pendientes.length > 1;
-  const pagaCuota = hayVarias && modo === "cuota";
-  const monto = pagaCuota ? Number(proxima?.monto || 0) : Number(deuda.saldo || 0);
+  const vigentes = (deuda.cuotas || []).filter((c) => c.estado !== "anulada").sort(porVencimiento);
+  const pendientes = vigentes.filter((c) => c.estado === "pending");
+  const pagadas = vigentes.filter((c) => c.estado === "paid");
+  //  Las cuotas se numeran corrido entre planes (la 1 pudo quedar anulada al
+  //  repactar): al deudor se le muestra su lugar dentro del convenio.
+  const lugar = (c) => `Cuota ${vigentes.indexOf(c) + 1} de ${vigentes.length}`;
+  const enConvenio = deuda.conConvenio && pendientes.length > 0;
+  const k = Math.min(cuantas, pendientes.length);
+  const elegidas = enConvenio ? pendientes.slice(0, k) : pendientes;
+  const monto = elegidas.reduce((suma, c) => suma + Number(c.monto), 0);
+  const hoy = hoyEnChile();
+
+  /** Marcar la cuota i marca todas las anteriores; desmarcarla, todas las que siguen. */
+  const alternar = (i) => setCuantas(i < k ? i : i + 1);
 
   async function pagar() {
     setBusy(true);
     setError("");
     try {
-      const data = await abrirCobro(Number(id), pagaCuota ? proxima.id : null, pasarela);
+      const cuotas = enConvenio ? elegidas.map((c) => c.id) : null;
+      const data = await abrirCobro(Number(id), cuotas, pasarela);
       setPago(data);
       window.open(data.checkoutUrl, "_blank", "noopener,width=480,height=720");
     } catch (err) {
@@ -85,101 +102,164 @@ export default function Pay() {
 
   return (
     <div>
-      <div className="topbar">
+      <header className="topbar aparece">
         <div>
+          <span className="eyebrow">{deuda.acreedor}</span>
           <h1>Pagar</h1>
-          <p>{deuda.acreedor} · {deuda.concepto}</p>
+          <p>{deuda.concepto} · contrato {deuda.externalId}</p>
         </div>
-        <Link className="btn btn-ghost btn-sm" to="/app">Volver</Link>
-      </div>
+        <Link className="btn btn-ghost btn-sm" to="/app">
+          <IconoVolver size={16} />
+          Volver
+        </Link>
+      </header>
       {error ? <div className="error">{error}</div> : null}
 
       {pago?.status === "paid" ? (
-        <div className="card success">
-          <h2>Pago recibido</h2>
+        <div className="card success aparece">
+          <CheckAnimado />
+          <h2>{acreditado ? "Pago conciliado" : "Pago recibido"}</h2>
           <p>
             {dinero(pago.amount, pago.currency)}
             {pago.currency === "UF" && pago.amountClp ? ` · ${dinero(pago.amountClp)} al valor de hoy` : ""}
           </p>
-          <p className="hint">
-            {acreditado
-              ? `Tu saldo quedó en ${dinero(deuda.saldo, moneda)}. ${deuda.acreedor} ya fue avisado.`
-              : "Estamos acreditándolo en tu deuda…"}
-          </p>
-          <Link className="btn btn-primary" to="/app">Ver mis pagos</Link>
+          <BarraEstado deuda={deuda} />
+          {acreditado ? (
+            <p className="hint">
+              {Number(deuda.saldo) > 0
+                ? `Tu saldo quedó en ${dinero(deuda.saldo, moneda)}. ${deuda.acreedor} ya fue avisado.`
+                : `Pagaste todo. ${deuda.acreedor} ya fue avisado.`}
+            </p>
+          ) : (
+            <p className="esperando"><span className="girando" /> Conciliando el pago con tu deuda…</p>
+          )}
+          <Link className="btn btn-primary" to="/app" style={{ marginTop: 16 }}>Ver mis deudas</Link>
         </div>
       ) : (
-        <div className="grid-2">
-          <div className="card">
-            {hayVarias ? (
-              <div className="toggle">
-                <button type="button" className={modo === "cuota" ? "on" : ""} onClick={() => setModo("cuota")}>
-                  Próxima cuota
-                </button>
-                <button type="button" className={modo === "saldo" ? "on" : ""} onClick={() => setModo("saldo")}>
-                  Todo el saldo
-                </button>
-              </div>
-            ) : null}
-            <p style={{ fontSize: 28, fontFamily: "var(--display)", margin: "8px 0 4px" }}>{dinero(monto, moneda)}</p>
-            {pagaCuota && proxima ? (
-              <p className="hint" style={{ textAlign: "left", marginTop: 0 }}>
-                Cuota {proxima.numero} · vence {fecha(proxima.vencimiento)}
-              </p>
-            ) : null}
-            <div className="methods">
-              {PASARELAS.map((p) => (
-                <button key={p.id} type="button" className={`method ${pasarela === p.id ? "on" : ""}`}
-                        onClick={() => setPasarela(p.id)}>
-                  {p.label}
-                </button>
-              ))}
+        <>
+          <div className="card bloque aparece" style={{ "--i": 1 }}>
+            <BarraEstado deuda={deuda} />
+          </div>
+          <div className="grid-2">
+            <div className="card aparece" style={{ "--i": 2 }}>
+              {enConvenio ? (
+                <>
+                  <div className="card-cab">
+                    <h3>Elige las cuotas</h3>
+                    <span className="badge badge-ok">{deuda.cuotasPagadas} de {deuda.cuotasTotales} pagadas</span>
+                  </div>
+                  <p className="hint" style={{ margin: "0 0 14px" }}>
+                    Se pagan en orden, desde la que vence primero. Marca hasta donde quieras avanzar.
+                  </p>
+                  <div className="cuotas-lista">
+                    {pagadas.map((c, i) => (
+                      <div key={c.id} className="cuota-fila pagada" style={{ "--i": i }}>
+                        <span className="casilla" aria-hidden="true"><IconoCheck size={14} /></span>
+                        <span className="cuota-info">
+                          <b>{lugar(c)}</b>
+                          <span>Pagada el {fecha(c.pagadaEn)}</span>
+                        </span>
+                        <span className="cuota-monto">{dinero(c.monto, moneda)}</span>
+                      </div>
+                    ))}
+                    {pendientes.map((c, i) => (
+                      <label key={c.id} className={`cuota-fila${i < k ? " elegida" : ""}`}
+                             style={{ "--i": i + pagadas.length }}>
+                        <input type="checkbox" className="oculto" checked={i < k} disabled={!!pago}
+                               onChange={() => alternar(i)} />
+                        <span className="casilla" aria-hidden="true"><IconoCheck size={14} /></span>
+                        <span className="cuota-info">
+                          <b>{lugar(c)}</b>
+                          <span>
+                            Vence el {fecha(c.vencimiento)}
+                            {c.vencimiento < hoy ? <span className="tag tag-vencida">Vencida</span> : null}
+                          </span>
+                        </span>
+                        <span className="cuota-monto">{dinero(c.monto, moneda)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {pendientes.length > 1 ? (
+                    <div className="atajos">
+                      <button type="button" className={`chip${k === 1 ? " on" : ""}`} disabled={!!pago}
+                              onClick={() => setCuantas(1)}>
+                        Solo la próxima
+                      </button>
+                      <button type="button" className={`chip${k === pendientes.length ? " on" : ""}`}
+                              disabled={!!pago} onClick={() => setCuantas(pendientes.length)}>
+                        Todas ({pendientes.length})
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <h3>Lo que debes</h3>
+                  <table className="table">
+                    <thead>
+                      <tr><th>Concepto</th><th>Venció</th><th className="num">Monto</th></tr>
+                    </thead>
+                    <tbody>
+                      {(deuda.cargos || []).map((c, i) => (
+                        <tr key={i}>
+                          <td>{c.concepto}</td>
+                          <td>{fecha(c.vencimiento)}</td>
+                          <td className="num">{dinero(c.monto, moneda)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {deuda.estado === "open" ? (
+                    <p className="hint">
+                      ¿Mucho de una vez?{" "}
+                      <Link className="link-btn" to={`/app/repactar/${deuda.id}`}>Págalo en cuotas sin interés</Link>
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
-            <button className="btn btn-primary" disabled={busy || monto <= 0 || !!pago} onClick={pagar}>
-              {busy ? "Abriendo…" : "Ir a pagar"}
-            </button>
-            {pago ? <p className="hint">Esperando la confirmación de la pasarela…</p> : null}
-          </div>
 
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>{(deuda.cuotas || []).length > 1 ? "Cuotas" : "Detalle"}</h3>
-            {(deuda.cuotas || []).length > 1 ? (
-              <table className="table">
-                <thead>
-                  <tr><th>#</th><th>Vence</th><th>Monto</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {deuda.cuotas.map((c) => {
-                    const estado = estadoDe(ESTADO_CUOTA, c.estado);
-                    return (
-                      <tr key={c.id}>
-                        <td>{c.numero}</td>
-                        <td>{fecha(c.vencimiento)}</td>
-                        <td>{dinero(c.monto, moneda)}</td>
-                        <td><span className={`badge ${estado.clase}`}>{estado.texto}</span></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr><th>Concepto</th><th>Vence</th><th>Monto</th></tr>
-                </thead>
-                <tbody>
-                  {(deuda.cargos || []).map((c, i) => (
-                    <tr key={i}>
-                      <td>{c.concepto}</td>
-                      <td>{fecha(c.vencimiento)}</td>
-                      <td>{dinero(c.monto, moneda)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <div className="card pegado aparece" style={{ "--i": 3 }}>
+              <h3>Resumen</h3>
+              <div className="total-pagar">
+                <div>
+                  <span>Total a pagar</span>
+                  {enConvenio ? (
+                    <small>{k === 0 ? "Ninguna cuota elegida" : k === 1 ? "1 cuota" : `${k} cuotas`}</small>
+                  ) : null}
+                </div>
+                <b key={`${k}-${monto}`}>{dinero(monto, moneda)}</b>
+              </div>
+              <div className="methods">
+                {PASARELAS.map((p) => (
+                  <button key={p.id} type="button" className={`method${pasarela === p.id ? " on" : ""}`}
+                          disabled={!!pago} onClick={() => setPasarela(p.id)}>
+                    <b>{p.label}</b>
+                    <span>{p.detalle}</span>
+                  </button>
+                ))}
+              </div>
+              <button className="btn btn-primary btn-block" disabled={busy || monto <= 0 || !!pago} onClick={pagar}>
+                {busy ? <><span className="girando" /> Abriendo…</> : <>Pagar {dinero(monto, moneda)} <IconoFlecha size={16} /></>}
+              </button>
+              {pago ? (
+                <div className="esperando">
+                  <span className="girando" />
+                  Esperando la confirmación de la pasarela…{" "}
+                  <button type="button" className="link-btn"
+                          onClick={() => window.open(pago.checkoutUrl, "_blank", "noopener,width=480,height=720")}>
+                    Abrirla de nuevo
+                  </button>
+                </div>
+              ) : (
+                <p className="hint centro" style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
+                  <IconoCandado size={14} />
+                  {moneda === "UF" ? "Se cobra en pesos, al valor de la UF de hoy." : "Pago seguro: el monto sale de tu deuda registrada."}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

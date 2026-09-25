@@ -18,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +60,18 @@ class InternalControllerTest {
                 .andExpect(jsonPath("$.amount").value(410000))
                 .andExpect(jsonPath("$.debtorRut").value("18905214-6"))
                 .andExpect(jsonPath("$.installmentId").value(12));
+    }
+
+    @Test
+    void las_cuotas_pedidas_llegan_como_lista() throws Exception {
+        when(debts.snapshotInterno(3L, List.of(12L, 13L))).thenReturn(new DebtSnapshotResponse(
+                3L, "76418902-7", "16482337-7", "CLP", new BigDecimal("280000"), null));
+
+        mvc.perform(get("/internal/debts/3").param("installmentIds", "12", "13").header("X-Internal-Key", CLAVE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(280000))
+                //  Con varias cuotas no va ninguna: el pago se imputa en orden.
+                .andExpect(jsonPath("$.installmentId").doesNotExist());
     }
 
     @Test

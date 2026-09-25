@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../store/authStore";
+import TemaToggle from "../components/TemaToggle";
 
 export default function Magic() {
   const [params] = useSearchParams();
@@ -37,10 +38,14 @@ export default function Magic() {
 
   return (
     <div className="auth-panel" style={{ minHeight: "100vh" }}>
+      <TemaToggle flotante />
       <div className="auth-card">
-        <h2 style={{ fontFamily: "var(--display)", marginTop: 0 }}>Enlace de acceso</h2>
-        <p className="hint" style={{ textAlign: "left" }}>{mensaje}</p>
-        {fallo ? <Link className="btn btn-primary" to="/login">Volver a entrar</Link> : null}
+        <h2>Enlace de acceso</h2>
+        <p className={fallo ? "error" : "esperando"} style={fallo ? undefined : { justifyContent: "flex-start" }}>
+          {fallo ? null : <span className="girando" />}
+          {mensaje}
+        </p>
+        {fallo ? <Link className="btn btn-primary btn-block" to="/login">Volver a entrar</Link> : null}
       </div>
     </div>
   );

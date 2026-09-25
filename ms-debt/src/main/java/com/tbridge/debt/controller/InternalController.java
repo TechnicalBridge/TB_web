@@ -31,6 +31,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * Lo que un servicio hermano le pregunta o le avisa a ms-debt. No es publico:
  * va detras de la clave interna y el gateway no lo expone.
@@ -60,17 +62,21 @@ public class InternalController {
     @Operation(summary = "Cuanto se debe y a quien (para ms-payments)",
             description = "ms-payments cobra este monto y no el que manda el navegador.")
     @ApiResponse(responseCode = "200", description = "El monto a cobrar")
+    @ApiResponse(responseCode = "400", description = "Una cuota de otra deuda, o repetida",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
     @ApiResponse(responseCode = "404", description = "La deuda o la cuota no existen",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
-    @ApiResponse(responseCode = "409", description = "Sin saldo, o la cuota no esta pendiente",
+    @ApiResponse(responseCode = "409", description = "Sin saldo, una cuota que no esta pendiente, "
+            + "o cuotas que no son las que vencen primero",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     public DebtSnapshotResponse deuda(
             @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave,
             @PathVariable Long id,
-            @Parameter(description = "Una cuota en particular") @RequestParam(required = false) Long installmentId
+            @Parameter(description = "Las cuotas a pagar, que tienen que ser las que vencen primero. "
+                    + "Sin ellas, todo el saldo") @RequestParam(required = false) List<Long> installmentIds
     ) {
         exigirClave(clave);
-        return debts.snapshotInterno(id, installmentId);
+        return debts.snapshotInterno(id, installmentIds);
     }
 
     @PostMapping("/claves")
