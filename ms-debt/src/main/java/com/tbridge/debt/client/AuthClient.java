@@ -8,6 +8,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -21,8 +22,17 @@ import java.util.List;
 @Component
 public class AuthClient {
 
-    /** Lo que se le pide a ms-auth. */
-    public record PedidoDeCodigo(String rut, List<String> canales, String correo, String acreedor, String paraQue) {}
+    /**
+     * Lo que se le pide a ms-auth. Con {@code vence}, el correo es el
+     * recordatorio de una cuota que vence ese dia; sin el, es el primer aviso.
+     */
+    public record PedidoDeCodigo(String rut, List<String> canales, String correo, String acreedor, String paraQue,
+                                 LocalDate vence) {
+
+        public PedidoDeCodigo(String rut, List<String> canales, String correo, String acreedor, String paraQue) {
+            this(rut, canales, correo, acreedor, paraQue, null);
+        }
+    }
 
     /** Lo unico que se lee de la respuesta. */
     public record CodigoEmitido(Instant expiraEn) {}

@@ -1,5 +1,7 @@
 package com.tbridge.debt.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.jwt.JwtPrincipal;
@@ -63,6 +65,7 @@ class DebtServiceTest {
     @Mock private DebtEventRepository events;
     @Mock private EventosService eventos;
     @Spy private RepactationService repactation = new RepactationService();
+    @Spy private ObjectMapper json = new ObjectMapper();
 
     @InjectMocks
     private DebtService servicio;
@@ -228,6 +231,27 @@ class DebtServiceTest {
                 Instant.now()));
 
         assertEquals(Debt.Status.paid, deuda.getStatus());
+    }
+
+    @Test
+    void el_pago_guarda_que_cuotas_cubrio_por_donde_y_cuando() throws Exception {
+        enConvenioDeTres();
+        Instant pagadoEn = Instant.parse("2026-09-23T15:30:00Z");
+
+        servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 43L, 3L, null, "18905214-6",
+                "76418902-7", new BigDecimal("280000"), "CLP", 280000L, null, "WEBPAY", "wp-dos", pagadoEn));
+
+        DebtEvent aplicado = historia.stream()
+                .filter(e -> e.getType() == DebtEvent.Type.payment_applied).findFirst().orElseThrow();
+        JsonNode detalle = json.readTree(aplicado.getDetail());
+        //  La anulada (la 12) no cuenta: el plan es de tres, y se pagaron la 1 y la 2.
+        assertEquals("[1,2]", detalle.get("cuotas").toString());
+        assertEquals(3, detalle.get("de").asInt());
+        assertEquals("webpay", detalle.get("pasarela").asText());
+        assertEquals(43, detalle.get("pago_id").asInt());
+        assertEquals(280000, detalle.get("monto_clp").asInt());
+        //  Fechado cuando pago el deudor, no cuando llego el aviso.
+        assertEquals(pagadoEn, aplicado.getOccurredAt());
     }
 
     @Test

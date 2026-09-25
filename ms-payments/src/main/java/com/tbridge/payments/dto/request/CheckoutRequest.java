@@ -14,6 +14,13 @@ import java.util.List;
  *
  * <p>No trae monto a proposito: el monto lo dice ms-debt. Si lo mandara el
  * navegador, bastaria editar la peticion para pagar un peso.
+ *
+ * <p><b>Un campo que no existe se rechaza</b> (en ms-payments, todo cuerpo
+ * lo hace: {@code fail-on-unknown-properties}). Aca ignorarlo cambiaba lo que
+ * se cobra: cuando las cuotas pasaron de {@code installmentId} a
+ * {@code installmentIds}, el portal siguio mandando el nombre viejo, el
+ * servidor no lo vio y, sin cuotas, cobro todo el saldo. Mejor un 400 que un
+ * cobro que nadie pidio.
  */
 @Schema(description = "La deuda (o sus cuotas) a pagar y la pasarela")
 public record CheckoutRequest(

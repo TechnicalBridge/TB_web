@@ -9,6 +9,10 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
 /**
  * El envio por correo.
  *
@@ -20,6 +24,7 @@ import org.springframework.util.StringUtils;
 public class MailService {
 
     private static final Logger log = LoggerFactory.getLogger(MailService.class);
+    private static final Locale ES_CL = Locale.forLanguageTag("es-CL");
 
     private final JavaMailSender mailSender;
     private final String from;
@@ -68,6 +73,37 @@ public class MailService {
 
                 Technical Bridge
                 """.formatted(acreedor == null ? "Una empresa" : acreedor, publicUrl, codigo));
+    }
+
+    /**
+     * El recordatorio de una cuota que vence pronto, con un codigo nuevo para
+     * entrar a pagarla.
+     *
+     * <p>Con las mismas reglas que el primer aviso: sin enlace y sin monto.
+     * Dice la fecha, porque es lo que el deudor necesita para organizarse, y
+     * una fecha sola no le cuenta a un tercero cuanto debe nadie.
+     */
+    public void enviarRecordatorio(String to, String codigo, String acreedor, LocalDate vence) {
+        if (!smtpEnabled) {
+            log.info("Sin SMTP: recordatorio para {}, cuota del {}, codigo {}", to, vence, codigo);
+        }
+        enviar(to, "Se acerca el vencimiento de tu cuota", """
+                Hola,
+
+                El %s vence una cuota de tu convenio con %s.
+
+                Si quieres pagarla ahora, entra a %s y escribe tu RUT y este codigo:
+
+                    %s
+
+                Como siempre, este correo no trae ningun enlace: entra escribiendo
+                la direccion tu mismo.
+
+                Si ya la pagaste, no tienes que hacer nada.
+
+                Technical Bridge
+                """.formatted(vence.format(DateTimeFormatter.ofPattern("d 'de' MMMM", ES_CL)),
+                acreedor == null ? "tu acreedor" : acreedor, publicUrl, codigo));
     }
 
     /** El camino de excepcion, para quien no logra entrar con el codigo. */

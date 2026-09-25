@@ -53,6 +53,10 @@ public class Installment {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    /** Cuando se le recordo al deudor que vencia. Una vez por cuota. */
+    @Column(name = "reminded_at")
+    private Instant remindedAt;
+
     @Converter
     public static class StatusConverter implements AttributeConverter<Status, String> {
         @Override
@@ -85,4 +89,6 @@ public class Installment {
     public void setStatus(Status status) { this.status = status; }
     public Instant getPaidAt() { return paidAt; }
     public void setPaidAt(Instant paidAt) { this.paidAt = paidAt; }
+    public Instant getRemindedAt() { return remindedAt; }
+    public void setRemindedAt(Instant remindedAt) { this.remindedAt = remindedAt; }
 }

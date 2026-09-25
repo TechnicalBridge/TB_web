@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { cargarCartera, opcionesDeCarga } from "../api/deudas";
 import { hoyEnChile, rutLegible } from "../utils/formato";
 
-const COLUMNAS = [
+export const COLUMNAS = [
   "deuda_id", "accion", "motivo_retiro", "deudor_rut", "deudor_tipo", "deudor_nombre", "deudor_correo",
   "deudor_telefono", "moneda", "concepto", "referencias", "cargo_concepto", "cargo_periodo", "cargo_monto",
   "cargo_vencimiento",
@@ -108,7 +108,7 @@ export default function CargaCsv({ onCargada }) {
           <label htmlFor="acreedor">Acreedor</label>
           <select id="acreedor" value={acreedor} onChange={(e) => { setAcreedor(e.target.value); setCampana(""); }}>
             {(opciones?.acreedores || []).map((a) => (
-              <option key={a.rut} value={a.rut}>{a.nombre} · {rutLegible(a.rut)}</option>
+              <option key={a.rut} value={a.rut}>{a.nombre} ({rutLegible(a.rut)})</option>
             ))}
           </select>
         </div>
@@ -152,9 +152,13 @@ export default function CargaCsv({ onCargada }) {
           {resultado.repetido ? "Ese lote ya se había cargado con el mismo contenido: no se duplicó nada. " : ""}
           {resultado.recibidas} deuda(s) en el archivo: <b>{resultado.aceptadas} aceptadas</b>
           {rechazos.length ? `, ${rechazos.length} rechazadas` : ""}.
-          {rechazos.slice(0, 5).map((r) => (
-            <div key={r.id_externo}>· {r.id_externo}: {r.errores?.[0]?.mensaje}</div>
-          ))}
+          {rechazos.length ? (
+            <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+              {rechazos.slice(0, 5).map((r) => (
+                <li key={r.id_externo}>{r.id_externo}: {r.errores?.[0]?.mensaje}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
     </form>

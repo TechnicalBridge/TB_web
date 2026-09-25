@@ -4,6 +4,7 @@ import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.util.Hash;
 import com.tbridge.common.util.Rut;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
+import com.tbridge.debt.dto.response.ClaveResponse;
 import com.tbridge.debt.exception.CarteraInvalida;
 import com.tbridge.debt.model.ApiKey;
 import com.tbridge.debt.model.Organization;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 
 /**
  * Las credenciales de maquina del contrato de integracion.
@@ -43,7 +45,34 @@ public class ApiKeyService {
         String rut = Rut.normalizar(rutCrudo);
         Organization organizacion = organizations.findByRut(rut).orElseThrow(() -> new ApiException(
                 HttpStatus.NOT_FOUND, "No hay ninguna organizacion con RUT " + rut));
+        return emitir(organizacion, nombre);
+    }
 
+    /** Las claves de una organizacion, las activas y las revocadas. */
+    @Transactional(readOnly = true)
+    public List<ClaveResponse> listar(Organization organizacion) {
+        return claves.findByOrganizationOrderByCreatedAtDesc(organizacion).stream().map(ClaveResponse::from).toList();
+    }
+
+    /**
+     * Revoca una clave de la organizacion. No se borra: queda para saber que
+     * existio y hasta cuando se uso. Revocar una ya revocada no hace nada.
+     */
+    @Transactional
+    public ClaveResponse revocar(Organization organizacion, Long id) {
+        ApiKey clave = claves.findById(id)
+                .filter(c -> c.getOrganization().getId().equals(organizacion.getId()))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Esa clave no es de tu organizacion"));
+        if (clave.getRevokedAt() == null) {
+            clave.setRevokedAt(Instant.now());
+            claves.save(clave);
+        }
+        return ClaveResponse.from(clave);
+    }
+
+    /** Emite una clave para una organizacion ya resuelta. Se devuelve una sola vez. */
+    @Transactional
+    public ClaveEmitidaResponse emitir(Organization organizacion, String nombre) {
         byte[] azar = new byte[32];
         AZAR.nextBytes(azar);
         String clave = "tbk_" + Base64.getUrlEncoder().withoutPadding().encodeToString(azar);

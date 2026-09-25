@@ -1,13 +1,33 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { listarEnRiesgo } from "../api/deudas";
 import { rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import Logo from "./Logo";
 import Chatbot from "./Chatbot";
 import TemaToggle from "./TemaToggle";
-import { IconoCartera, IconoDocumento, IconoSalir } from "./Iconos";
+import {
+  IconoAlerta, IconoAyuda, IconoCalendario, IconoCartera, IconoDocumento, IconoLlave, IconoRecibo, IconoSalir,
+  IconoSubir, IconoUsuario,
+} from "./Iconos";
 
-const debtorLinks = [{ to: "/app", label: "Mis deudas", end: true, Icono: IconoDocumento }];
-const creditorLinks = [{ to: "/databridge", label: "Cartera", end: true, Icono: IconoCartera }];
+/** Cada enlace con su nombre largo (el menu) y el corto (la barra del telefono). */
+const DEUDOR = [
+  { to: "/app", label: "Mis deudas", corto: "Deudas", Icono: IconoDocumento, end: true },
+  { to: "/app/vencimientos", label: "Próximos vencimientos", corto: "Cuotas", Icono: IconoCalendario },
+  { to: "/app/pagos", label: "Historial de pagos", corto: "Pagos", Icono: IconoRecibo },
+  { to: "/app/mis-datos", label: "Mis datos", corto: "Mis datos", Icono: IconoUsuario },
+  { to: "/app/como-funciona", label: "Cómo funciona", corto: "Ayuda", Icono: IconoAyuda, aparte: true },
+];
+
+const EMPRESA = [
+  { to: "/databridge", label: "Cartera", corto: "Cartera", Icono: IconoCartera, end: true },
+  { to: "/databridge/pagos", label: "Pagos recibidos", corto: "Pagos", Icono: IconoRecibo },
+  { to: "/databridge/en-riesgo", label: "Convenios en riesgo", corto: "En riesgo", Icono: IconoAlerta, riesgo: true },
+  { to: "/databridge/cargar", label: "Cargar cartera", corto: "Cargar", Icono: IconoSubir },
+  { to: "/databridge/claves", label: "Claves de API", corto: "Claves", Icono: IconoLlave },
+  { to: "/databridge/como-funciona", label: "Cómo funciona", corto: "Ayuda", Icono: IconoAyuda, aparte: true },
+];
 
 /** Las iniciales para el circulo del usuario: "Camila Reyes" -> "CR". */
 function iniciales(nombre) {
@@ -22,23 +42,36 @@ function iniciales(nombre) {
 export default function Layout({ variant }) {
   const { user, logout } = useAuth();
   const esEmpresa = variant === "creditor";
-  const links = esEmpresa ? creditorLinks : debtorLinks;
+  const links = esEmpresa ? EMPRESA : DEUDOR;
+  const [enRiesgo, setEnRiesgo] = useState(0);
+
+  // Cuantos convenios estan atrasados: va como numero al lado del enlace.
+  useEffect(() => {
+    if (!esEmpresa) return;
+    listarEnRiesgo().then((c) => setEnRiesgo(c.length)).catch(() => setEnRiesgo(0));
+  }, [esEmpresa]);
+
+  const marca = esEmpresa ? "DataBridge" : "Technical Bridge";
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-row">
-          <Logo size={42} />
+          <Logo size={40} />
           <div>
-            <div className="brand-name">{esEmpresa ? "DataBridge" : "Technical Bridge"}</div>
+            <div className="brand-name">{marca}</div>
             <div className="brand-sub">{esEmpresa ? "Portal de empresas" : "Portal de pago"}</div>
           </div>
         </div>
-        {links.map(({ to, label, end, Icono }) => (
-          <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
-            <Icono />
-            {label}
-          </NavLink>
+        {links.map(({ to, label, end, Icono, aparte, riesgo }) => (
+          <div key={to}>
+            {aparte ? <div className="nav-separador" /> : null}
+            <NavLink to={to} end={end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
+              <Icono />
+              {label}
+              {riesgo && enRiesgo > 0 ? <span className="cuenta" aria-label={`${enRiesgo} en riesgo`}>{enRiesgo}</span> : null}
+            </NavLink>
+          </div>
         ))}
         <div className="sidebar-foot">
           <TemaToggle conTexto />
@@ -53,7 +86,7 @@ export default function Layout({ variant }) {
               ) : (
                 <>
                   <b>RUT {rutLegible(user?.rut)}</b>
-                  <span>Sesión con código de acceso</span>
+                  <span>Entraste con tu código</span>
                 </>
               )}
             </div>
@@ -64,22 +97,29 @@ export default function Layout({ variant }) {
           </button>
         </div>
       </aside>
-      <main className="main">
-        <Outlet />
-      </main>
+
+      <div>
+        <header className="movil-cabecera">
+          <Logo size={32} />
+          <span className="brand-name">{marca}</span>
+          <TemaToggle />
+          <button type="button" className="btn btn-ghost" onClick={logout} aria-label="Cerrar sesión">
+            <IconoSalir />
+          </button>
+        </header>
+        <main className="main">
+          <Outlet />
+        </main>
+      </div>
+
       {esEmpresa ? null : <Chatbot />}
       <nav className="mobile-bar">
-        {links.map(({ to, label, end, Icono }) => (
+        {links.map(({ to, corto, end, Icono }) => (
           <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? "active" : "")}>
-            <Icono />
-            {label}
+            <Icono size={20} />
+            {corto}
           </NavLink>
         ))}
-        <TemaToggle conTexto />
-        <button type="button" onClick={logout}>
-          <IconoSalir />
-          Salir
-        </button>
       </nav>
     </div>
   );

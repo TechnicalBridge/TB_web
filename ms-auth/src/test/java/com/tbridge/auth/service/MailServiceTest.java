@@ -10,6 +10,8 @@ import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
+import java.time.LocalDate;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,6 +20,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
 
 @ExtendWith(MockitoExtension.class)
 class MailServiceTest {
@@ -43,6 +46,22 @@ class MailServiceTest {
         assertTrue(texto.contains("K7M2QX"));
         assertTrue(texto.contains("Patrimonio Inmuebles"));
         //  La direccion va escrita, pero nada que se pueda cliquear hacia otro lado.
+        assertFalse(texto.contains("?token="));
+    }
+
+    @Test
+    void el_recordatorio_dice_la_fecha_pero_no_el_monto_ni_un_enlace() {
+        correo("mailpit").enviarRecordatorio("felipe.rojas@correo.cl", "P4R8TW", "Patrimonio Inmuebles",
+                LocalDate.of(2026, 10, 20));
+
+        ArgumentCaptor<SimpleMailMessage> enviado = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(smtp).send(enviado.capture());
+        String texto = enviado.getValue().getText();
+        assertTrue(texto.contains("20 de octubre"), texto);
+        assertTrue(texto.contains("P4R8TW"));
+        assertTrue(texto.contains("Patrimonio Inmuebles"));
+        //  Un correo que llega a quien no es no dice cuanto debe nadie.
+        assertFalse(texto.contains("$"));
         assertFalse(texto.contains("?token="));
     }
 

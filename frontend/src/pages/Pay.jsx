@@ -5,13 +5,9 @@ import { abrirCobro, obtenerPago } from "../api/pagos";
 import { dinero, fecha, hoyEnChile } from "../utils/formato";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
+import LogoPasarela, { PASARELAS } from "../components/LogoPasarela";
 import { CheckAnimado, IconoCandado, IconoCheck, IconoFlecha, IconoVolver } from "../components/Iconos";
 
-const PASARELAS = [
-  { id: "webpay", label: "Webpay", detalle: "Débito o crédito" },
-  { id: "mercadopago", label: "Mercado Pago", detalle: "Saldo o tarjeta" },
-  { id: "khipu", label: "Khipu", detalle: "Transferencia" },
-];
 
 const porVencimiento = (a, b) => a.vencimiento.localeCompare(b.vencimiento) || a.numero - b.numero;
 
@@ -106,7 +102,7 @@ export default function Pay() {
         <div>
           <span className="eyebrow">{deuda.acreedor}</span>
           <h1>Pagar</h1>
-          <p>{deuda.concepto} · contrato {deuda.externalId}</p>
+          <p>{deuda.concepto}, contrato {deuda.externalId}</p>
         </div>
         <Link className="btn btn-ghost btn-sm" to="/app">
           <IconoVolver size={16} />
@@ -121,7 +117,7 @@ export default function Pay() {
           <h2>{acreditado ? "Pago conciliado" : "Pago recibido"}</h2>
           <p>
             {dinero(pago.amount, pago.currency)}
-            {pago.currency === "UF" && pago.amountClp ? ` · ${dinero(pago.amountClp)} al valor de hoy` : ""}
+            {pago.currency === "UF" && pago.amountClp ? `, ${dinero(pago.amountClp)} al valor de hoy` : ""}
           </p>
           <BarraEstado deuda={deuda} />
           {acreditado ? (
@@ -231,10 +227,10 @@ export default function Pay() {
                 <b key={`${k}-${monto}`}>{dinero(monto, moneda)}</b>
               </div>
               <div className="methods">
-                {PASARELAS.map((p) => (
-                  <button key={p.id} type="button" className={`method${pasarela === p.id ? " on" : ""}`}
-                          disabled={!!pago} onClick={() => setPasarela(p.id)}>
-                    <b>{p.label}</b>
+                {Object.entries(PASARELAS).map(([id, p]) => (
+                  <button key={id} type="button" className={`method${pasarela === id ? " on" : ""}`}
+                          disabled={!!pago} onClick={() => setPasarela(id)} aria-label={p.nombre}>
+                    <LogoPasarela id={id} alto={24} />
                     <span>{p.detalle}</span>
                   </button>
                 ))}

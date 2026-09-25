@@ -9,9 +9,11 @@ import com.tbridge.debt.dto.response.AvanceResponse;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
 import com.tbridge.debt.dto.response.DebtSnapshotResponse;
 import com.tbridge.debt.dto.response.OkResponse;
+import com.tbridge.debt.dto.response.RecordatoriosResponse;
 import com.tbridge.debt.service.ApiKeyService;
 import com.tbridge.debt.service.CampanaAvanceService;
 import com.tbridge.debt.service.DebtService;
+import com.tbridge.debt.service.RecordatorioService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -21,6 +23,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,6 +34,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -48,13 +53,16 @@ public class InternalController {
     private final DebtService debts;
     private final CampanaAvanceService avances;
     private final ApiKeyService claves;
+    private final RecordatorioService recordatorios;
     private final String internalKey;
 
     public InternalController(DebtService debts, CampanaAvanceService avances, ApiKeyService claves,
+                              RecordatorioService recordatorios,
                               @Value("${app.internal-key}") String internalKey) {
         this.debts = debts;
         this.avances = avances;
         this.claves = claves;
+        this.recordatorios = recordatorios;
         this.internalKey = internalKey;
     }
 
@@ -101,6 +109,20 @@ public class InternalController {
             @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave) {
         exigirClave(clave);
         return avances.publicarTodas();
+    }
+
+    @PostMapping("/recordatorios")
+    @Operation(summary = "Mandar ahora los recordatorios de cuota",
+            description = """
+                    Sin esperar la pasada de las 9:00. Con `hoy`, como si fuera ese dia: sirve para la demo y las                     pruebas, porque una cuota que vence en tres dias no se puede esperar.""")
+    @ApiResponse(responseCode = "200", description = "Cuantos salieron y cuantos no")
+    public RecordatoriosResponse recordar(
+            @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave,
+            @Parameter(description = "El dia desde el que se cuenta, si no es hoy", example = "2026-10-17")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hoy
+    ) {
+        exigirClave(clave);
+        return recordatorios.enviar(hoy == null ? LocalDate.now(ZoneId.of("America/Santiago")) : hoy);
     }
 
     @PostMapping("/events/pago-confirmado")

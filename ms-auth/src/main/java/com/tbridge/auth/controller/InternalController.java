@@ -70,7 +70,11 @@ public class InternalController {
         //  El envio por correo sale de aqui; el de WhatsApp lo hara el motor
         //  de campana cuando exista, con el mismo codigo.
         if (canales.contains("correo") && pedido.correo() != null) {
-            correo.enviarCodigo(pedido.correo(), emitido.codigo(), pedido.acreedor());
+            if (pedido.vence() != null) {
+                correo.enviarRecordatorio(pedido.correo(), emitido.codigo(), pedido.acreedor(), pedido.vence());
+            } else {
+                correo.enviarCodigo(pedido.correo(), emitido.codigo(), pedido.acreedor());
+            }
         }
         return emitido;
     }

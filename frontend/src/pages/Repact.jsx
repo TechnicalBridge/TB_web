@@ -85,7 +85,7 @@ export default function Repact() {
         <div>
           <span className="eyebrow">{deuda.acreedor}</span>
           <h1>Pagar en cuotas</h1>
-          <p>{deuda.concepto} · saldo {dinero(deuda.saldo, moneda)}</p>
+          <p>{deuda.concepto}, saldo {dinero(deuda.saldo, moneda)}</p>
         </div>
         <Link className="btn btn-ghost btn-sm" to="/app">
           <IconoVolver size={16} />

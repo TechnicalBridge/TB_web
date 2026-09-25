@@ -48,5 +48,6 @@ public class Repactation {
     public void setMonthlyAmount(BigDecimal monthlyAmount) { this.monthlyAmount = monthlyAmount; }
     public Debt.Currency getCurrency() { return currency; }
     public void setCurrency(Debt.Currency currency) { this.currency = currency; }
+    public void setAcceptedAt(Instant acceptedAt) { this.acceptedAt = acceptedAt; }
     public void setSupersededAt(Instant supersededAt) { this.supersededAt = supersededAt; }
 }

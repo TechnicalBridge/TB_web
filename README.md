@@ -32,6 +32,11 @@ cada deuda: **pendiente → en convenio → pago conciliado**. Si tiene dudas, l
 asistente que lee su deuda con su propia sesión. Cuando termina de pagar, descarga su certificado
 de deuda cero.
 
+Adentro tiene también sus **próximos vencimientos**, que puede pasar al calendario del teléfono;
+su **historial de pagos**, con un comprobante en PDF de cada uno; un **recordatorio por correo**
+unos días antes de cada cuota, que no lleva monto ni enlace, y **sus datos**, donde apaga ese
+recordatorio si no lo quiere.
+
 **El alcance son los deudores morosos.** Una deuda entra a cobranza con al menos **dos meses
 impagos** (`MIN_MESES_IMPAGOS`); con menos todavía no es mora, y se rechaza sola al recibir la
 cartera con el código `bajo_umbral_mora`. Se cuentan meses, no cargos: el arriendo y el gasto
@@ -39,6 +44,9 @@ común de septiembre son un solo mes.
 
 Del otro lado, la empresa que gestiona la cartera la ve al día, carga deudas nuevas por API o
 arrastrando un CSV, le envía el código al deudor y mira en un panel cuánto se ha recuperado.
+Revisa los pagos que entraron, filtrados por medio de pago; sigue los **convenios en riesgo**,
+los que tienen una cuota vencida; exporta la cartera a Excel, y emite y revoca sus propias
+claves de API.
 
 ### A quién va dirigido
 
@@ -114,7 +122,22 @@ Para apagar: `docker compose --profile app down`. Con `-v` borra además los dat
 
 ### Para entrar como deudor
 
-El sistema arranca con una cartera de ejemplo. Para conseguir un código:
+El sistema arranca con la cartera de ejemplo de Patrimonio Inmuebles, con cada deudor en una
+situación distinta. Es la misma historia que cargan Patrimonio y APOFYX en sus propios datos de
+ejemplo, así que los tres sistemas cuentan lo mismo:
+
+| RUT | Deudor | Situación |
+| --- | --- | --- |
+| 16.482.337-7 | Felipe Rojas Muñoz | En convenio de 6 cuotas, con 3 pagadas |
+| 76.991.245-2 | Comercial Ñandú SpA | Debe tres meses en UF |
+| 14.583.206-3 | Rodrigo Pérez Contreras | Debe cuatro meses |
+| 76.284.519-9 | Panadería La Espiga Ltda. | En convenio en UF, con la primera cuota pagada en pesos |
+| 17.893.456-2 | Ignacio Tapia Rojas | En convenio, con la primera cuota vencida: es el *convenio en riesgo* |
+| 19.230.418-0 | Carolina Muñoz Vera | Pagó todo de una vez, con Khipu |
+| 18.642.975-3 | Daniela Cáceres Flores | Pagó sus tres cuotas juntas |
+| 15.227.640-0 | Tomás Fuentes Leiva | Pagó en la oficina de Patrimonio, que retiró la deuda |
+
+Para conseguir un código:
 
 ```powershell
 $cuerpo = @{ rut = "16482337-7"; canales = @("correo"); correo = "felipe.rojas@correo.cl"
@@ -220,7 +243,7 @@ flowchart TD
     P -->|"/api/*"| G["Gateway · Spring Cloud Gateway<br/>CORS · límite de peticiones · enrutamiento"]
 
     G -->|"/api/auth/** · /api/me"| A["ms-auth<br/>códigos de acceso y JWT"]
-    G -->|"/api/debts/** · /api/analytics/** · /api/v1/**"| D["ms-debt<br/>deudas, cuotas y cartera"]
+    G -->|"/api/debts/** · /api/claves/** · /api/analytics/** · /api/v1/**"| D["ms-debt<br/>deudas, cuotas y cartera"]
     G -->|"/api/payments/**"| Y["ms-payments<br/>cobros y UF"]
     G -->|"/api/ai/**"| I["ms-ai<br/>asistente, solo lectura"]
 
@@ -242,8 +265,8 @@ flowchart TD
 | --- | --- |
 | **portal** | React con Zustand y CSS propio. En producción se compila y lo sirve nginx, que además hace de proxy hacia el gateway: el navegador ve un solo origen y no hay CORS que resolver |
 | **gateway** | La única puerta. CORS, límite de peticiones con Bucket4j y enrutamiento. Lo que no pasa por aquí, no entra |
-| **ms-auth** | Código de acceso (RUT + 6 caracteres, un solo uso, 24 h) y enlace de respaldo por correo, que es también como entra el personal de las empresas. Emite el JWT |
-| **ms-debt** | Deudas, cargos y cuotas; simulación y aceptación de planes (3 a 24 meses, sin interés); ingesta de la cartera v1 por API o CSV; eventos de vuelta a quien entregó la cartera; resumen para el dashboard y certificado PDF de deuda pagada |
+| **ms-auth** | Código de acceso (RUT + 6 caracteres, un solo uso, 24 h) y enlace de respaldo por correo, que es también como entra el personal de las empresas. Emite el JWT y manda los correos, incluido el recordatorio de cuota |
+| **ms-debt** | Deudas, cargos y cuotas; simulación y aceptación de planes (3 a 24 meses, sin interés); ingesta de la cartera v1 por API o CSV; eventos de vuelta a quien entregó la cartera; resumen para el dashboard; certificado de deuda pagada y comprobante de cada pago, en PDF; recordatorio de las cuotas por vencer; claves de API de cada empresa |
 | **ms-payments** | Cobros con Webpay, Mercado Pago y Khipu simulados. El monto lo decide ms-debt, nunca el navegador. En UF fija los pesos al abrir el cobro |
 | **ms-ai** | Asistente de solo lectura (Python/FastAPI). Lee las deudas con la sesión del deudor, nunca con acceso propio a la base, y detecta frustración o desconfianza para ajustar el tono. Usa un LLM si hay `XAI_API_KEY`; si no, reglas |
 | **MySQL 8.4** | Una base por servicio, con esquema versionado en Flyway ([`db/README.md`](db/README.md)) |
@@ -279,7 +302,8 @@ clave de API del contrato o la clave interna.
 
 **HATEOAS.** Las respuestas del portal traen `_links` con lo que se puede hacer después, según el
 estado y quién mira: una deuda pendiente le ofrece al deudor `simular`, `repactar` y `pagar`; a la
-empresa, `enviar-codigo`; una deuda pagada, el `certificado`. Las listas vienen en
+empresa, `enviar-codigo`; una deuda pagada, el `certificado`; un pago, su `comprobante`; una
+clave de API vigente, `revocar`. Las listas vienen en
 `_embedded` (`_embedded.debts`). Los enlaces salen con la dirección pública
 (`http://localhost:8080/...`), no con la del contenedor, porque cada servicio lee las cabeceras
 `X-Forwarded-*` que le pasa el gateway. El contrato `/api/v1` no lleva enlaces: su forma está
@@ -309,7 +333,7 @@ Contrato v1, de sistema a sistema (con clave de API):
 
 Entre servicios (clave interna, no expuesto por el gateway):
   ms-payments ── /internal/events/pago-confirmado ──► ms-debt
-  ms-debt ───── /internal/codigos ──────────────────► ms-auth
+  ms-debt ───── /internal/codigos ──────────────────► ms-auth   (el código y el recordatorio de cuota)
 ```
 
 El contrato completo, con sus ejemplos y su esquema JSON, está en
@@ -429,11 +453,18 @@ flowchart LR
     DEU --> U5["Pagar"]
     DEU --> U6["Preguntarle al asistente"]
     DEU --> U7["Descargar el certificado"]
+    DEU --> U15["Ver sus próximos vencimientos"]
+    DEU --> U16["Descargar el comprobante de un pago"]
+    DEU --> U17["Apagar el recordatorio por correo"]
 
     EMP --> U8["Ver la cartera al día"]
     EMP --> U9["Cargar cartera por CSV"]
     EMP --> U10["Enviarle el código al deudor"]
     EMP --> U11["Ver el dashboard"]
+    EMP --> U18["Revisar los pagos recibidos"]
+    EMP --> U19["Seguir los convenios en riesgo"]
+    EMP --> U20["Exportar la cartera a Excel"]
+    EMP --> U21["Emitir y revocar claves de API"]
 
     SIS --> U12["Entregar cartera por API"]
     SIS --> U13["Registrar mandato y campaña"]
@@ -574,6 +605,8 @@ se corren con Maven.
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
 | `MIN_MESES_IMPAGOS` | `2` | El alcance: desde cuántos meses impagos entra una deuda a cobranza. Con menos se rechaza (`bajo_umbral_mora`) |
+| `RECORDATORIO_DIAS_ANTES` | `3` | Cuántos días antes de cada cuota le llega al deudor el recordatorio. Se revisa cada mañana a las 9:00 (`RECORDATORIO_CRON`) y nunca se repite para la misma cuota |
+| `DEMO_DATOS` | `true` | Carga al arrancar la cartera de ejemplo ([§3](#para-entrar-como-deudor)). Solo agrega el deudor que falte: una base con datos propios no pierde nada |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
 | `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP |
 | `SWAGGER_ENABLED` | `true` | Apagar la documentación, por ejemplo en producción |
@@ -597,12 +630,12 @@ base de datos**, así que corren en segundos en cualquier equipo.
 | Tipo | Qué cubre | Dónde |
 | --- | --- | --- |
 | **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados (`@Mock`, `@InjectMocks`): que cada quien vea solo lo suyo, que el monto del cobro salga de ms-debt y no del navegador, que un pago avisado dos veces se abone una, que repactar anule las cuotas en vez de borrarlas,
-que las cuotas se paguen en orden, que solo entren deudores morosos, la sesión revocable (rotación, robo, dos pestañas), el código de acceso, la UF, la firma de los eventos. Una prueba fija byte a byte el JSON de un evento firmado: si cambiara, APOFYX lo rechazaría | `*/src/test/java/.../service/` |
+que las cuotas se paguen en orden, que solo entren deudores morosos, la sesión revocable (rotación, robo, dos pestañas), el código de acceso, la UF, la firma de los eventos, el recordatorio (uno por cuota, sin monto ni enlace) y qué cuotas cubrió cada pago. Una prueba fija byte a byte el JSON de un evento firmado: si cambiara, APOFYX lo rechazaría | `*/src/test/java/.../service/` |
 | **De integración de la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON de verdad, y los servicios simulados (`@MockitoBean`): `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, la forma de cada respuesta, los `_links` de HATEOAS según quién mira y con la dirección pública, la cookie de la sesión, y los nombres del contrato v1 intactos | `*/src/test/java/.../controller/` |
 | **De seguridad** | En cada push, **CodeQL** (análisis estático de Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot (también para las imágenes base de Docker). Con tráfico real: los dos frenos contra fuerza bruta y que una IP inventada no da un cupo nuevo | `.github/workflows/`, [`rendimiento/limite.js`](rendimiento/limite.js) |
 | **De rendimiento** (k6) | Cómo lo siente una persona (100 usuarios, p95 de 7 a 12 ms según el día) y dónde está el techo (unas 1.800 peticiones por segundo). La prueba de estrés encontró que nginx se quedaba sin puertos a las 500 por segundo; ya está arreglado | [`rendimiento/`](rendimiento/README.md) |
 
-**158 pruebas en Java y 12 en Python.** Corren solas en **GitHub Actions** con cada push; las de
+**192 pruebas en Java y 12 en Python.** Corren solas en **GitHub Actions** con cada push; las de
 rendimiento necesitan el sistema arriba y se corren a mano.
 
 ---
@@ -637,7 +670,7 @@ detalle de lo que debe y repactar sin interés. A la agencia, una cartera que se
    (en Swagger: *Deudas - contrato de integracion v1*);
    quien no tiene integración arrastra el CSV del contrato al portal. Las dos entradas usan la
    misma ingesta: mismas validaciones, aceptación parcial e idempotencia.
-2. **La empresa entra.** En *Soy una empresa*, `camila.reyes@apofyx.cl` pide su enlace; llega al
+2. **La empresa entra.** En *Soy de una empresa*, `camila.reyes@apofyx.cl` pide su enlace; llega al
    buzón de prueba. Ve la cartera que APOFYX entregó, aunque el acreedor sea Patrimonio.
 3. **Le envía el código al deudor.** El botón *Enviar código* lo manda al correo del deudor. La
    pantalla no lo muestra: quien lo viera podría entrar en su lugar.
@@ -645,6 +678,13 @@ detalle de lo que debe y repactar sin interés. A la agencia, una cartera que se
    cuotas, en orden. La barra de su deuda avanza: pendiente → en convenio → pago conciliado.
 5. **El pago vuelve por la cadena**: ms-payments avisa a ms-debt, ms-debt emite los eventos, y
    APOFYX y Patrimonio los reciben.
+6. **Queda el rastro.** El deudor ve el pago en su historial, con qué cuotas cubrió, y descarga el
+   comprobante. La empresa lo ve en *Pagos recibidos*.
+
+**Las pasarelas son simulaciones.** Webpay, Mercado Pago y Khipu aparecen con su logo oficial,
+tal como Transbank, Mercado Pago y Khipu los publican para los comercios, porque es lo que el
+deudor reconoce. Pero ningún pago sale de la demo: ms-payments simula las tres. Los logos son
+marcas de sus dueños.
 
 **Pagos en UF.** Usan la UF de ese día exacto, del **Banco Central**. Como la publica con un mes
 de adelanto, ms-payments la carga al arrancar y cada mañana a las 9:30. Sin credenciales, se

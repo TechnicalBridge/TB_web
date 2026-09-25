@@ -118,6 +118,18 @@ class PaymentControllerTest {
     }
 
     @Test
+    void un_campo_que_no_existe_no_se_ignora_se_rechaza() throws Exception {
+        //  El error real: el portal mandaba las cuotas con el nombre viejo, el
+        //  servidor no lo veia y, sin cuotas, cobraba todo el saldo.
+        mvc.perform(post("/api/payments/checkout").header("Authorization", deudor())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"debtId\":3,\"installmentId\":[12,13],\"gateway\":\"webpay\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("La peticion trae un campo que no existe: 'installmentId'"));
+        verify(payments, never()).checkout(any(), any());
+    }
+
+    @Test
     void la_deuda_de_otro_es_403() throws Exception {
         when(payments.checkout(any(), any())).thenThrow(new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es tuya"));
 

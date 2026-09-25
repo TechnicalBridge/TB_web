@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ApiExceptionHandlerTest {
 
     record Pedido(@NotBlank(message = "Falta el RUT") String rut) {}
+
 
     @RestController
     static class Prueba {
@@ -65,6 +68,19 @@ class ApiExceptionHandlerTest {
     void un_json_mal_escrito_es_400_y_no_500() throws Exception {
         mvc.perform(post("/validar").contentType(MediaType.APPLICATION_JSON).content("{rut"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void en_un_servicio_estricto_el_campo_que_no_existe_se_nombra() throws Exception {
+        //  Como ms-payments: fail-on-unknown-properties encendido.
+        MockMvc estricto = MockMvcBuilders.standaloneSetup(new Prueba())
+                .setControllerAdvice(new ApiExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(
+                        Jackson2ObjectMapperBuilder.json().failOnUnknownProperties(true).build()))
+                .build();
+        estricto.perform(post("/validar").contentType(MediaType.APPLICATION_JSON).content("{\"rut\":\"1-9\",\"otro\":2}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("La peticion trae un campo que no existe: 'otro'"));
     }
 
     @Test

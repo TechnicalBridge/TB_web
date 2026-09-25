@@ -15,6 +15,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -65,6 +66,21 @@ class InternalControllerTest {
                 .andExpect(jsonPath("$.expiraEn").value("2026-09-25T12:00:00Z"));
 
         verify(correo).enviarCodigo("felipe.rojas@correo.cl", "K7M2QX", "Patrimonio Inmuebles");
+    }
+
+    @Test
+    void con_fecha_de_vencimiento_el_correo_es_el_recordatorio() throws Exception {
+        when(auth.emitirCodigo("16482337-7", List.of("correo"), null)).thenReturn(new CodigoEmitidoResponse(
+                "P4R8TW", "16482337-7", List.of("correo"), Instant.parse("2026-10-18T12:00:00Z"), "Entra a ..."));
+
+        mvc.perform(post("/internal/codigos").header("X-Internal-Key", "clave-interna-de-prueba")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CUERPO.replace("}", ",\"vence\":\"2026-10-20\"}")))
+                .andExpect(status().isOk());
+
+        verify(correo).enviarRecordatorio("felipe.rojas@correo.cl", "P4R8TW", "Patrimonio Inmuebles",
+                LocalDate.of(2026, 10, 20));
+        verify(correo, never()).enviarCodigo(any(), any(), any());
     }
 
     @Test

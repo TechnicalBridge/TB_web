@@ -30,7 +30,7 @@ public class RutasConfig {
                 .route("ms-auth", r -> r.path("/api/auth/**", "/api/me").uri(auth))
                 //  /api/v1 es el contrato de integracion: los sistemas de las
                 //  agencias entran por la misma puerta que el portal.
-                .route("ms-debt", r -> r.path("/api/debts/**", "/api/analytics/**", "/api/v1/**").uri(debt))
+                .route("ms-debt", r -> r.path("/api/debts/**", "/api/analytics/**", "/api/claves/**", "/api/v1/**").uri(debt))
                 .route("ms-payments", r -> r.path("/api/payments/**").uri(payments))
                 .route("ms-ai", r -> r.path("/api/ai/**").uri(ai))
 

@@ -29,6 +29,51 @@ export function fecha(iso) {
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+/** Una fecha y su hora: 21 sept 2026, 18:45. */
+export function fechaHora(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("es-CL", {
+    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/** Una fecha dicha como en una conversacion: 20 de octubre. */
+export function fechaLarga(iso) {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-CL", { day: "numeric", month: "long" });
+}
+
+/** El mes de una fecha, para agrupar: Octubre de 2026. */
+export function mesYAnio(iso) {
+  const texto = new Date(`${iso}T12:00:00`).toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/** Cuanto falta para que venza, o hace cuanto vencio. */
+export function cuandoVence(dias) {
+  if (dias === 0) return "Vence hoy";
+  if (dias === 1) return "Vence mañana";
+  if (dias > 1) return `Vence en ${dias} días`;
+  if (dias === -1) return "Venció ayer";
+  return `Venció hace ${-dias} días`;
+}
+
+/** Que cubrio un pago: "Cuotas 2 y 3 de 6", "Cuota 1 de 3", "Pago total". */
+export function queSePago(pago) {
+  const cuotas = pago.cuotas || [];
+  if (!cuotas.length) return "Abono a la deuda";
+  if (pago.deCuotas === 1) return "Pago total";
+  const de = pago.deCuotas ? ` de ${pago.deCuotas}` : "";
+  if (cuotas.length === 1) return `Cuota ${cuotas[0]}${de}`;
+  return `Cuotas ${cuotas.slice(0, -1).join(", ")} y ${cuotas[cuotas.length - 1]}${de}`;
+}
+
+/** Suma por moneda: pesos y UF no se pueden sumar entre si. */
+export function porMoneda(filas, campo) {
+  const totales = {};
+  for (const f of filas) totales[f.moneda] = (totales[f.moneda] || 0) + Number(f[campo] || 0);
+  return Object.entries(totales);
+}
+
 /** Hoy en Chile, como 2026-09-24. */
 export const hoyEnChile = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Santiago" });
 

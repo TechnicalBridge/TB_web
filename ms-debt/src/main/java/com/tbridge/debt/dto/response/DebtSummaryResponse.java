@@ -7,6 +7,8 @@ import org.springframework.hateoas.server.core.Relation;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -38,8 +40,13 @@ public record DebtSummaryResponse(
                 example = "6")
         int cuotasTotales,
         @Schema(description = "Si se paga (o se pago) con un convenio de cuotas", example = "true")
-        boolean conConvenio
+        boolean conConvenio,
+        @Schema(description = "Cuotas pendientes que ya vencieron. En un convenio, las que hay que ponerse al dia",
+                example = "1")
+        int cuotasVencidas
 ) {
+
+    private static final ZoneId CHILE = ZoneId.of("America/Santiago");
 
     /** Con las cuotas de la deuda: de ellas salen el saldo y el avance. */
     public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas) {
@@ -51,6 +58,9 @@ public record DebtSummaryResponse(
         int vigentes = (int) cuotas.stream().filter(c -> c.getStatus() != Installment.Status.void_).count();
         boolean conConvenio = cuotas.stream()
                 .anyMatch(c -> c.getStatus() != Installment.Status.void_ && c.enConvenio());
+        LocalDate hoy = LocalDate.now(CHILE);
+        int vencidas = (int) cuotas.stream()
+                .filter(c -> c.getStatus() == Installment.Status.pending && c.getDueDate().isBefore(hoy)).count();
         return new DebtSummaryResponse(
                 deuda.getId(),
                 deuda.getExternalId(),
@@ -67,6 +77,7 @@ public record DebtSummaryResponse(
                 deuda.getUpdatedAt(),
                 pagadas,
                 vigentes,
-                conConvenio);
+                conConvenio,
+                vencidas);
     }
 }

@@ -4,9 +4,11 @@ import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.common.jwt.JwtService;
 import com.tbridge.debt.config.SecurityConfig;
 import com.tbridge.debt.dto.response.DebtSnapshotResponse;
+import com.tbridge.debt.dto.response.RecordatoriosResponse;
 import com.tbridge.debt.service.ApiKeyService;
 import com.tbridge.debt.service.CampanaAvanceService;
 import com.tbridge.debt.service.DebtService;
+import com.tbridge.debt.service.RecordatorioService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,6 +45,7 @@ class InternalControllerTest {
     @MockitoBean private DebtService debts;
     @MockitoBean private CampanaAvanceService avances;
     @MockitoBean private ApiKeyService claves;
+    @MockitoBean private RecordatorioService recordatorios;
 
     @Test
     void sin_la_clave_interna_no_se_revela_ninguna_deuda() throws Exception {
@@ -72,6 +76,17 @@ class InternalControllerTest {
                 .andExpect(jsonPath("$.amount").value(280000))
                 //  Con varias cuotas no va ninguna: el pago se imputa en orden.
                 .andExpect(jsonPath("$.installmentId").doesNotExist());
+    }
+
+    @Test
+    void los_recordatorios_se_pueden_mandar_como_si_fuera_otro_dia() throws Exception {
+        when(recordatorios.enviar(LocalDate.of(2026, 10, 17))).thenReturn(new RecordatoriosResponse(2, 1));
+
+        mvc.perform(post("/internal/recordatorios").param("hoy", "2026-10-17").header("X-Internal-Key", CLAVE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enviados").value(2))
+                .andExpect(jsonPath("$.omitidos").value(1));
+        mvc.perform(post("/internal/recordatorios")).andExpect(status().isUnauthorized());
     }
 
     @Test

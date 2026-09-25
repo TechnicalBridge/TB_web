@@ -1,5 +1,6 @@
 package com.tbridge.common.exception;
 
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import jakarta.servlet.ServletException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,9 +68,16 @@ public class ApiExceptionHandler {
         return responder(HttpStatus.BAD_REQUEST, mensaje);
     }
 
-    /** JSON mal escrito, o un campo que trae otro tipo: texto donde va un numero. */
+    /**
+     * JSON mal escrito, un campo que trae otro tipo (texto donde va un numero),
+     * o un campo que no existe en una peticion que no los tolera.
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> cuerpoIlegible(HttpMessageNotReadableException ex) {
+        if (ex.getCause() instanceof UnrecognizedPropertyException desconocido) {
+            return responder(HttpStatus.BAD_REQUEST,
+                    "La peticion trae un campo que no existe: '" + desconocido.getPropertyName() + "'");
+        }
         return responder(HttpStatus.BAD_REQUEST,
                 "El cuerpo de la peticion no es JSON valido o trae un campo con otro tipo");
     }

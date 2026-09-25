@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { descargarCertificado, listarDeudas } from "../api/deudas";
-import { dinero, rutLegible } from "../utils/formato";
+import { dinero, porMoneda, rutLegible } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
-import { CheckAnimado, IconoCalendario, IconoCheck, IconoDocumento, IconoFlecha } from "../components/Iconos";
-
-/** Suma por moneda: pesos y UF no se pueden sumar entre si. */
-function porMoneda(deudas, campo) {
-  const totales = {};
-  for (const d of deudas) totales[d.moneda] = (totales[d.moneda] || 0) + Number(d[campo] || 0);
-  return Object.entries(totales);
-}
+import { CheckAnimado, IconoCalendario, IconoDocumento, IconoFlecha } from "../components/Iconos";
 
 export default function Debts() {
   const { user } = useAuth();
@@ -42,7 +35,7 @@ export default function Debts() {
           <h1>{nombre ? `Hola, ${nombre}` : "Hola"}</h1>
           <p>
             {vigentes.length
-              ? "Aquí está lo que debes, a quién, y en qué va cada deuda."
+              ? "Esto es lo que debes, a quién, y en qué va cada deuda."
               : "No tienes deudas por pagar."}
           </p>
         </div>
@@ -51,7 +44,6 @@ export default function Debts() {
 
       <section className="grid-3 stats bloque">
         <div className="card stat aparece" style={{ "--i": 1 }}>
-          <IconoDocumento />
           <span>Por pagar</span>
           <b className="totales">
             {porMoneda(vigentes, "saldo").map(([moneda, total]) => (
@@ -61,13 +53,11 @@ export default function Debts() {
           </b>
         </div>
         <div className="card stat aparece" style={{ "--i": 2 }}>
-          <IconoCalendario />
           <span>En convenio de pago</span>
           <b>{enConvenio}</b>
           <small>{vigentes.length - enConvenio} sin convenio</small>
         </div>
         <div className="card stat aparece" style={{ "--i": 3 }}>
-          <IconoCheck />
           <span>Pagadas</span>
           <b>{deudas.filter((d) => d.estado === "paid").length}</b>
         </div>
@@ -100,6 +90,11 @@ function TarjetaDeuda({ deuda: d, i }) {
           <span className="eyebrow">{d.acreedor}</span>
           <h3>{d.concepto}</h3>
           <span className="sub">Contrato {d.externalId}</span>
+          {d.estado === "repacted" && d.cuotasVencidas > 0 ? (
+            <span className="tag tag-vencida" style={{ marginTop: 8 }}>
+              {d.cuotasVencidas === 1 ? "Una cuota vencida" : `${d.cuotasVencidas} cuotas vencidas`}
+            </span>
+          ) : null}
         </div>
         <div className="deuda-monto">
           <span>{pagada ? "Pagaste" : "Saldo"}</span>

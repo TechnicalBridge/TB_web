@@ -1,5 +1,7 @@
 package com.tbridge.debt.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tbridge.common.events.PagoConfirmado;
 import com.tbridge.common.exception.ApiException;
 import com.tbridge.common.jwt.JwtPrincipal;
@@ -13,6 +15,7 @@ import com.tbridge.debt.dto.response.InstallmentPreview;
 import com.tbridge.debt.dto.response.RepactPlan;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.DebtEvent;
+import com.tbridge.debt.model.DetallePago;
 import com.tbridge.debt.model.Debtor;
 import com.tbridge.debt.model.Installment;
 import com.tbridge.debt.model.Organization;
@@ -34,9 +37,11 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -64,7 +69,7 @@ public class DebtService {
     private static final ZoneId CHILE = ZoneId.of("America/Santiago");
 
     /** El orden en que se pagan las cuotas: la que vence primero, primero. */
-    private static final Comparator<Installment> EN_ORDEN =
+    static final Comparator<Installment> EN_ORDEN =
             Comparator.comparing(Installment::getDueDate).thenComparing(Installment::getNumber);
 
     private final DebtRepository debts;
@@ -76,6 +81,7 @@ public class DebtService {
     private final DebtEventRepository events;
     private final RepactationService repactation;
     private final EventosService eventos;
+    private final ObjectMapper json;
 
     public DebtService(
             DebtRepository debts,
@@ -86,7 +92,8 @@ public class DebtService {
             RepactationRepository repactations,
             DebtEventRepository events,
             RepactationService repactation,
-            EventosService eventos
+            EventosService eventos,
+            ObjectMapper json
     ) {
         this.debts = debts;
         this.debtors = debtors;
@@ -97,6 +104,7 @@ public class DebtService {
         this.events = events;
         this.repactation = repactation;
         this.eventos = eventos;
+        this.json = json;
     }
 
     // ------------------------------------------------------------------
@@ -121,7 +129,7 @@ public class DebtService {
     }
 
     /** El deudor detras del token, por RUT: es lo unico que trae su sesion. */
-    private Debtor deudorDe(JwtPrincipal user) {
+    Debtor deudorDe(JwtPrincipal user) {
         if (user == null || user.rut() == null || user.rut().isBlank()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "La sesion no identifica al deudor");
         }
@@ -145,6 +153,18 @@ public class DebtService {
         List<Debt> filas = debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
         filas.forEach(this::anotarIngreso);
         return filas.stream().map(this::resumen).toList();
+    }
+
+    /**
+     * Las deudas que ve quien pregunta, sin mas: la empresa, su cartera; el
+     * deudor, las suyas. Para los servicios que arman sus propias vistas
+     * (historial, vencimientos, convenios en riesgo).
+     */
+    List<Debt> deudasVisibles(JwtPrincipal user) {
+        if (user != null && user.isCreditor()) {
+            return debts.carteraDe(organizacionDe(user));
+        }
+        return debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
     }
 
     /**
@@ -371,11 +391,21 @@ public class DebtService {
             return;
         }
 
+        //  Las cuotas vigentes, en el orden en que se pagan: de aca sale el lugar
+        //  de cada una ("la 4 de 6") para el historial del deudor.
+        List<Installment> vigentes = installments.findByDebtOrderByNumberAsc(deuda).stream()
+                .filter(c -> c.getStatus() != Installment.Status.void_)
+                .sorted(EN_ORDEN).toList();
+        List<Installment> pagadas = new ArrayList<>();
+
         if (aviso.installmentId() != null) {
             installments.findById(aviso.installmentId())
                     .filter(c -> c.getDebt().getId().equals(deuda.getId()))
                     .filter(c -> c.getStatus() == Installment.Status.pending)
-                    .ifPresent(cuota -> marcarPagada(cuota, aviso.paidAt()));
+                    .ifPresent(cuota -> {
+                        marcarPagada(cuota, aviso.paidAt());
+                        pagadas.add(cuota);
+                    });
         } else {
             //  Sin cuota indicada, se imputa de la mas antigua a la mas nueva,
             //  como cualquier abono en una cuenta corriente.
@@ -387,15 +417,21 @@ public class DebtService {
                     break;
                 }
                 marcarPagada(cuota, aviso.paidAt());
+                pagadas.add(cuota);
                 porAplicar = porAplicar.subtract(cuota.getAmount());
             }
         }
 
         Debt.Currency moneda = Debt.Currency.valueOf(aviso.currency());
         Instant pagadoEn = aviso.paidAt() == null ? Instant.now() : aviso.paidAt();
-        events.save(DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
+        //  Fechado cuando se pago, no cuando llego el aviso: el aviso puede
+        //  tardar (reintentos) y el historial cuenta cuando pago el deudor.
+        DebtEvent aplicado = DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
                 .conMonto(aviso.amount(), moneda)
-                .conReferencia(referencia));
+                .conReferencia(referencia)
+                .conDetalle(detalleDelPago(aviso, vigentes, pagadas));
+        aplicado.setOccurredAt(pagadoEn);
+        events.save(aplicado);
         eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, datosDelPago(deuda, aviso, moneda, pagadoEn), pagadoEn);
 
         if (saldo(deuda).compareTo(BigDecimal.ZERO) == 0) {
@@ -424,6 +460,24 @@ public class DebtService {
                 moneda == Debt.Currency.UF ? aviso.ufValue() : null,
                 aviso.gateway() == null ? null : aviso.gateway().toLowerCase(),
                 EventosService.enChile(pagadoEn));
+    }
+
+    /** El {@link DetallePago} de este aviso, en JSON. Si no se puede escribir, el pago igual se aplica. */
+    private String detalleDelPago(PagoConfirmado aviso, List<Installment> vigentes, List<Installment> pagadas) {
+        List<Long> orden = vigentes.stream().map(Installment::getId).toList();
+        List<Integer> lugares = pagadas.stream()
+                .map(c -> orden.indexOf(c.getId()) + 1)
+                .filter(lugar -> lugar > 0)
+                .sorted()
+                .toList();
+        DetallePago detalle = new DetallePago(aviso.paymentId(), aviso.amountClp(), aviso.ufValue(),
+                aviso.gateway() == null ? null : aviso.gateway().toLowerCase(Locale.ROOT), lugares, vigentes.size());
+        try {
+            return json.writeValueAsString(detalle);
+        } catch (JsonProcessingException e) {
+            log.warn("No se pudo guardar el detalle del pago {}: {}", aviso.paymentId(), e.getMessage());
+            return null;
+        }
     }
 
     private void marcarPagada(Installment cuota, Instant cuando) {

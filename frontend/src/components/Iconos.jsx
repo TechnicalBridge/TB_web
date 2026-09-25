@@ -52,6 +52,34 @@ export const IconoCartera = (p) => (
   <Trazo {...p}><rect x="3" y="6" width="18" height="14" rx="2.5" /><path d="M16 13h2M3 10h18M7 6V4h10v2" /></Trazo>
 );
 
+export const IconoRecibo = (p) => (
+  <Trazo {...p}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6M9 16h3" /></Trazo>
+);
+
+export const IconoUsuario = (p) => (
+  <Trazo {...p}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></Trazo>
+);
+
+export const IconoAyuda = (p) => (
+  <Trazo {...p}><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 4.8 1c0 1.7-2.3 2-2.3 3.5M12 17h.01" /></Trazo>
+);
+
+export const IconoAlerta = (p) => (
+  <Trazo {...p}><path d="M12 3.5l9 15.5H3z" /><path d="M12 10v4M12 16.8h.01" /></Trazo>
+);
+
+export const IconoSubir = (p) => <Trazo {...p}><path d="M12 16V4M6 10l6-6 6 6M4 20h16" /></Trazo>;
+
+export const IconoDescargar = (p) => <Trazo {...p}><path d="M12 4v12M6 10l6 6 6-6M4 20h16" /></Trazo>;
+
+export const IconoLlave = (p) => (
+  <Trazo {...p}><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M16 7l3 3M14 9l2 2" /></Trazo>
+);
+
+export const IconoCopiar = (p) => (
+  <Trazo {...p}><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></Trazo>
+);
+
 /** El check que se dibuja solo, para cuando un pago queda listo. */
 export function CheckAnimado({ size = 72 }) {
   return (

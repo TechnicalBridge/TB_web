@@ -21,7 +21,7 @@ export function etapaDe(d) {
                texto: "Pendiente" };
     case "repacted":
       return { avance: enConvenio, pasos: ["hecho", "actual", ""], subs: ["", `${pagadas} de ${totales} cuotas`, ""],
-               texto: `En convenio · ${pagadas}/${totales}` };
+               texto: `En convenio, ${pagadas} de ${totales}` };
     case "paid":
       return { avance: 1, pasos: ["hecho", d.conConvenio ? "hecho" : "omitido", "hecho"],
                subs: ["", d.conConvenio ? `${totales} cuotas pagadas` : "Pago al contado", "Acreedor avisado"],

@@ -3,6 +3,7 @@ package com.tbridge.auth.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -25,7 +26,11 @@ public record EmitirCodigoRequest(
         String correo,
 
         @Schema(description = "Quien le escribe al deudor: va en el texto del correo", example = "Patrimonio Inmuebles")
-        String acreedor
+        String acreedor,
+
+        @Schema(description = "Si viene, el correo recuerda la cuota que vence ese dia, en vez de ser el primer aviso",
+                example = "2026-10-20", nullable = true)
+        LocalDate vence
 ) {
 
     /** Sin canales indicados, el codigo va por correo. */

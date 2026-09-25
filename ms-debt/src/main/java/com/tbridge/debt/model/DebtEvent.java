@@ -11,11 +11,9 @@ import java.time.Instant;
  * <p>El modelo anterior guardaba esto como texto armado a mano:
  * <pre>"pago_exitoso 50000 CLP via webpay (paymentId=abc)"</pre>
  * Eso no se puede consultar: no se puede sumar, ni filtrar por medio, ni
- * cruzar con la pasarela. Aca cada dato tiene su columna.
- *
- * <p>La tabla tiene ademas {@code detail} (JSON), para lo que no calce en
- * ninguna columna. Hoy nada lo necesita, asi que esta entidad no la mapea y la
- * columna queda en NULL.
+ * cruzar con la pasarela. Aca cada dato tiene su columna, y lo que no calza en
+ * ninguna va en {@code detail} (JSON): hoy, el {@link DetallePago} de cada
+ * pago aplicado.
  */
 @Entity
 @Table(name = "debt_events")
@@ -54,6 +52,9 @@ public class DebtEvent {
     @Column(length = 80)
     private String reference;
 
+    @Column(columnDefinition = "json")
+    private String detail;
+
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt = Instant.now();
 
@@ -76,6 +77,12 @@ public class DebtEvent {
         return this;
     }
 
+    /** El detalle en JSON, ya serializado. */
+    public DebtEvent conDetalle(String json) {
+        this.detail = json;
+        return this;
+    }
+
     public Long getId() { return id; }
     public Debt getDebt() { return debt; }
     public void setDebt(Debt debt) { this.debt = debt; }
@@ -87,6 +94,7 @@ public class DebtEvent {
     public Debt.Currency getCurrency() { return currency; }
     public void setCurrency(Debt.Currency currency) { this.currency = currency; }
     public String getReference() { return reference; }
+    public String getDetail() { return detail; }
     public Instant getOccurredAt() { return occurredAt; }
     public void setOccurredAt(Instant occurredAt) { this.occurredAt = occurredAt; }
 }

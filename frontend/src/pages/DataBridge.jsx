@@ -1,26 +1,28 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { resumenDeCartera } from "../api/analitica";
-import { enviarCodigo as pedirCodigo, listarDeudas } from "../api/deudas";
+import { enviarCodigo as pedirCodigo, listarDeudas, listarEnRiesgo } from "../api/deudas";
 import { dinero, ESTADO_DEUDA, fecha, rutLegible } from "../utils/formato";
-import BarraEstado from "../components/BarraEstado";
-import CargaCsv from "../components/CargaCsv";
+import { descargarCsv, montoParaExcel } from "../utils/exportar";
+import BarraEstado, { etapaDe } from "../components/BarraEstado";
 import { EstadoCartera, RecuperadoPorDia } from "../components/Graficos";
-import { IconoCalendario, IconoCartera, IconoCheck } from "../components/Iconos";
+import { IconoAlerta, IconoDescargar } from "../components/Iconos";
 
 /**
  * El portal de la empresa que gestiona la cartera: la agencia (APOFYX) o el
  * acreedor que trabaja directo.
  *
  * La cartera llega por la API del contrato v1 desde el sistema de la empresa
- * o, para quien no tiene integracion, cargando el CSV del mismo contrato
- * aqui. El portal muestra en que va cada deuda y le hace llegar al deudor su
- * codigo de acceso.
+ * o, para quien no tiene integracion, cargando el CSV del mismo contrato (en
+ * su propia pagina). Aca se ve en que va cada deuda y se le hace llegar al
+ * deudor su codigo de acceso.
  */
 export default function DataBridge() {
   const [resumen, setResumen] = useState(null);
   const [deudas, setDeudas] = useState([]);
   const [filtro, setFiltro] = useState("todas");
   const [avisos, setAvisos] = useState({});
+  const [enRiesgo, setEnRiesgo] = useState(0);
   const [error, setError] = useState("");
 
   async function refrescar() {
@@ -28,6 +30,10 @@ export default function DataBridge() {
     setResumen(r);
     setDeudas(d);
   }
+
+  useEffect(() => {
+    listarEnRiesgo().then((c) => setEnRiesgo(c.length)).catch(() => setEnRiesgo(0));
+  }, []);
 
   useEffect(() => {
     refrescar().catch((err) => setError(err.message));
@@ -45,6 +51,15 @@ export default function DataBridge() {
 
   const visibles = deudas.filter((d) => filtro === "todas" || d.estado === filtro);
 
+  function exportar() {
+    descargarCsv("cartera.csv",
+      ["Deudor", "RUT", "Acreedor", "Contrato", "Concepto", "Moneda", "Monto original", "Saldo", "Estado",
+        "Cuotas pagadas", "Cuotas del convenio", "Actualizada"],
+      visibles.map((d) => [d.deudor, rutLegible(d.deudorRut), d.acreedor, d.externalId, d.concepto, d.moneda,
+        montoParaExcel(d.montoOriginal, d.moneda), montoParaExcel(d.saldo, d.moneda), etapaDe(d).texto,
+        d.cuotasPagadas, d.cuotasTotales, fecha(d.actualizada)]));
+  }
+
   return (
     <div>
       <header className="topbar aparece">
@@ -53,32 +68,38 @@ export default function DataBridge() {
           <h1>Cartera morosa</h1>
           <p>Deudores con meses impagos, y en qué va cada uno: pendiente, en convenio o pago conciliado.</p>
         </div>
-        <span className="badge badge-ok"><span className="dot" /> Contrato v1</span>
       </header>
       {error ? <div className="error">{error}</div> : null}
 
+      {enRiesgo > 0 ? (
+        <Link to="/databridge/en-riesgo" className="aviso bloque aparece" style={{ "--i": 1 }}>
+          <IconoAlerta />
+          <div>
+            <b>{enRiesgo === 1 ? "Un convenio tiene cuotas vencidas" : `${enRiesgo} convenios tienen cuotas vencidas`}</b>
+            <span className="sub">Revísalos en Convenios en riesgo, antes de que se caigan.</span>
+          </div>
+        </Link>
+      ) : null}
+
       <section className="grid-3 stats bloque">
         <div className="card stat aparece" style={{ "--i": 1 }}>
-          <IconoCartera />
           <span>Deudas en gestión</span>
           <b>{resumen?.activas ?? "–"}</b>
           <small>{resumen ? `${resumen.enConvenio} en convenio de pago` : ""}</small>
         </div>
         <div className="card stat aparece" style={{ "--i": 2 }}>
-          <IconoCheck />
           <span>Pagos conciliados</span>
           <b>{resumen?.pagadas ?? "–"}</b>
           <small>{resumen ? `${resumen.retiradas} retiradas por el acreedor` : ""}</small>
         </div>
         <div className="card stat aparece" style={{ "--i": 3 }}>
-          <IconoCalendario />
           <span>Recuperado</span>
           <b className="totales">
             {(resumen?.porMoneda || []).map((m) => (
               <span key={m.moneda}>{dinero(m.recuperado, m.moneda)}</span>
             ))}
           </b>
-          <small>{(resumen?.porMoneda || []).map((m) => `${m.tasaRecuperacion}% en ${m.moneda}`).join(" · ")}</small>
+          <small>{(resumen?.porMoneda || []).map((m) => `${m.tasaRecuperacion}% en ${m.moneda}`).join(", ")}</small>
         </div>
       </section>
 
@@ -87,13 +108,15 @@ export default function DataBridge() {
         <RecuperadoPorDia resumen={resumen} />
       </div>
 
-      <div className="bloque aparece" style={{ "--i": 5 }}>
-        <CargaCsv onCargada={() => refrescar().catch((err) => setError(err.message))} />
-      </div>
-
-      <div className="card aparece" style={{ "--i": 6 }}>
+      <div className="card aparece" style={{ "--i": 5 }}>
         <div className="card-cab">
           <h3>Deudas</h3>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={!visibles.length} onClick={exportar}>
+            <IconoDescargar size={16} />
+            Exportar a Excel
+          </button>
+        </div>
+        <div className="card-cab">
           <div className="filters">
             {["todas", "open", "repacted", "paid", "withdrawn"].map((f) => (
               <button key={f} type="button" className={`chip ${filtro === f ? "on" : ""}`} onClick={() => setFiltro(f)}>
@@ -105,7 +128,7 @@ export default function DataBridge() {
         {visibles.length === 0 ? (
           <div className="empty">
             {deudas.length === 0
-              ? "Todavía no llega cartera. Llega por la API del contrato (POST /api/v1/carteras) o cargando el CSV aquí arriba."
+              ? "Todavía no llega cartera. Llega por la API del contrato o cargando el CSV en Cargar cartera."
               : "No hay deudas en ese estado."}
           </div>
         ) : (
@@ -127,7 +150,7 @@ export default function DataBridge() {
                   return (
                     <tr key={d.id}>
                       <td>{d.deudor}<span className="sub">{rutLegible(d.deudorRut)}</span></td>
-                      <td>{d.acreedor}<span className="sub">{d.externalId} · {d.concepto}</span></td>
+                      <td>{d.acreedor}<span className="sub">{d.concepto}, contrato {d.externalId}</span></td>
                       <td className="num">
                         {dinero(d.saldo, d.moneda)}
                         <span className="sub">de {dinero(d.montoOriginal, d.moneda)}</span>

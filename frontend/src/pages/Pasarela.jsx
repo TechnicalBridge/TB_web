@@ -3,9 +3,8 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { confirmarPagoPublico, pagoPublico } from "../api/pagos";
 import { dinero } from "../utils/formato";
 import TemaToggle from "../components/TemaToggle";
+import LogoPasarela, { nombreDePasarela } from "../components/LogoPasarela";
 import { CheckAnimado, IconoCandado } from "../components/Iconos";
-
-const NOMBRES = { webpay: "Webpay", mercadopago: "Mercado Pago", khipu: "Khipu" };
 
 /**
  * La pasarela simulada. En produccion esta pagina es la de Webpay o Khipu;
@@ -42,7 +41,11 @@ export default function Pasarela() {
     <div className="auth-panel" style={{ minHeight: "100vh" }}>
       <TemaToggle flotante />
       <div className="auth-card">
-        <span className="eyebrow">{NOMBRES[pago?.gateway] || "Pasarela"} · simulación</span>
+        <div className="card-cab" style={{ marginBottom: 4 }}>
+          {pago ? <LogoPasarela id={pago.gateway} alto={24} /> : <span />}
+          <span className="badge badge-muted">Simulación</span>
+        </div>
+        {pago ? <span className="eyebrow">Pago con {nombreDePasarela(pago.gateway)}</span> : null}
         {error ? <div className="error" style={{ marginTop: 14 }}>{error}</div> : null}
         {pago?.status === "paid" ? (
           <div className="success" style={{ padding: "20px 0 4px" }}>

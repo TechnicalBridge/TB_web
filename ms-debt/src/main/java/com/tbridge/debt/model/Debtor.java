@@ -40,6 +40,10 @@ public class Debtor {
     @Column(length = 20)
     private String phone;
 
+    /** Si quiere el correo que le recuerda una cuota por vencer. */
+    @Column(nullable = false)
+    private boolean reminders = true;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -56,7 +60,10 @@ public class Debtor {
     public void setFullName(String fullName) { this.fullName = fullName; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+    public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+    public boolean isReminders() { return reminders; }
+    public void setReminders(boolean reminders) { this.reminders = reminders; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

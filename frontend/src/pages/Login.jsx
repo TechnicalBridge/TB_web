@@ -23,7 +23,7 @@ export default function Login({ portal }) {
       <TemaToggle flotante />
       <section className="auth-hero">
         <div className="brand-row aparece">
-          <Logo size={56} />
+          <Logo size={46} />
           <div>
             <div className="brand-name">{esDeudor ? "Technical Bridge" : "DataBridge"}</div>
             <div className="brand-sub">{esDeudor ? "Portal de pago" : "Portal de empresas"}</div>
@@ -32,9 +32,7 @@ export default function Login({ portal }) {
         <div className="hero-copy">
           {esDeudor ? (
             <>
-              <h1 className="aparece" style={{ "--i": 1 }}>
-                Tu RUT y tu código. <span className="resalta">Nada más.</span>
-              </h1>
+              <h1 className="aparece" style={{ "--i": 1 }}>Entra con tu RUT y tu código</h1>
               <p className="aparece" style={{ "--i": 2 }}>
                 Sin cuenta y sin contraseña. El código te llegó por correo o WhatsApp de parte de la
                 empresa con la que tienes el pago pendiente. Nunca te vamos a mandar un enlace para
@@ -43,17 +41,15 @@ export default function Login({ portal }) {
             </>
           ) : (
             <>
-              <h1 className="aparece" style={{ "--i": 1 }}>
-                Tu cartera morosa, <span className="resalta">al día.</span>
-              </h1>
+              <h1 className="aparece" style={{ "--i": 1 }}>La cartera que gestionas, al día</h1>
               <p className="aparece" style={{ "--i": 2 }}>
-                Saldo, convenios y pagos conciliados de cada deudor con meses impagos. La cartera
-                llega por la API del contrato v1; los pagos vuelven por eventos firmados.
+                Quién debe, quién está en convenio y qué pagos llegaron. La cartera entra por la API
+                del contrato o cargando un archivo, y cada pago vuelve firmado a tu sistema.
               </p>
             </>
           )}
         </div>
-        <Link to="/" className="btn btn-ghost btn-sm badge-link aparece" style={{ "--i": 3 }}>
+        <Link to="/" className="btn btn-ghost btn-sm volver-link aparece" style={{ "--i": 3 }}>
           <IconoVolver size={16} />
           Volver
         </Link>
