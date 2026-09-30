@@ -52,7 +52,7 @@ jobs:
           cache: maven
 
       - name: Preparar CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.lenguaje }}
           build-mode: ${{ matrix.construir }}
@@ -68,6 +68,6 @@ jobs:
         run: mvn -B -q package -DskipTests
 
       - name: Analizar
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.lenguaje }}
