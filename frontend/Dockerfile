@@ -6,7 +6,7 @@
 #  nginx, que para eso esta hecho. La imagen final no lleva Node.
 # =============================================================================
 
-FROM node:22-alpine AS construccion
+FROM node:26-alpine AS construccion
 WORKDIR /obra
 
 #  package.json y el candado primero: mientras no cambien, Docker se salta
