@@ -10,7 +10,7 @@
 #  el jar con el JRE.
 # =============================================================================
 
-FROM maven:3.9-eclipse-temurin-25 AS construccion
+FROM maven:3-eclipse-temurin-26 AS construccion
 WORKDIR /obra
 
 #  Maven lee todos los modulos que declara el pom padre aunque se compile uno
