@@ -8,7 +8,7 @@
 
 #  3.13: la misma version con que el CI corre las pruebas. Una imagen con una
 #  version distinta de la probada es una imagen sin probar.
-FROM python:3.13-slim
+FROM python:3.14-slim
 WORKDIR /app
 
 #  Las dependencias antes que el codigo: mientras requirements.txt no cambie,
