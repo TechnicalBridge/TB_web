@@ -19,8 +19,12 @@ import { CheckAnimado, IconoCandado } from "../components/Iconos";
  *   pregunte a Khipu, y repite mientras Khipu verifica la transferencia. Si
  *   volvio por "cancelar", el pago queda fallido, salvo que alcanzo a pagar.
  */
-const CADA_MS = 4000;
-const INTENTOS = 45;
+//  Khipu tarda de segundos a varios minutos en confirmar una transferencia. Se
+//  le pregunta cada 3 s los primeros 5 minutos, para mostrar el pago apenas lo
+//  confirme, y despues cada 15 s hasta que vence el cobro (30 minutos).
+const RAPIDO = { veces: 100, cada: 3000 };
+const LENTO = { veces: 100, cada: 15000 };
+const INTENTOS = RAPIDO.veces + LENTO.veces;
 
 export default function Pasarela() {
   const { id } = useParams();
@@ -41,7 +45,7 @@ export default function Pasarela() {
       .catch((err) => setError(err.status === 401 ? "Enlace de pago inválido" : err.message));
   }, [id, sig, cancelado]);
 
-  // Khipu puede tardar unos segundos en conciliar la transferencia.
+  // Khipu puede tardar varios minutos en conciliar la transferencia.
   const verificando = pago && !pago.simulada && pago.status === "created" && pago.gateway === "khipu";
   const enWebpay = pago && !pago.simulada && pago.status === "created" && pago.gateway === "webpay";
   useEffect(() => {
@@ -53,7 +57,7 @@ export default function Pasarela() {
         /* Khipu no respondio: se reintenta */
       }
       setIntentos((n) => n + 1);
-    }, CADA_MS);
+    }, intentos < RAPIDO.veces ? RAPIDO.cada : LENTO.cada);
     return () => clearTimeout(t);
   }, [verificando, intentos, id, sig]);
 
@@ -107,9 +111,11 @@ export default function Pasarela() {
           <div style={{ padding: "16px 0 4px" }}>
             <h2>{intentos < INTENTOS ? <><span className="girando" /> Verificando tu pago</> : "Todavía no vemos tu pago"}</h2>
             <p className="hint">
-              {intentos < INTENTOS
-                ? `${nombreDePasarela(pago.gateway)} está confirmando la transferencia. Toma unos segundos.`
-                : `Si ya pagaste en ${nombreDePasarela(pago.gateway)}, aparecerá solo en el portal en unos minutos.`}{" "}
+              {intentos < RAPIDO.veces
+                ? `${nombreDePasarela(pago.gateway)} está confirmando la transferencia.`
+                : intentos < INTENTOS
+                  ? `${nombreDePasarela(pago.gateway)} todavía está confirmando la transferencia: puede tardar algunos minutos. Esta página cambia sola apenas la confirme.`
+                  : `Si ya pagaste en ${nombreDePasarela(pago.gateway)}, aparecerá solo en el portal en unos minutos.`}{" "}
               Puedes cerrar esta ventana: el portal se actualiza solo.
             </p>
           </div>

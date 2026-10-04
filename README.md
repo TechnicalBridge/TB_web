@@ -263,11 +263,12 @@ de cobro:
 
 Con eso, **Khipu** abre la página de Khipu. Se paga con el banco de prueba (DemoBank), y Khipu
 devuelve al portal, que le pregunta a Khipu cómo quedó: *Verificando tu pago* y después **Pago
-aprobado**. Si el deudor se arrepiente en Khipu, el pago queda como no completado y la deuda
+aprobado**. Khipu puede tardar algunos minutos en confirmar la transferencia (con DemoBank se
+midieron 4): la página sigue preguntando hasta que vence el cobro, y el portal se actualiza solo. Si el deudor se arrepiente en Khipu, el pago queda como no completado y la deuda
 sigue igual.
 
 Khipu no puede avisarle a un DataBridge que corre en `localhost`, así que ms-payments le pregunta
-a Khipu por los cobros abiertos cada 30 segundos. Con una dirección pública, `KHIPU_URL_AVISOS` y
+a Khipu por los cobros abiertos cada 10 segundos. Con una dirección pública, `KHIPU_URL_AVISOS` y
 `KHIPU_SECRETO` activan el aviso firmado de Khipu.
 
 ### Para programar
@@ -663,7 +664,7 @@ sequenceDiagram
 **El navegador nunca dice cuánto hay que pagar ni si el pago salió bien.** El monto lo pregunta
 ms-payments a ms-debt, y la aprobación la confirma ms-payments con Khipu, de servidor a servidor.
 Si el deudor cierra la ventana antes de volver, el pago igual se registra: ms-payments le pregunta
-a Khipu por los cobros abiertos cada 30 segundos.
+a Khipu por los cobros abiertos cada 10 segundos.
 
 **Con Webpay es igual, con otra forma:** ms-payments abre la transacción en Transbank y lleva al
 deudor a Webpay con un formulario POST. Cuando Webpay lo devuelve, ms-payments confirma la
@@ -904,7 +905,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
 | Cadena completa, sobre los contenedores reconstruidos | **16 de 16** comprobaciones: el cliente moroso nuevo llega desde Patrimonio, DataBridge registra al acreedor y lo invita, el deudor reclama y la disputa llega al acreedor, la agencia reanuda, el pago vuelve hasta el contrato y un lote repetido no se procesa dos veces |
-| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra a los 27 s. En los tres casos el contrato de Patrimonio queda con lo que corresponde. **Falta** probarlo contra Khipu real, con una cuenta en modo desarrollador |
+| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra sola. En los tres casos el contrato de Patrimonio queda con lo que corresponde. Y contra **Khipu real**, con una cuenta en modo desarrollador: se pagó con DemoBank, Khipu lo concilió (4 min 20 s desde que se abrió el cobro, contando lo que tarda la persona en Khipu) y ms-payments lo registró 21 s después, cuando todavía revisaba cada 30 s |
 | Reclamo en pantalla | Recorrido en Edge: el deudor reclama, la empresa lo ve con su detalle y lo retira, y el acreedor ve *Disputa aceptada* |
 | Migraciones sobre una base con datos | `V3` aplicada y el secreto existente cifrado al arrancar |
 
@@ -912,8 +913,6 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 - **Mercado Pago es simulada.** Integrarla es el mismo trabajo que Webpay y Khipu: un cliente, un
   retorno y su confirmación.
-- **Khipu real falta probarlo con una cuenta de verdad** en modo desarrollador
-  ([cómo](#para-pagar-con-khipu-de-verdad)).
 - **WhatsApp:** el contrato admite el canal, pero los códigos salen solo por correo.
 - **Varias réplicas:** ver *Escalabilidad* en [§9](#9-requisitos-no-funcionales).
 - **Retención de datos** (decisión I12 del contrato): cuánto se guarda una deuda saldada antes de
