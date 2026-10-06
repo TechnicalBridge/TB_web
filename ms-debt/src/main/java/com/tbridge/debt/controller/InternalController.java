@@ -87,6 +87,19 @@ public class InternalController {
         return debts.snapshotInterno(id, installmentIds);
     }
 
+    @GetMapping("/cartera/{rut}")
+    @Operation(summary = "Las deudas de la cartera de una empresa (para ms-payments)",
+            description = "Las mismas que la empresa ve en el portal: donde es acreedora y las que entrego como "
+                    + "agencia. ms-payments las usa para mostrarle sus pagos para devolver.")
+    @ApiResponse(responseCode = "200", description = "Los id de las deudas; vacio si la empresa no esta registrada")
+    public List<Long> cartera(
+            @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave,
+            @PathVariable String rut
+    ) {
+        exigirClave(clave);
+        return debts.carteraInterna(rut);
+    }
+
     @PostMapping("/claves")
     @Operation(summary = "Emitir una clave de API",
             description = "Para una organizacion registrada. Se devuelve una sola vez: en la base queda solo su huella.")

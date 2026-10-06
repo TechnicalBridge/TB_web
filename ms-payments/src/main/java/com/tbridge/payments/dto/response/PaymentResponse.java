@@ -11,7 +11,9 @@ import java.time.Instant;
  * Un pago, como lo ve quien tiene derecho a verlo.
  *
  * <p>No lleva los RUT ni el id de la pasarela: quien pregunta ya sabe quien es,
- * y el id de la transaccion es un dato de conciliacion, no del portal.
+ * y el id de la transaccion es un dato de conciliacion, no del portal. Salvo
+ * en un pago duplicado: la empresa tiene que devolverlo, y para eso necesita
+ * saber a quien y con que transaccion.
  */
 @Relation(collectionRelation = "payments", itemRelation = "payment")
 @Schema(description = "Un intento de pago y su estado")
@@ -34,17 +36,25 @@ public record PaymentResponse(
         String checkoutUrl,
         @Schema(description = "Si la pasarela es una simulacion. Khipu cobra de verdad cuando hay KHIPU_LLAVE",
                 example = "false")
-        boolean simulada
+        boolean simulada,
+        @Schema(description = "Solo en un pago duplicado: la transaccion en la pasarela, para devolverlo",
+                nullable = true, example = "182628133580")
+        String referenciaPasarela,
+        @Schema(description = "Solo en un pago duplicado: a quien devolverlo", nullable = true,
+                example = "16482337-7")
+        String deudorRut
 ) {
 
     public static PaymentResponse from(Payment pago, boolean simulada) {
+        boolean duplicado = pago.getStatus() == Payment.Status.duplicated;
         return new PaymentResponse(pago.getId(), pago.getDebtId(), pago.getInstallmentId(), pago.getAmount(),
                 pago.getCurrency(), pago.getAmountClp(), pago.getUfValue(), pago.getGateway(), pago.getStatus(),
-                pago.getPaidAt(), pago.getCreatedAt(), null, simulada);
+                pago.getPaidAt(), pago.getCreatedAt(), null, simulada,
+                duplicado ? pago.getGatewayTxnId() : null, duplicado ? pago.getDebtorRut() : null);
     }
 
     public PaymentResponse conEnlaceDePago(String url) {
         return new PaymentResponse(id, debtId, installmentId, amount, currency, amountClp, ufValue, gateway, status,
-                paidAt, createdAt, url, simulada);
+                paidAt, createdAt, url, simulada, referenciaPasarela, deudorRut);
     }
 }

@@ -3,6 +3,8 @@ package com.tbridge.payments.repository;
 import com.tbridge.payments.model.Payment;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +18,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     /** Los pagos de una pasarela en un estado: los cobros de Khipu que siguen abiertos. */
     List<Payment> findByGatewayAndStatus(Payment.Gateway gateway, Payment.Status status);
+
+    /** Los de una pasarela en un estado, abiertos despues de una fecha: los vencidos del ultimo dia. */
+    List<Payment> findByGatewayAndStatusAndCreatedAtAfter(Payment.Gateway gateway, Payment.Status status,
+                                                          Instant desde);
+
+    /** Los pagos de una deuda en un estado: los abiertos, o los ya pagados. */
+    List<Payment> findByDebtIdAndStatus(Long debtId, Payment.Status status);
+
+    /** Los pagos en un estado de varias deudas: los duplicados de una cartera. */
+    List<Payment> findByStatusAndDebtIdInOrderByCreatedAtDesc(Payment.Status status, Collection<Long> debtIds);
 
     /**
      * Lo que ve un acreedor: SOLO lo suyo.

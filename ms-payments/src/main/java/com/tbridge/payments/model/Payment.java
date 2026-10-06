@@ -11,6 +11,10 @@ import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Un intento de pago.
@@ -35,7 +39,11 @@ public class Payment {
 
     public enum Gateway { mercadopago, khipu, webpay }
 
-    public enum Status { created, authorized, paid, failed, expired, refunded }
+    /**
+     * {@code duplicated}: la pasarela cobro, pero las cuotas ya las habia
+     * pagado otro pago. No se abona: hay que devolverlo en la pasarela.
+     */
+    public enum Status { created, authorized, paid, failed, expired, refunded, duplicated }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -46,6 +54,14 @@ public class Payment {
 
     @Column(name = "installment_id")
     private Long installmentId;
+
+    /**
+     * Las cuotas que cubre, separadas por coma, tal como las cobro ms-debt.
+     * Con esto se sabe si dos pagos se pisan: si otro pago ya cubrio alguna,
+     * este es un pago duplicado.
+     */
+    @Column(name = "installment_ids", length = 2000)
+    private String installmentIds;
 
     /** El deudor se identifica por RUT, no por correo: el correo cambia. */
     @Column(name = "debtor_rut", nullable = false, length = 12)
@@ -116,6 +132,20 @@ public class Payment {
 
     public void setInstallmentId(Long installmentId) {
         this.installmentId = installmentId;
+    }
+
+    /** Las cuotas que cubre. En un pago de antes de guardarlas, su cuota si era una. */
+    public Set<Long> cuotas() {
+        if (installmentIds == null || installmentIds.isBlank()) {
+            return installmentId == null ? Set.of() : Set.of(installmentId);
+        }
+        return Arrays.stream(installmentIds.split(",")).map(String::trim).filter(id -> !id.isEmpty())
+                .map(Long::valueOf).collect(Collectors.toSet());
+    }
+
+    public void setCuotas(List<Long> ids) {
+        this.installmentIds = ids == null || ids.isEmpty() ? null
+                : ids.stream().map(String::valueOf).collect(Collectors.joining(","));
     }
 
     public String getDebtorRut() {

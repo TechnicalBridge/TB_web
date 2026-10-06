@@ -14,14 +14,16 @@ tecnológica, y se demuestra con APOFYX y tres acreedores ficticios de rubros di
 - Instituto Andes (aranceles);
 - Clínica Dental Sonrisa Norte (tratamientos).
 
-**Dos pasarelas cobran de verdad:**
+**Tres pasarelas cobran de verdad:**
 
 - **Webpay**, contra el ambiente de integración de Transbank, con tarjetas de prueba y sin
   configurar nada;
 - **Khipu**, cuando DataBridge tiene la llave de una cuenta de cobro: el deudor paga con una
   transferencia, y con una cuenta en modo desarrollador lo hace contra un banco ficticio.
-- **Mercado Pago**, con Checkout Pro y las credenciales de prueba de la aplicación: el deudor
-  paga con tarjeta en la página de Mercado Pago.
+- **Mercado Pago**, con Checkout Pro, cuando DataBridge tiene el access token de una cuenta de
+  Mercado Pago: el deudor paga con tarjeta en la página de Mercado Pago.
+
+Sin esas llaves, Khipu y Mercado Pago quedan simuladas.
 
 **Todo el sistema se levanta con una orden** y queda en http://localhost:8080. Solo hace falta
 Docker; no hay que instalar JDK, Node ni Python:
@@ -35,7 +37,7 @@ docker compose --profile app up -d --build --wait
 | [1. Descripción](#1-descripción) | [2. Tecnologías](#2-tecnologías-utilizadas) · [3. Cómo ejecutarlo](#3-cómo-ejecutar-el-proyecto-localmente) · [4. Equipo](#4-integrantes-del-equipo) |
 | [5. Metodología](#5-metodología-de-trabajo) | [6. Arquitectura](#6-arquitectura-de-la-solución) · [7. Modelo de datos](#7-modelo-de-datos) · [8. Diagramas UML](#8-diagramas-uml) |
 | [9. Requisitos no funcionales](#9-requisitos-no-funcionales) | [10. Docker](#10-docker) · [11. Pruebas](#11-pruebas) · [12. Innovación](#12-innovación) |
-| [Recorrido de demostración](#recorrido-de-demostración) | [Estado al 3 de octubre de 2026](#estado-al-3-de-octubre-de-2026) |
+| [Recorrido de demostración](#recorrido-de-demostración) | [Estado al 6 de octubre de 2026](#estado-al-6-de-octubre-de-2026) |
 
 ---
 
@@ -269,6 +271,25 @@ Al aceptar, Transbank devuelve al portal con **Pago aprobado**. **Anular compra*
 *El pago no se completó*, y la deuda sigue igual. Un cobro que nadie termina se vence a los 15
 minutos.
 
+### Para pagar con Mercado Pago de verdad
+
+Sin configurar nada, Mercado Pago es simulada. Para que cobre de verdad hace falta el access
+token de una cuenta de Mercado Pago: en [Mercado Pago Developers](https://www.mercadopago.cl/developers),
+crea una aplicación y usa las **credenciales de prueba** de una cuenta de vendedor de prueba.
+
+1. Copia `.env.example` como `.env` y pon el token en `MERCADOPAGO_ACCESS_TOKEN` (y la public key
+   en `MERCADOPAGO_PUBLIC_KEY`). **El token es un secreto, también el de prueba:** va solo en el
+   `.env`, que no se sube al repositorio.
+2. `docker compose --profile app up -d ms-payments` para que lo tome.
+
+Con eso, **Mercado Pago** abre su página y se paga con la tarjeta de prueba Mastercard
+`5416 7526 0258 2580`, vencimiento `11/30`, CVV `123`. Mercado Pago descarta las direcciones de
+vuelta que no son https, así que en local no devuelve solo al portal. No hace falta: cada 10 s
+DataBridge le pregunta a Mercado Pago por los cobros abiertos y registra el pago aunque el deudor
+cierre la ventana. La preferencia vence a los 30 minutos (`MERCADOPAGO_VENCE_EN`): pasado eso,
+Mercado Pago ya no la deja pagar y el cobro queda vencido también aquí. Con un túnel https la vuelta
+automática funciona.
+
 ### Para pagar con Khipu de verdad
 
 Sin configurar nada, Khipu es simulada. Para que cobre de verdad hace falta la llave de una cuenta
@@ -283,9 +304,10 @@ de cobro:
 
 Con eso, **Khipu** abre la página de Khipu. Se paga con el banco de prueba (DemoBank), y Khipu
 devuelve al portal, que le pregunta a Khipu cómo quedó: *Verificando tu pago* y después **Pago
-aprobado**. Khipu puede tardar algunos minutos en confirmar la transferencia (con DemoBank se
-midieron 4): la página sigue preguntando hasta que vence el cobro, y el portal se actualiza solo. Si el deudor se arrepiente en Khipu, el pago queda como no completado y la deuda
-sigue igual.
+aprobado**. Khipu no da el pago por hecho hasta verificar la transferencia: con DemoBank se midió
+cerca de un minuto entre que el deudor transfiere y Khipu la confirma. La página sigue preguntando
+hasta que vence el cobro, y el portal se actualiza solo. Si el deudor se arrepiente en Khipu, el cobro se anula en Khipu para que nadie lo pague
+después, el pago queda como no completado y la deuda sigue igual.
 
 Khipu no puede avisarle a un DataBridge que corre en `localhost`, así que ms-payments le pregunta
 a Khipu por los cobros abiertos cada 10 segundos. Con una dirección pública, `KHIPU_URL_AVISOS` y
@@ -579,7 +601,8 @@ erDiagram
     payments {
         string gateway "webpay, mercadopago o khipu"
         string gateway_txn_id "el token de Webpay o el payment_id de Khipu; UNIQUE junto a gateway"
-        string status "created, paid, failed, expired..."
+        string status "created, paid, failed, expired, duplicated..."
+        string installment_ids "las cuotas que cubre, para saber si dos pagos se pisan"
         decimal amount
         string currency "CLP o UF"
         decimal uf_value "la UF del día, si paga en UF"
@@ -686,6 +709,26 @@ ms-payments a ms-debt, y la aprobación la confirma ms-payments con Khipu, de se
 Si el deudor cierra la ventana antes de volver, el pago igual se registra: ms-payments le pregunta
 a Khipu por los cobros abiertos cada 10 segundos.
 
+**Mientras la pasarela verifica, nadie paga dos veces ni se pierde un pago.** Entre que el deudor
+transfiere y que Khipu lo confirma pasa un rato, y en ese rato la cuota todavía se ve pendiente.
+
+- **Un pago a la vez por deuda.** Al abrir un pago, ms-payments mira los otros pagos abiertos de esa
+  deuda. Si uno está en verificación (Khipu `verifying`, Mercado Pago `in_process` o `pending`), el
+  nuevo se rechaza: *Tienes un pago en verificación*. Si uno quedó abierto sin pagar, se anula en
+  la pasarela (Khipu lo borra y la preferencia de Mercado Pago vence en el acto) y queda vencido.
+- **Cada pago guarda las cuotas que cubre**, tal como las cobró ms-debt. Una cuota ya pagada que
+  ms-debt todavía no abona no se vuelve a cobrar.
+- **Si igual se paga dos veces** (Webpay no se puede anular: solo cobra si ms-payments confirma la
+  transacción al volver el deudor), el segundo pago queda `duplicated`. No se abona, y la empresa
+  lo ve en *Pagos recibidos*, en *Pagos para devolver*, con el RUT del deudor y la referencia de la
+  pasarela para devolverlo.
+- **No se vence lo que se está verificando.** Si el plazo se cumple mientras la pasarela verifica,
+  el pago sigue abierto hasta que se confirme. Un cobro que vence sin pagarse se anula en Khipu.
+- **Los vencidos se revisan un día más.** Cada 5 minutos, ms-payments pregunta por los cobros que
+  vencieron en las últimas 24 horas. En Khipu, un intento empezado justo antes del vencimiento
+  tiene hasta 3 horas para terminar: si alguno aparece pagado, se registra igual. El aviso de
+  Khipu también lo registra.
+
 **Con Webpay es igual, con otra forma:** ms-payments abre la transacción en Transbank y lleva al
 deudor a Webpay con un formulario POST. Cuando Webpay lo devuelve, ms-payments confirma la
 transacción con Transbank (`PUT /transactions/{token}`) antes de mostrarle el resultado. Se aprueba
@@ -743,7 +786,7 @@ componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
 | **Usabilidad** | Tema claro (crema y verde bosque) y oscuro (carbón y morado), que sigue al del sistema hasta que la persona elige. Quien pidió menos movimiento no ve animaciones. La barra de estado se anuncia como barra de progreso a los lectores de pantalla | `frontend/src/index.css` |
 | **Disponibilidad** | Los nueve contenedores declaran `healthcheck`, y ninguno arranca antes que aquel del que depende. La salud la da Actuator, que incluye la conexión a la base. `restart: unless-stopped` los repone si se caen | `docker-compose.yml` |
 | **Disponibilidad** · entrega | Todo lo que sale hacia otro sistema pasa por una bandeja con reintentos (1 min, 5 min, 30 min, 2 h, 6 h, 24 h). Si APOFYX está caído, el aviso se entrega cuando vuelve | `outbox`, `EventDispatcher` |
-| **Escalabilidad** | La identidad viaja en JWT y las sesiones se guardan en `tb_auth`. Para varias réplicas falta coordinar dos cosas: los límites del gateway viven en la memoria de cada instancia, y las tareas programadas (recordatorios, despachadores, vencimiento de pagos) correrían en cada una. No se validó con varias instancias | `RateLimitFilter`, `EventDispatcher`, `ConciliacionKhipu`, `WebpayVencidos` |
+| **Escalabilidad** | La identidad viaja en JWT y las sesiones se guardan en `tb_auth`. Para varias réplicas falta coordinar dos cosas: los límites del gateway viven en la memoria de cada instancia, y las tareas programadas (recordatorios, despachadores, vencimiento de pagos) correrían en cada una. No se validó con varias instancias | `RateLimitFilter`, `EventDispatcher`, `ConciliacionPasarelas`, `WebpayVencidos` |
 | **Portabilidad** | Una orden levanta el sistema entero en cualquier máquina con Docker | `docker-compose.yml` |
 | **Mantenibilidad** | Los tres servicios tienen la misma estructura de paquetes. `ddl-auto: validate` se niega a arrancar si las entidades y las tablas no calzan | `application.properties` |
 | **Documentación** | Todos los endpoints en Swagger, con sus respuestas posibles y ejemplos reales | http://localhost:8080/swagger-ui.html |
@@ -802,6 +845,9 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `KHIPU_LLAVE` | vacía | La llave de API de una cuenta de cobro de Khipu. Con ella, Khipu cobra de verdad; vacía, es simulada. **Es un secreto: solo en el `.env`** |
 | `KHIPU_URL_AVISOS`, `KHIPU_SECRETO` | vacías | Con una dirección pública de DataBridge: dónde avisa Khipu, y el secreto con que se verifica su firma |
 | `KHIPU_VENCE_EN` | `30m` | Cuándo se vence un cobro de Khipu que nadie pagó |
+| `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_PUBLIC_KEY` | vacías | Las credenciales de una cuenta de Mercado Pago. Con ellas, Mercado Pago cobra de verdad; vacías, es simulada. **El token es un secreto: solo en el `.env`** |
+| `MERCADOPAGO_ENVIRONMENT`, `MERCADOPAGO_URL` | `TEST`, `https://api.mercadopago.com` | `TEST` con credenciales de prueba, `PRODUCCION` con las reales, `SIMULADA` sin internet |
+| `MERCADOPAGO_VENCE_EN` | `30m` | Cuándo vence un cobro de Mercado Pago que nadie pagó: la preferencia expira a esa hora y el pago queda vencido |
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
 | `XAI_BASE_URL`, `XAI_MODEL` | `https://api.x.ai/v1`, `grok-4.5` | El proveedor y el modelo del LLM |
@@ -835,25 +881,27 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | --- | --- |
 | **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados. Que cada quien vea solo lo suyo; que el monto salga de ms-debt y no del navegador; que un pago avisado dos veces se abone una; que las cuotas se paguen en orden; que solo entren deudores morosos; que un cliente al día cierre lo que estaba en cobranza; que el mandato registre al acreedor nuevo; que un convenio sobreviva al mes siguiente; el reclamo y sus dos resoluciones; el cifrado y que un secreto viejo se cifre al arrancar; la sesión revocable, el código de acceso, la UF, la firma de los eventos y el recordatorio |
 | **De Webpay** | El cliente contra un Transbank falso: crear, confirmar y sus errores, sin que el detalle de Transbank llegue a la persona. El retorno aprobado; rechazado, sin código, con otro monto o con otra orden; anulado, con error de formulario y por tiempo; repetido; con Transbank caído; con un token ajeno; los abandonados que vencen, y el modo simulado |
-| **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido; que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
+| **De Mercado Pago** | El cliente contra un Mercado Pago falso: la preferencia con el token, la vuelta (con `auto_return` solo si es https) y el `init_point`, y sus errores; la preferencia vence a la hora pedida. La conciliación por las órdenes de la preferencia, también la periódica que vence lo abandonado: sin pagos, con un pago aprobado (también después de una tarjeta rechazada), con una tarjeta rechazada que deja el cobro abierto para reintentar, con Mercado Pago caído o con una preferencia que no existe; la vuelta y el aviso, sin sesión |
+| **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido (con el cobro anulado en Khipu, o pagado justo antes de anularlo); que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
+| **Del doble pago** | Un segundo pago mientras otro se verifica se rechaza; el abierto sin pagar se anula (Khipu lo borra, la preferencia de Mercado Pago vence en el acto) y queda vencido; una cuota pagada que ms-debt todavía no abona no se cobra de nuevo; el cobro guarda las cuotas que cubre, y ms-debt las informa en orden. Si igual se paga dos veces, el segundo queda `duplicated`, sin abonar y con la referencia y el RUT para devolverlo; pagar otras cuotas de la misma deuda no es duplicado. La consulta periódica no vence lo que Khipu o Mercado Pago están verificando y anula en Khipu lo que vence; un vencido que se paga después se registra, por la revisión de vencidos o por el aviso de Khipu |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
 | **De rendimiento** (k6) | Cómo lo siente una persona y dónde está el techo. Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**286 pruebas en Java y 12 en Python**, sin fallos:
+**333 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
 | `common` | 18 |
 | `gateway` | 13 |
 | `ms-auth` | 40 |
-| `ms-debt` | 143 |
-| `ms-payments` | 72 |
+| `ms-debt` | 144 |
+| `ms-payments` | 118 |
 | `ms-ai` (Python) | 12 |
 
 Además, la cadena completa con los tres sistemas se prueba de punta a punta con un script que
 vive fuera de este repositorio, en la carpeta que reúne a los tres
-([estado](#estado-al-3-de-octubre-de-2026)).
+([estado](#estado-al-6-de-octubre-de-2026)).
 
 ---
 
@@ -921,27 +969,26 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 ---
 
-## Estado al 3 de octubre de 2026
+## Estado al 6 de octubre de 2026
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **286**, sin fallos |
+| Pruebas Java (`mvnw clean test`, JDK 25) | **333**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
 | Cadena completa, sobre los contenedores reconstruidos | **16 de 16** comprobaciones: el cliente moroso nuevo llega desde Patrimonio, DataBridge registra al acreedor y lo invita, el deudor reclama y la disputa llega al acreedor, la agencia reanuda, el pago vuelve hasta el contrato y un lote repetido no se procesa dos veces |
-| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra sola. En los tres casos el contrato de Patrimonio queda con lo que corresponde. Y contra **Khipu real**, con una cuenta en modo desarrollador: se pagó con DemoBank, Khipu lo concilió (4 min 20 s desde que se abrió el cobro, contando lo que tarda la persona en Khipu) y ms-payments lo registró 21 s después, cuando todavía revisaba cada 30 s |
+| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra sola. En los tres casos el contrato de Patrimonio queda con lo que corresponde. Y contra **Khipu real**, con una cuenta en modo desarrollador: se pagó con DemoBank, Khipu lo concilió (4 min 20 s desde que se abrió el cobro, contando lo que tarda la persona en Khipu) y ms-payments lo registró 21 s después, cuando todavía revisaba cada 30 s Al cancelar, el cobro se anula en Khipu: probado contra Khipu real, donde queda `deleted` y ya no se puede pagar |
+| Mercado Pago | Contra el Mercado Pago real con credenciales de prueba, con ms-payments reconstruido y en Edge: la preferencia se crea con vencimiento a 30 minutos; el deudor paga con la tarjeta de prueba y no vuelve al portal, y la consulta periódica registra el pago en unos 10 s: queda `paid` y la deuda del contrato en Patrimonio baja a $0 |
+| Doble pago | Contra las pasarelas reales, con la migración `V2` aplicada sobre la base con datos: mientras Khipu verifica, otro pago por la misma cuota se rechaza (*Tienes un pago en verificación*); recién pagada la cuota, antes de que ms-debt la abone, también; un cobro de Khipu abierto sin pagar queda `deleted` en Khipu y vencido aquí al abrir otro, y la preferencia de Mercado Pago vence en el acto. Pagados a la vez un cobro de Webpay y uno de Khipu por la misma cuota, el primero se abona y el segundo queda `duplicated`: la deuda baja una sola vez, el deudor ve *Estas cuotas ya estaban pagadas* y la empresa lo ve en *Pagos para devolver* con la referencia de Khipu |
 | Reclamo en pantalla | Recorrido en Edge: el deudor reclama, la empresa lo ve con su detalle y lo retira, y el acreedor ve *Disputa aceptada* |
 | Migraciones sobre una base con datos | `V3` aplicada y el secreto existente cifrado al arrancar |
 
 **Lo que no está:**
 
-- **Khipu real falta probarlo con una cuenta de verdad** en modo desarrollador
-  ([cómo](#para-pagar-con-khipu-de-verdad)).
-- **Mercado Pago:** funciona contra la API real con credenciales de prueba, pero en local no se
-  pudo cerrar el cobro de punta a punta en un navegador, porque Mercado Pago descarta las
-  direcciones de vuelta que no son https. Con un túnel https la vuelta automática funciona; sin
-  él, el pago se concilia preguntándole a Mercado Pago por la preferencia.
+- **Mercado Pago, la vuelta al portal:** Mercado Pago descarta las direcciones de vuelta que no
+  son https, así que en local el deudor no vuelve solo al portal. El pago se registra igual, por la
+  consulta periódica. La vuelta automática con un túnel https no se probó.
 - **WhatsApp:** el contrato admite el canal, pero los códigos salen solo por correo.
 - **Varias réplicas:** ver *Escalabilidad* en [§9](#9-requisitos-no-funcionales).
 - **Retención de datos** (decisión I12 del contrato): cuánto se guarda una deuda saldada antes de

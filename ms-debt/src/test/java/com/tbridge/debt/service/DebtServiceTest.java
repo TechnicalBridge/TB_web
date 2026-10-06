@@ -193,6 +193,7 @@ class DebtServiceTest {
         assertEquals(new BigDecimal("280000"), snapshot.amount());
         //  Con varias no va ninguna: el pago se imputa de la mas antigua a la mas nueva.
         assertEquals(null, snapshot.installmentId());
+        assertEquals(List.of(13L, 14L), snapshot.installmentIds(), "las que cubre, de la que vence primero");
     }
 
     @Test
@@ -225,6 +226,7 @@ class DebtServiceTest {
         DebtSnapshotResponse snapshot = servicio.snapshotInterno(3L, null);
         assertEquals(new BigDecimal("420000"), snapshot.amount());
         assertEquals(null, snapshot.installmentId());
+        assertEquals(List.of(13L, 14L, 15L), snapshot.installmentIds(), "el saldo cubre todas, sin la anulada");
 
         servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 42L, 3L, snapshot.installmentId(),
                 "18905214-6", "76418902-7", snapshot.amount(), "CLP", 420000L, null, "webpay", "wp-convenio",

@@ -23,7 +23,7 @@ import java.util.List;
  * <pre>
  *   GET /internal/debts/{id}?installmentIds=12&installmentIds=13   (opcional)
  *   X-Internal-Key: ...
- *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId }
+ *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds }
  * </pre>
  */
 @Component
@@ -36,7 +36,9 @@ public class DebtClient {
             String debtorRut,
             String currency,
             BigDecimal amount,
-            Long installmentId
+            Long installmentId,
+            //  Las cuotas que cubre ese monto, de la que vence primero en adelante.
+            List<Long> installmentIds
     ) {}
 
     private final RestClient rest;
@@ -83,6 +85,23 @@ public class DebtClient {
         } catch (RestClientException e) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "No se pudo consultar la deuda: el cobro no se inicia a ciegas");
+        }
+    }
+
+    /**
+     * Las deudas de la cartera de una empresa, tal como las ve en el portal: la
+     * agencia ve las que entrego, no solo aquellas de las que es acreedora.
+     */
+    public List<Long> cartera(String rut) {
+        try {
+            Long[] ids = rest.get()
+                    .uri("/internal/cartera/{rut}", rut)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(Long[].class);
+            return ids == null ? List.of() : List.of(ids);
+        } catch (RestClientException e) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "No se pudo consultar la cartera");
         }
     }
 

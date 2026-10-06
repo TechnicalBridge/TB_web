@@ -63,7 +63,8 @@ class PaymentControllerTest {
 
     private static PaymentResponse pago() {
         return new PaymentResponse(41L, 3L, null, new BigDecimal("410000"), Payment.Currency.CLP, 410000L, null,
-                Payment.Gateway.khipu, Payment.Status.created, null, Instant.parse("2026-09-24T12:00:00Z"), null, false);
+                Payment.Gateway.khipu, Payment.Status.created, null, Instant.parse("2026-09-24T12:00:00Z"), null, false,
+                null, null);
     }
 
     @Test
@@ -82,6 +83,21 @@ class PaymentControllerTest {
                 .andExpect(jsonPath("$._links.self.href").value("http://localhost:8080/api/payments/41"))
                 .andExpect(jsonPath("$._links.historia.href").value("http://localhost:8080/api/payments/41/historia"))
                 .andExpect(jsonPath("$._links.deuda.href").value("http://localhost:8080/api/debts/3"));
+    }
+
+    @Test
+    void la_empresa_ve_sus_pagos_para_devolver_con_que_devolverlos() throws Exception {
+        String empresa = "Bearer " + jwt.issue("1", "camila.reyes@apofyx.cl", "CREDITOR", "Camila", "77305118-6");
+        when(payments.paraDevolver(any())).thenReturn(List.of(new PaymentResponse(58L, 3L, null,
+                new BigDecimal("900000"), Payment.Currency.CLP, 900000L, null, Payment.Gateway.khipu,
+                Payment.Status.duplicated, null, Instant.parse("2026-10-06T06:53:00Z"), null, false,
+                "yiddism7h8oc", RUT)));
+
+        mvc.perform(get("/api/payments/para-devolver").header("Authorization", empresa))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$._embedded.payments[0].status").value("duplicated"))
+                .andExpect(jsonPath("$._embedded.payments[0].referenciaPasarela").value("yiddism7h8oc"))
+                .andExpect(jsonPath("$._embedded.payments[0].deudorRut").value(RUT));
     }
 
     @Test

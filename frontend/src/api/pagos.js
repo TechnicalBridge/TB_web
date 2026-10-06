@@ -19,6 +19,13 @@ export const obtenerPago = (id) => pedir(`/payments/${id}`);
  */
 export const listarPagos = () => pedir("/debts/pagos").then((data) => embebidos(data, "pagos"));
 
+/**
+ * Los pagos duplicados de la cartera: el deudor pagó dos veces las mismas
+ * cuotas y el segundo no se abonó. Vienen con la referencia de la pasarela y
+ * el RUT del deudor, para devolverlos.
+ */
+export const listarParaDevolver = () => pedir("/payments/para-devolver").then((data) => embebidos(data, "payments"));
+
 /** El comprobante de un pago, descargado como archivo. */
 export async function descargarComprobante(id) {
   const res = await client.get(`/debts/pagos/${id}/comprobante`, { responseType: "blob" });
