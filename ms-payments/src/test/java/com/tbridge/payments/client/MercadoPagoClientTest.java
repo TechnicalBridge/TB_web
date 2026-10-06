@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MercadoPagoClientTest {
 
-    private static final String TOKEN = "APP_USR-8079701943220387-100401-c35823cb3e6ca0dd24d21af811de65b4-3737969390";
+    private static final String TOKEN = "APP_USR-token-de-prueba-inventado";
 
     private record Llamada(String metodo, String ruta, Map<String, List<String>> encabezados, String cuerpo) {}
 
@@ -106,7 +106,7 @@ class MercadoPagoClientTest {
 
     private MercadoPagoClient cliente() {
         return new MercadoPagoClient("http://127.0.0.1:" + mp.getAddress().getPort(), TOKEN,
-                "APP_USR-0e4b2202-9b14-4b4b-9696-28802be3048a", "TEST");
+                "APP_USR-llave-publica-inventada", "TEST");
     }
 
     private JsonNode cuerpoDeLaPreferencia() throws Exception {
@@ -151,12 +151,17 @@ class MercadoPagoClientTest {
     }
 
     @Test
-    void en_prueba_abre_el_sandbox_init_point() {
+    void abre_el_init_point_tambien_en_prueba() {
+        //  Mercado Pago cerro el sandbox: con credenciales de prueba se paga en
+        //  el mismo init_point, y el subdominio sandbox muestra "Algo anda mal".
         MercadoPagoClient.Preferencia pref = cliente().crearPreferencia("41", "Pago", 410000L, "a@b.cl",
                 "http://localhost:5173/vuelta");
 
-        assertTrue(pref.url(true).startsWith("https://sandbox.mercadopago.cl/"));
+        assertTrue(pref.url(true).startsWith("https://www.mercadopago.cl/"));
         assertTrue(pref.url(false).startsWith("https://www.mercadopago.cl/"));
+        assertEquals("https://sandbox.mercadopago.cl/x",
+                new MercadoPagoClient.Preferencia("p", null, "https://sandbox.mercadopago.cl/x").url(true),
+                "sin init_point, queda el sandbox");
     }
 
     @Test
@@ -240,7 +245,7 @@ class MercadoPagoClientTest {
         assertTrue(cliente().real());
         assertTrue(cliente().testMode());
         assertFalse(new MercadoPagoClient("http://mp.invalid", TOKEN, "pk", "PRODUCCION").testMode());
-        assertEquals("APP_USR-0e4b2202-9b14-4b4b-9696-28802be3048a", cliente().getPublicKey());
+        assertEquals("APP_USR-llave-publica-inventada", cliente().getPublicKey());
     }
 
     @Test

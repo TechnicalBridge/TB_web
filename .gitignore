@@ -15,7 +15,10 @@ venv/
 # Notas locales de cada uno: no se versionan.
 api_transbank.md
 Conexion_MS.md
-todolisto.md
+/todo*.md
+
+# Lo que compila el editor fuera de target/.
+target_*/
 
 # Credenciales de prueba de las pasarelas: son secretos, van solo en el .env.
 credenciales.md

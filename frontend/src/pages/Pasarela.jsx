@@ -22,8 +22,13 @@ import { CheckAnimado, IconoCandado } from "../components/Iconos";
  *   (descarta las back_urls http), asi que esta pagina le pregunta a
  *   ms-payments y este le pregunta a Mercado Pago por la preferencia.
  */
-const CADA_MS = 4000;
-const INTENTOS = 45;
+//  Khipu tarda de segundos a varios minutos en confirmar una transferencia. Se
+//  le pregunta cada 3 s los primeros 5 minutos, para mostrar el pago apenas lo
+//  confirme, y despues cada 15 s hasta que vence el cobro (30 minutos). Con
+//  Mercado Pago se pregunta igual, por la preferencia.
+const RAPIDO = { veces: 100, cada: 3000 };
+const LENTO = { veces: 100, cada: 15000 };
+const INTENTOS = RAPIDO.veces + LENTO.veces;
 
 export default function Pasarela() {
   const { id } = useParams();
@@ -44,7 +49,7 @@ export default function Pasarela() {
       .catch((err) => setError(err.status === 401 ? "Enlace de pago inválido" : err.message));
   }, [id, sig, cancelado]);
 
-  // Khipu puede tardar unos segundos en conciliar la transferencia, y en
+  // Khipu puede tardar varios minutos en conciliar la transferencia, y en
   // Mercado Pago hay que preguntar si el deudor pago en su pagina: Mercado Pago
   // descarta las back_urls que no son https, asi que en local no puede
   // devolvernos al portal ni avisarnos, y el pago se concilia contra la

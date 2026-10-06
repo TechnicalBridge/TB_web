@@ -631,7 +631,7 @@ class PaymentServiceTest {
         PaymentResponse pago = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "mercadopago"));
 
         assertFalse(pago.simulada());
-        assertEquals("https://sandbox.mp.test/init", pago.checkoutUrl());
+        assertEquals("https://mp.test/init", pago.checkoutUrl(), "Mercado Pago cerro el sandbox: siempre init_point");
         verify(mercadopago).crearPreferencia(eq("41"), any(), eq(410000L), any(), any());
     }
 

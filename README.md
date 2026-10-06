@@ -14,14 +14,16 @@ tecnológica, y se demuestra con APOFYX y tres acreedores ficticios de rubros di
 - Instituto Andes (aranceles);
 - Clínica Dental Sonrisa Norte (tratamientos).
 
-**Dos pasarelas cobran de verdad:**
+**Tres pasarelas cobran de verdad:**
 
 - **Webpay**, contra el ambiente de integración de Transbank, con tarjetas de prueba y sin
   configurar nada;
 - **Khipu**, cuando DataBridge tiene la llave de una cuenta de cobro: el deudor paga con una
   transferencia, y con una cuenta en modo desarrollador lo hace contra un banco ficticio.
-- **Mercado Pago**, con Checkout Pro y las credenciales de prueba de la aplicación: el deudor
-  paga con tarjeta en la página de Mercado Pago.
+- **Mercado Pago**, con Checkout Pro, cuando DataBridge tiene el access token de una cuenta de
+  Mercado Pago: el deudor paga con tarjeta en la página de Mercado Pago.
+
+Sin esas llaves, Khipu y Mercado Pago quedan simuladas.
 
 **Todo el sistema se levanta con una orden** y queda en http://localhost:8080. Solo hace falta
 Docker; no hay que instalar JDK, Node ni Python:
@@ -268,6 +270,23 @@ internet, y no hay que configurar nada.
 Al aceptar, Transbank devuelve al portal con **Pago aprobado**. **Anular compra** devuelve con
 *El pago no se completó*, y la deuda sigue igual. Un cobro que nadie termina se vence a los 15
 minutos.
+
+### Para pagar con Mercado Pago de verdad
+
+Sin configurar nada, Mercado Pago es simulada. Para que cobre de verdad hace falta el access
+token de una cuenta de Mercado Pago: en [Mercado Pago Developers](https://www.mercadopago.cl/developers),
+crea una aplicación y usa las **credenciales de prueba** de una cuenta de vendedor de prueba.
+
+1. Copia `.env.example` como `.env` y pon el token en `MERCADOPAGO_ACCESS_TOKEN` (y la public key
+   en `MERCADOPAGO_PUBLIC_KEY`). **El token es un secreto, también el de prueba:** va solo en el
+   `.env`, que no se sube al repositorio.
+2. `docker compose --profile app up -d ms-payments` para que lo tome.
+
+Con eso, **Mercado Pago** abre su página y se paga con la tarjeta de prueba Mastercard
+`5416 7526 0258 2580`, vencimiento `11/30`, CVV `123`. Mercado Pago descarta las direcciones de
+vuelta que no son https, así que en local no devuelve solo al portal: la página del resultado le
+pregunta a Mercado Pago por el cobro hasta que aparece pagado. Con un túnel https la vuelta
+automática funciona.
 
 ### Para pagar con Khipu de verdad
 
@@ -802,6 +821,8 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `KHIPU_LLAVE` | vacía | La llave de API de una cuenta de cobro de Khipu. Con ella, Khipu cobra de verdad; vacía, es simulada. **Es un secreto: solo en el `.env`** |
 | `KHIPU_URL_AVISOS`, `KHIPU_SECRETO` | vacías | Con una dirección pública de DataBridge: dónde avisa Khipu, y el secreto con que se verifica su firma |
 | `KHIPU_VENCE_EN` | `30m` | Cuándo se vence un cobro de Khipu que nadie pagó |
+| `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_PUBLIC_KEY` | vacías | Las credenciales de una cuenta de Mercado Pago. Con ellas, Mercado Pago cobra de verdad; vacías, es simulada. **El token es un secreto: solo en el `.env`** |
+| `MERCADOPAGO_ENVIRONMENT`, `MERCADOPAGO_URL` | `TEST`, `https://api.mercadopago.com` | `TEST` con credenciales de prueba, `PRODUCCION` con las reales, `SIMULADA` sin internet |
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
 | `XAI_BASE_URL`, `XAI_MODEL` | `https://api.x.ai/v1`, `grok-4.5` | El proveedor y el modelo del LLM |
@@ -835,12 +856,13 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | --- | --- |
 | **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados. Que cada quien vea solo lo suyo; que el monto salga de ms-debt y no del navegador; que un pago avisado dos veces se abone una; que las cuotas se paguen en orden; que solo entren deudores morosos; que un cliente al día cierre lo que estaba en cobranza; que el mandato registre al acreedor nuevo; que un convenio sobreviva al mes siguiente; el reclamo y sus dos resoluciones; el cifrado y que un secreto viejo se cifre al arrancar; la sesión revocable, el código de acceso, la UF, la firma de los eventos y el recordatorio |
 | **De Webpay** | El cliente contra un Transbank falso: crear, confirmar y sus errores, sin que el detalle de Transbank llegue a la persona. El retorno aprobado; rechazado, sin código, con otro monto o con otra orden; anulado, con error de formulario y por tiempo; repetido; con Transbank caído; con un token ajeno; los abandonados que vencen, y el modo simulado |
+| **De Mercado Pago** | El cliente contra un Mercado Pago falso: la preferencia con el token, la vuelta (con `auto_return` solo si es https) y el `init_point`, y sus errores. La conciliación por la preferencia: sin pagos, con un pago aprobado, rechazado, con Mercado Pago caído o con una preferencia que no existe; la vuelta y el aviso, sin sesión |
 | **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido; que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
 | **De rendimiento** (k6) | Cómo lo siente una persona y dónde está el techo. Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**286 pruebas en Java y 12 en Python**, sin fallos:
+**307 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
@@ -848,7 +870,7 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | `gateway` | 13 |
 | `ms-auth` | 40 |
 | `ms-debt` | 143 |
-| `ms-payments` | 72 |
+| `ms-payments` | 93 |
 | `ms-ai` (Python) | 12 |
 
 Además, la cadena completa con los tres sistemas se prueba de punta a punta con un script que
@@ -925,7 +947,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **286**, sin fallos |
+| Pruebas Java (`mvnw clean test`, JDK 25) | **307**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
@@ -936,8 +958,6 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 **Lo que no está:**
 
-- **Khipu real falta probarlo con una cuenta de verdad** en modo desarrollador
-  ([cómo](#para-pagar-con-khipu-de-verdad)).
 - **Mercado Pago:** funciona contra la API real con credenciales de prueba, pero en local no se
   pudo cerrar el cobro de punta a punta en un navegador, porque Mercado Pago descarta las
   direcciones de vuelta que no son https. Con un túnel https la vuelta automática funciona; sin
