@@ -63,7 +63,7 @@ export default function Pasarela() {
         /* La pasarela no respondio: se reintenta */
       }
       setIntentos((n) => n + 1);
-    }, CADA_MS);
+    }, intentos < RAPIDO.veces ? RAPIDO.cada : LENTO.cada);
     return () => clearTimeout(t);
   }, [esperandoPago, intentos, id, sig]);
 
@@ -125,9 +125,11 @@ export default function Pasarela() {
           <div style={{ padding: "16px 0 4px" }}>
             <h2>{intentos < INTENTOS ? <><span className="girando" /> Verificando tu pago</> : "Todavía no vemos tu pago"}</h2>
             <p className="hint">
-              {intentos < INTENTOS
-                ? `${nombreDePasarela(pago.gateway)} está confirmando la transferencia. Toma unos segundos.`
-                : `Si ya pagaste en ${nombreDePasarela(pago.gateway)}, aparecerá solo en el portal en unos minutos.`}{" "}
+              {intentos < RAPIDO.veces
+                ? `${nombreDePasarela(pago.gateway)} está confirmando la transferencia.`
+                : intentos < INTENTOS
+                  ? `${nombreDePasarela(pago.gateway)} todavía está confirmando la transferencia: puede tardar algunos minutos. Esta página cambia sola apenas la confirme.`
+                  : `Si ya pagaste en ${nombreDePasarela(pago.gateway)}, aparecerá solo en el portal en unos minutos.`}{" "}
               Puedes cerrar esta ventana: el portal se actualiza solo.
             </p>
           </div>

@@ -64,9 +64,10 @@ services:
     image: rabbitmq:3.13-management
     container_name: tbridge-rabbit
     restart: unless-stopped
+    #  Los puertos se cambian en .env si el equipo ya tiene otro RabbitMQ.
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBIT_PORT:-5672}:5672"
+      - "${RABBIT_ADMIN_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-guest}
@@ -90,9 +91,10 @@ services:
     image: axllent/mailpit:latest
     container_name: tbridge-mail
     restart: unless-stopped
+    #  Los puertos se cambian en .env si el equipo ya tiene otro Mailpit.
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_PORT:-8025}:8025"
 
   # ===========================================================================
   #  Perfil "app": el sistema entero, sin instalar nada en la maquina.
@@ -120,6 +122,7 @@ services:
         JWT_SECRET: ${JWT_SECRET:-tbridge-dev-secret-change-me-32chars}
         INTERNAL_KEY: ${INTERNAL_KEY:-tbridge-internal-dev}
         PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+        SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       PORT: "8081"
       #  La sesion: un JWT corto que nadie puede revocar, y una llave de
       #  renovacion que si. Ver ms-auth/src/main/resources/db/migration/V2.
@@ -128,7 +131,11 @@ services:
       #  Encender detras de HTTPS. Con HTTP el navegador descarta una cookie
       #  Secure sin avisar, y la sesion se caeria a los quince minutos.
       COOKIE_SECURE:     ${COOKIE_SECURE:-false}
-      #  Los correos van al buzon de prueba, no a nadie de verdad.
+      CODE_TTL_HOURS:    ${CODE_TTL_HOURS:-24}
+      MAGIC_TTL_MINUTES: ${MAGIC_TTL_MINUTES:-15}
+      MAIL_FROM:         ${MAIL_FROM:-noreply@technicalbridge.local}
+      #  Los correos van al buzon de prueba, no a nadie de verdad. En Docker
+      #  SMTP_* del .env no se usan: son para correr ms-auth con Maven.
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_AUTH: "false"
@@ -198,15 +205,19 @@ services:
       #  arranca igual y lo dice en su log.
       BCENTRAL_USER: ${BCENTRAL_USER:-}
       BCENTRAL_PASS: ${BCENTRAL_PASS:-}
-      #  Con llave, Khipu cobra de verdad (una cuenta de cobro en modo
-      #  desarrollador paga con DemoBank). Sin llave, queda simulada. El
-      #  deudor vuelve de Khipu a PUBLIC_URL, que viene en el bloque comun.
       #  Webpay cobra de verdad en el ambiente de integracion de Transbank, con
       #  sus credenciales publicas de prueba. SIMULADA = sin internet. El deudor
       #  vuelve de Webpay a PUBLIC_URL, que viene en el bloque comun.
-      TRANSBANK_ENVIRONMENT: ${TRANSBANK_ENVIRONMENT:-TEST}
-      KHIPU_URL: ${KHIPU_URL:-https://payment-api.khipu.com}
-      KHIPU_LLAVE: ${KHIPU_LLAVE:-}
+      TRANSBANK_ENVIRONMENT:   ${TRANSBANK_ENVIRONMENT:-TEST}
+      TRANSBANK_API_URL:       ${TRANSBANK_API_URL:-https://webpay3gint.transbank.cl}
+      TRANSBANK_COMMERCE_CODE: ${TRANSBANK_COMMERCE_CODE:-597055555532}
+      TRANSBANK_API_KEY:       ${TRANSBANK_API_KEY:-579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C}
+      TRANSBANK_VENCE_EN:      ${TRANSBANK_VENCE_EN:-15m}
+      #  Con llave, Khipu cobra de verdad (una cuenta de cobro en modo
+      #  desarrollador paga con DemoBank). Sin llave, queda simulada. El
+      #  deudor vuelve de Khipu a PUBLIC_URL, que viene en el bloque comun.
+      KHIPU_URL:        ${KHIPU_URL:-https://payment-api.khipu.com}
+      KHIPU_LLAVE:      ${KHIPU_LLAVE:-}
       KHIPU_URL_AVISOS: ${KHIPU_URL_AVISOS:-}
       KHIPU_SECRETO: ${KHIPU_SECRETO:-}
       #  Con access token, Mercado Pago (Checkout Pro) cobra de verdad. Sin
@@ -218,6 +229,8 @@ services:
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
       MERCADOPAGO_PUBLIC_KEY: ${MERCADOPAGO_PUBLIC_KEY:-}
       MERCADOPAGO_ENVIRONMENT: ${MERCADOPAGO_ENVIRONMENT:-TEST}
+      KHIPU_SECRETO:    ${KHIPU_SECRETO:-}
+      KHIPU_VENCE_EN:   ${KHIPU_VENCE_EN:-30m}
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8084/actuator/health || exit 1"]
       interval: 10s
@@ -236,7 +249,9 @@ services:
     environment:
       DEBT_URI: http://ms-debt:8083
       #  Sin llave contesta con reglas, que es el camino por omision.
-      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_API_KEY:  ${XAI_API_KEY:-}
+      XAI_BASE_URL: ${XAI_BASE_URL:-https://api.x.ai/v1}
+      XAI_MODEL:    ${XAI_MODEL:-grok-4.5}
     #  La imagen de Python no trae curl, pero si httpx, que es con lo que este
     #  servicio le habla a ms-debt.
     healthcheck:
@@ -265,6 +280,7 @@ services:
       DEBT_URI:     http://ms-debt:8083
       PAYMENTS_URI: http://ms-payments:8084
       AI_URI:       http://ms-ai:8085
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       #  El limite de peticiones por IP, por minuto. Se declara aca para poder
       #  subirlo durante la prueba de capacidad: todo el trafico de k6 sale de
       #  una sola IP, y con el cupo de fabrica la prueba mediria el limitador
@@ -276,13 +292,16 @@ services:
       #  solo pesa si alguien le pega al gateway directo. Sale del mismo puerto
       #  que el portal para que cambiar uno no deje desalineado al otro.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${PORTAL_PORT:-8080},http://127.0.0.1:${PORTAL_PORT:-8080}}
-      #  En que proxies se confia para saber la IP del cliente (el nginx del
-      #  portal vive en una red de Docker, 172.16 a 172.31). El valor por
-      #  omision es el mismo del application.properties del gateway, y NO puede quedar vacio: una
-      #  lista vacia hace que el gateway vuelva a borrar la IP del cliente, y
-      #  todos los intentos fallidos se cuentan como si fueran de una sola
+      #  En que proxies se confia para saber la IP del cliente: el nginx del
+      #  portal, que vive en una red de Docker. Docker la saca de 172.16 a
+      #  172.31, pero si esas estan ocupadas (una VPN, WSL, muchas redes) usa
+      #  192.168 o 10: por eso se confia en las tres redes privadas. Es seguro
+      #  porque el puerto del gateway no se publica. El valor por omision es el
+      #  mismo del application.properties del gateway, y NO puede quedar vacio:
+      #  una lista vacia hace que el gateway vuelva a borrar la IP del cliente,
+      #  y todos los intentos fallidos se cuentan como si fueran de una sola
       #  persona.
-      TRUSTED_PROXIES: '${TRUSTED_PROXIES:-127\.0\.0\.1|0:0:0:0:0:0:0:1|172\.(1[6-9]|2[0-9]|3[01])\..*}'
+      TRUSTED_PROXIES: '${TRUSTED_PROXIES:-127\.0\.0\.1|0:0:0:0:0:0:0:1|10\..*|172\.(1[6-9]|2[0-9]|3[01])\..*|192\.168\..*}'
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8082/actuator/health || exit 1"]
       interval: 10s

@@ -6,7 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Cada 30 segundos, se le pregunta a Khipu por los cobros abiertos. Ver
+ * Cada 10 segundos, se le pregunta a Khipu por los cobros abiertos. Ver
  * {@link PaymentService#conciliarPendientes}.
  *
  * <p>Es lo que registra un pago cuando el deudor cierra la ventana sin volver,
@@ -23,7 +23,7 @@ public class ConciliacionKhipu {
         this.pagos = pagos;
     }
 
-    @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
+    @Scheduled(fixedDelay = 10_000, initialDelay = 10_000)
     public void revisar() {
         int cerrados = pagos.conciliarPendientes();
         if (cerrados > 0) {

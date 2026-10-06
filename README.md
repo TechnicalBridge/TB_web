@@ -166,7 +166,9 @@ externas son tres, y ninguna es obligatoria:
 
 ### La forma corta: todo en Docker
 
-Lo único que hace falta es **Docker Desktop** corriendo.
+Lo único que hace falta es **Docker Desktop** corriendo, con al menos 4 GB de memoria para
+Docker, e internet la primera vez: se bajan las imágenes y las dependencias de Maven, npm y pip.
+No hace falta un `.env`: todo tiene un valor por omisión.
 
 ```powershell
 git clone https://github.com/TechnicalBridge/TB_web.git
@@ -175,7 +177,8 @@ docker compose --profile app up -d --build --wait
 ```
 
 `--wait` devuelve el control recién cuando los nueve contenedores están **sanos**, no cuando
-arrancaron. La primera vez demora unos minutos porque compila; después son segundos.
+arrancaron. La primera vez compila todo y tarda de uno a varios minutos, según la máquina y la
+conexión; después son segundos.
 
 | | |
 | --- | --- |
@@ -186,6 +189,23 @@ arrancaron. La primera vez demora unos minutos porque compila; después son segu
 | Base de datos | `127.0.0.1:3308` · `tbridge` / `tbridge_pass` |
 
 Para apagar: `docker compose --profile app down`. Con `-v` borra además los datos.
+
+### Si algo falla en un equipo nuevo
+
+| Qué pasa | Qué hacer |
+| --- | --- |
+| `port is already allocated` | Otro programa usa ese puerto. Copia `.env.example` como `.env` y cambia el que choca: `PORTAL_PORT` (8080), `MYSQL_PORT` (3308), `RABBIT_PORT` (5672), `RABBIT_ADMIN_PORT` (15672), `MAILPIT_SMTP_PORT` (1025) o `MAILPIT_PORT` (8025) |
+| `--wait` termina con un contenedor `unhealthy` o `exited` | `docker compose --profile app ps` dice cuál, y `docker compose logs <servicio>` por qué. Lo más común es poca memoria para Docker: en Docker Desktop, *Settings → Resources* |
+| La construcción se cae bajando dependencias | Sin internet, o un proxy que la corta. Se vuelve a correr la misma orden: lo que ya bajó queda en caché |
+| Todos los deudores reciben *Demasiadas solicitudes* a la vez | El gateway no reconoce al nginx del portal como proxy y ve a todos como una sola IP. Ya confía en las tres redes privadas que usa Docker; si tu red es otra, ajústala en `TRUSTED_PROXIES` |
+| Webpay no abre | Necesita internet. Sin internet, `TRANSBANK_ENVIRONMENT=SIMULADA` |
+| Cambiaste el `.env` y no se nota | Las variables se leen al crear el contenedor: `docker compose --profile app up -d` lo vuelve a crear |
+
+> Se probó así el 4 de octubre de 2026: un clon nuevo de GitHub con los finales de línea de
+> Windows, sin imágenes ni caché de Docker. Los nueve contenedores quedaron sanos al primer intento
+> (92 s en un i5-14400F con buena conexión), y funcionaron el código de acceso de abajo, la cartera
+> de ejemplo, un pago simulado, la ida a Webpay, el asistente y el enlace de la empresa. Apagar y
+> volver a levantar sobre la misma base también.
 
 ### Para entrar como empresa
 
@@ -263,11 +283,12 @@ de cobro:
 
 Con eso, **Khipu** abre la página de Khipu. Se paga con el banco de prueba (DemoBank), y Khipu
 devuelve al portal, que le pregunta a Khipu cómo quedó: *Verificando tu pago* y después **Pago
-aprobado**. Si el deudor se arrepiente en Khipu, el pago queda como no completado y la deuda
+aprobado**. Khipu puede tardar algunos minutos en confirmar la transferencia (con DemoBank se
+midieron 4): la página sigue preguntando hasta que vence el cobro, y el portal se actualiza solo. Si el deudor se arrepiente en Khipu, el pago queda como no completado y la deuda
 sigue igual.
 
 Khipu no puede avisarle a un DataBridge que corre en `localhost`, así que ms-payments le pregunta
-a Khipu por los cobros abiertos cada 30 segundos. Con una dirección pública, `KHIPU_URL_AVISOS` y
+a Khipu por los cobros abiertos cada 10 segundos. Con una dirección pública, `KHIPU_URL_AVISOS` y
 `KHIPU_SECRETO` activan el aviso firmado de Khipu.
 
 ### Para programar
@@ -663,7 +684,7 @@ sequenceDiagram
 **El navegador nunca dice cuánto hay que pagar ni si el pago salió bien.** El monto lo pregunta
 ms-payments a ms-debt, y la aprobación la confirma ms-payments con Khipu, de servidor a servidor.
 Si el deudor cierra la ventana antes de volver, el pago igual se registra: ms-payments le pregunta
-a Khipu por los cobros abiertos cada 30 segundos.
+a Khipu por los cobros abiertos cada 10 segundos.
 
 **Con Webpay es igual, con otra forma:** ms-payments abre la transacción en Transbank y lleva al
 deudor a Webpay con un formulario POST. Cuando Webpay lo devuelve, ms-payments confirma la
@@ -760,15 +781,20 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 
 | Variable | Por omisión | Para qué |
 | --- | --- | --- |
+| `PORTAL_PORT`, `MYSQL_PORT`, `RABBIT_PORT`, `RABBIT_ADMIN_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_PORT` | `8080`, `3308`, `5672`, `15672`, `1025`, `8025` | Los puertos que se publican en el equipo. Se cambian si alguno ya está ocupado |
+| `PUBLIC_URL` | `http://localhost:8080` | La dirección del portal que va en los correos y en el retorno de Webpay y de Khipu |
 | `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD` | `tbridge` / `tbridge_pass` / `rootpass` | La base |
+| `RABBIT_USER`, `RABBIT_PASSWORD` | `guest` / `guest` | RabbitMQ |
 | `JWT_SECRET` | `tbridge-dev-secret-change-me-32chars` | Firma los JWT. **El mismo en ms-auth, ms-debt y ms-payments.** Al menos 32 bytes: con menos, los servicios no arrancan |
 | `INTERNAL_KEY` | `tbridge-internal-dev` | Autentica las llamadas entre servicios |
 | `CIFRADO_LLAVE` | `databridge-cifrado-dev-cambiar` | Cifra en la base el secreto de las suscripciones. Si se cambia, los suscritos tienen que volver a suscribirse |
 | `JWT_TTL_MINUTES` | `15` | Cuánto dura el JWT. Corto a propósito: no se puede revocar |
 | `REFRESH_TTL_HOURS` | `168` | Cuánto dura una sesión desde que se entra. Renovar no la alarga |
 | `COOKIE_SECURE` | `false` | **Encender detrás de HTTPS.** Una cookie `Secure` sobre HTTP el navegador la descarta sin avisar |
+| `CODE_TTL_HOURS`, `MAGIC_TTL_MINUTES` | `24`, `15` | Cuánto dura el código de acceso del deudor, y el enlace de respaldo |
+| `MAIL_FROM` | `noreply@technicalbridge.local` | El remitente de los correos. En Docker los correos van al buzón de prueba; `SMTP_*` son solo para correr ms-auth con Maven |
 | `CORS_ORIGINS` | los del portal | Qué orígenes pueden hacer peticiones con credenciales al gateway |
-| `TRUSTED_PROXIES` | local y redes de Docker | En qué proxies confía el gateway para saber la IP del cliente |
+| `TRUSTED_PROXIES` | local y las redes privadas (`10.x`, `172.16–31`, `192.168.x`) | En qué proxies confía el gateway para saber la IP del cliente. No puede quedar vacía |
 | `WEBHOOK_SECRET` | `tbridge-webhook-dev` | Firma los enlaces de pago y verifica los avisos de las pasarelas simuladas |
 | `TRANSBANK_ENVIRONMENT` | `TEST` | `TEST` cobra contra el ambiente de integración de Transbank; `SIMULADA`, sin internet, vuelve a la pasarela simulada |
 | `TRANSBANK_API_URL`, `TRANSBANK_COMMERCE_CODE`, `TRANSBANK_API_KEY` | los públicos de integración | En producción, los del comercio |
@@ -776,14 +802,14 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `KHIPU_LLAVE` | vacía | La llave de API de una cuenta de cobro de Khipu. Con ella, Khipu cobra de verdad; vacía, es simulada. **Es un secreto: solo en el `.env`** |
 | `KHIPU_URL_AVISOS`, `KHIPU_SECRETO` | vacías | Con una dirección pública de DataBridge: dónde avisa Khipu, y el secreto con que se verifica su firma |
 | `KHIPU_VENCE_EN` | `30m` | Cuándo se vence un cobro de Khipu que nadie pagó |
-| `PORTAL_PORT`, `PUBLIC_URL` | `8080`, `http://localhost:8080` | Dónde queda el portal, y la dirección que va en los correos y en el retorno de Webpay y de Khipu |
 | `BCENTRAL_USER`, `BCENTRAL_PASS` | vacías | La UF del Banco Central. Sin ellas, se carga a mano |
 | `XAI_API_KEY` | vacía | El LLM del asistente. Sin ella, responde con reglas |
+| `XAI_BASE_URL`, `XAI_MODEL` | `https://api.x.ai/v1`, `grok-4.5` | El proveedor y el modelo del LLM |
 | `MIN_DIAS_MORA` | `30` | Desde cuántos días de mora del cargo impago más antiguo entra una deuda a cobranza |
 | `RECORDATORIO_DIAS_ANTES` | `3` | Cuántos días antes de cada cuota llega el recordatorio. Nunca se repite para la misma cuota |
 | `DEMO_DATOS` | `true` | Carga al arrancar la cartera de ejemplo. Solo agrega lo que falte: una base con datos propios no pierde nada |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
-| `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP |
+| `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP. En Docker está fijo en `true` |
 | `SWAGGER_ENABLED` | `true` | Apagar la documentación, por ejemplo en producción |
 
 **Los valores por omisión son de desarrollo y están escritos en un archivo público: no sirven
@@ -904,7 +930,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
 | Cadena completa, sobre los contenedores reconstruidos | **16 de 16** comprobaciones: el cliente moroso nuevo llega desde Patrimonio, DataBridge registra al acreedor y lo invita, el deudor reclama y la disputa llega al acreedor, la agencia reanuda, el pago vuelve hasta el contrato y un lote repetido no se procesa dos veces |
-| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra a los 27 s. En los tres casos el contrato de Patrimonio queda con lo que corresponde. **Falta** probarlo contra Khipu real, con una cuenta en modo desarrollador |
+| Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra sola. En los tres casos el contrato de Patrimonio queda con lo que corresponde. Y contra **Khipu real**, con una cuenta en modo desarrollador: se pagó con DemoBank, Khipu lo concilió (4 min 20 s desde que se abrió el cobro, contando lo que tarda la persona en Khipu) y ms-payments lo registró 21 s después, cuando todavía revisaba cada 30 s |
 | Reclamo en pantalla | Recorrido en Edge: el deudor reclama, la empresa lo ve con su detalle y lo retira, y el acreedor ve *Disputa aceptada* |
 | Migraciones sobre una base con datos | `V3` aplicada y el secreto existente cifrado al arrancar |
 
