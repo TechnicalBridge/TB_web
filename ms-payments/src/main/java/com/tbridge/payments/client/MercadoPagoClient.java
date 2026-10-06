@@ -16,6 +16,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 
@@ -24,7 +27,7 @@ import java.util.Locale;
  *
  * <pre>
  *   POST /checkout/preferences          crea la preferencia de cobro  -> {id, init_point, sandbox_init_point}
- *   GET  /checkout/preferences/{id}     lee la preferencia           -> {payments: [{id, status}], ...}
+ *   GET  /merchant_orders/search        las ordenes de una preferencia -> {elements: [{payments: [{id, status}]}]}
  *   GET  /v1/payments/{id}              obtiene el estado del pago   -> {status, status_detail, amount, ...}
  *   Authorization: Bearer <TOKEN> credencial de la aplicacion
  * </pre>
@@ -36,9 +39,11 @@ import java.util.Locale;
  *       preferencia entera se rechaza con {@code 400 invalid_auto_return}
  *       ("auto_return invalid. back_url.success must be defined"). Por eso
  *       {@code auto_return} solo se manda cuando la vuelta es https.</li>
- *   <li><b>La preferencia es la que sabe del pago.</b> Con el id de la
- *       preferencia se puede consultar que pagos se hicieron sobre ella, sin
- *       depender de que el deudor vuelva al portal ni de que el aviso llegue.</li>
+ *   <li><b>Los pagos de una preferencia estan en sus ordenes.</b> La
+ *       preferencia misma no los trae (no tiene {@code payments}). Al pagarse,
+ *       Mercado Pago abre una orden con el id de la preferencia y los intentos
+ *       de pago: con eso se concilia sin depender de que el deudor vuelva al
+ *       portal ni de que el aviso llegue.</li>
  * </ul>
  */
 @Component
@@ -47,6 +52,7 @@ public class MercadoPagoClient {
     private static final Logger log = LoggerFactory.getLogger(MercadoPagoClient.class);
     private static final String PREFERENCIAS = "/checkout/preferences";
     private static final String PAGOS = "/v1/payments";
+    private static final String ORDENES = "/merchant_orders/search";
 
     /** La preferencia de pago generada en Mercado Pago. */
     public record Preferencia(String id, String initPoint, String sandboxInitPoint) {
@@ -135,6 +141,19 @@ public class MercadoPagoClient {
      */
     public Preferencia crearPreferencia(String externalReference, String titulo, long montoClp,
                                        String emailPayer, String returnUrl) {
+        return crearPreferencia(externalReference, titulo, montoClp, emailPayer, returnUrl, null);
+    }
+
+    /** Mercado Pago pide las fechas con milisegundos y zona: 2026-10-06T02:30:00.000-03:00. */
+    private static final DateTimeFormatter FECHA = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
+
+    /**
+     * Igual, pero la preferencia vence en {@code vence}: pasado eso, Mercado Pago
+     * ya no la deja pagar. Asi un cobro que DataBridge da por vencido no se
+     * puede pagar despues sin que nadie lo abone.
+     */
+    public Preferencia crearPreferencia(String externalReference, String titulo, long montoClp,
+                                       String emailPayer, String returnUrl, OffsetDateTime vence) {
         try {
             log.info("Creando preferencia Mercado Pago: ref={}, monto={}", externalReference, montoClp);
 
@@ -158,7 +177,9 @@ public class MercadoPagoClient {
                     backUrls,
                     vuelveSiMismo ? "approved" : null,
                     externalReference,
-                    "TECHNICAL BRIDGE"
+                    "TECHNICAL BRIDGE",
+                    vence == null ? null : true,
+                    vence == null ? null : vence.truncatedTo(ChronoUnit.SECONDS).format(FECHA)
             );
 
             JsonNode r = rest.post()
@@ -195,44 +216,56 @@ public class MercadoPagoClient {
     }
 
     /**
-     * Lee la preferencia para saber si ya se le pago y con que id.
+     * Busca los pagos hechos sobre la preferencia, para saber si ya se pago y
+     * con que id.
      *
      * <p>Es la forma de conciliar un pago de Mercado Pago sin depender de la
      * vuelta del deudor ni del aviso: en local Mercado Pago no puede devolverse
-     * a un {@code http://localhost} ni avisar a la maquina del desarrollador.</p>
+     * a un {@code http://localhost} ni avisar a la maquina del desarrollador.
+     * Los pagos no estan en la preferencia sino en sus ordenes, y se buscan por
+     * el id de la preferencia, que es unico: un pago de otro cobro no aparece
+     * aunque tenga la misma referencia.</p>
      *
-     * @return el estado de la preferencia, o null si ya no existe en Mercado Pago.
+     * <p>Si el deudor reintento (una tarjeta rechazada y despues otra), manda el
+     * intento aprobado; si ninguno se aprobo, el ultimo.</p>
+     *
+     * @return lo que se sabe de la preferencia; sin pago mientras nadie la pague.
      */
     public EstadoPreferencia consultarPreferencia(String preferenceId) {
         try {
             JsonNode r = rest.get()
-                    .uri(PREFERENCIAS + "/{id}", preferenceId)
+                    .uri(ORDENES + "?preference_id={id}", preferenceId)
                     .retrieve()
                     .body(JsonNode.class);
 
-            if (r == null || !r.hasNonNull("id")) {
+            if (r == null) {
                 return null;
             }
 
-            String id = r.get("id").asText();
-            String extRef = r.hasNonNull("external_reference") ? r.get("external_reference").asText() : null;
-            Long total = r.hasNonNull("total_amount") ? r.get("total_amount").asLong() : null;
-
-            //  payments[] viene vacio mientras nadie haya pagado la preferencia.
+            //  Sin pagos, Mercado Pago responde {"elements": null, "total": 0}.
+            String extRef = null;
+            Long total = null;
             PagoDePreferencia pago = null;
-            JsonNode pagos = r.get("payments");
-            if (pagos != null && pagos.isArray() && !pagos.isEmpty()) {
-                JsonNode primero = pagos.get(0);
-                if (primero != null && primero.hasNonNull("id")) {
-                    pago = new PagoDePreferencia(primero.get("id").asLong(),
-                            primero.hasNonNull("status") ? primero.get("status").asText() : null,
-                            primero);
+            for (JsonNode orden : r.path("elements")) {
+                if (extRef == null && orden.hasNonNull("external_reference")) {
+                    extRef = orden.get("external_reference").asText();
+                }
+                if (total == null && orden.hasNonNull("total_amount")) {
+                    total = orden.get("total_amount").asLong();
+                }
+                for (JsonNode intento : orden.path("payments")) {
+                    if (!intento.hasNonNull("id") || (pago != null && pago.pagado())) {
+                        continue;
+                    }
+                    pago = new PagoDePreferencia(intento.get("id").asLong(),
+                            intento.hasNonNull("status") ? intento.get("status").asText() : null,
+                            intento);
                 }
             }
 
             log.info("Preferencia Mercado Pago {} leida: extRef={}, total={}, pago={}",
-                    id, extRef, total, pago != null ? pago.id() + "/" + pago.status() : "ninguno");
-            return new EstadoPreferencia(id, extRef, total, pago);
+                    preferenceId, extRef, total, pago != null ? pago.id() + "/" + pago.status() : "ninguno");
+            return new EstadoPreferencia(preferenceId, extRef, total, pago);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode().value() == 404) {
                 log.warn("La preferencia {} no existe en Mercado Pago", preferenceId);
@@ -284,7 +317,9 @@ public class MercadoPagoClient {
             BackUrls backUrls,
             String autoReturn,
             String externalReference,
-            String statementDescriptor
+            String statementDescriptor,
+            Boolean expires,
+            String expirationDateTo
     ) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

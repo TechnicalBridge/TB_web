@@ -6,20 +6,21 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Cada 10 segundos, se le pregunta a Khipu por los cobros abiertos. Ver
- * {@link PaymentService#conciliarPendientes}.
+ * Cada 10 segundos, se le pregunta a Khipu y a Mercado Pago por los cobros
+ * abiertos. Ver {@link PaymentService#conciliarPendientes}.
  *
  * <p>Es lo que registra un pago cuando el deudor cierra la ventana sin volver,
- * y lo que reemplaza al aviso de Khipu en local, donde Khipu no puede llegar.
+ * y lo que reemplaza a los avisos de las pasarelas en local, donde no pueden
+ * llegar. Mercado Pago, ademas, no devuelve al deudor a una direccion http.
  */
 @Component
-public class ConciliacionKhipu {
+public class ConciliacionPasarelas {
 
-    private static final Logger log = LoggerFactory.getLogger(ConciliacionKhipu.class);
+    private static final Logger log = LoggerFactory.getLogger(ConciliacionPasarelas.class);
 
     private final PaymentService pagos;
 
-    public ConciliacionKhipu(PaymentService pagos) {
+    public ConciliacionPasarelas(PaymentService pagos) {
         this.pagos = pagos;
     }
 
@@ -27,7 +28,7 @@ public class ConciliacionKhipu {
     public void revisar() {
         int cerrados = pagos.conciliarPendientes();
         if (cerrados > 0) {
-            log.info("Khipu: {} cobro(s) quedaron cerrados", cerrados);
+            log.info("Pasarelas: {} cobro(s) quedaron cerrados", cerrados);
         }
     }
 }

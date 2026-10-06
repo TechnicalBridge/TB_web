@@ -94,6 +94,7 @@ public class PaymentService {
     private final String publicUrl;
     private final String avisosDeKhipu;
     private final Duration venceEn;
+    private final Duration venceEnMercadoPago;
 
     /** Donde Khipu avisa que un pago se concilio. Solo sirve con una direccion publica. */
     public static final String AVISOS_KHIPU = "/api/payments/public/khipu/aviso";
@@ -121,7 +122,8 @@ public class PaymentService {
             MercadoPagoClient mercadopago,
             @Value("${app.public-url}") String publicUrl,
             @Value("${app.khipu.url-avisos:}") String avisosDeKhipu,
-            @Value("${app.khipu.vence-en:30m}") Duration venceEn
+            @Value("${app.khipu.vence-en:30m}") Duration venceEn,
+            @Value("${app.mercadopago.vence-en:30m}") Duration venceEnMercadoPago
     ) {
         this.payments = payments;
         this.eventos = eventos;
@@ -137,6 +139,7 @@ public class PaymentService {
         this.avisosDeKhipu = avisosDeKhipu == null || avisosDeKhipu.isBlank() ? null
                 : avisosDeKhipu.trim().replaceAll("/$", "");
         this.venceEn = venceEn;
+        this.venceEnMercadoPago = venceEnMercadoPago;
     }
 
     // ------------------------------------------------------------------
@@ -212,7 +215,8 @@ public class PaymentService {
                     "Pago de deuda N° " + pago.getDebtId(),
                     pago.getAmountClp(),
                     user != null ? user.email() : null,
-                    returnUrl
+                    returnUrl,
+                    ZonedDateTime.now(CHILE).plus(venceEnMercadoPago).toOffsetDateTime()
             );
             pago.setGatewayTxnId(pref.id());
             payments.save(pago);
@@ -405,22 +409,32 @@ public class PaymentService {
     }
 
     /**
-     * Los cobros de Khipu abiertos: se le pregunta a Khipu por cada uno. Asi
-     * un pago se registra aunque el deudor cierre la ventana antes de volver,
-     * y sin depender del aviso, que en local no puede llegar. El que paso el
-     * plazo sin pagarse queda vencido. Devuelve cuantos se cerraron.
+     * Los cobros abiertos de Khipu y de Mercado Pago: se le pregunta a la
+     * pasarela por cada uno. Asi un pago se registra aunque el deudor cierre la
+     * ventana antes de volver, y sin depender del aviso ni de la vuelta, que en
+     * local no llegan (Mercado Pago ni siquiera devuelve a una direccion http).
+     * El que paso el plazo sin pagarse queda vencido: la pasarela lo vence a la
+     * misma hora, asi que ya no se puede pagar. Devuelve cuantos se cerraron.
      */
     @Transactional
     public int conciliarPendientes() {
-        if (!khipu.real()) {
-            return 0;
-        }
         int cerrados = 0;
-        Instant limite = Instant.now().minus(venceEn);
-        for (Payment pago : payments.findByGatewayAndStatus(Payment.Gateway.khipu, Payment.Status.created)) {
+        if (khipu.real()) {
+            cerrados += pendientes(Payment.Gateway.khipu, venceEn, this::conciliar);
+        }
+        if (mercadopago.real()) {
+            cerrados += pendientes(Payment.Gateway.mercadopago, venceEnMercadoPago, this::conciliarMercadoPago);
+        }
+        return cerrados;
+    }
+
+    private int pendientes(Payment.Gateway pasarela, Duration plazo, java.util.function.Consumer<Payment> conciliador) {
+        int cerrados = 0;
+        Instant limite = Instant.now().minus(plazo);
+        for (Payment pago : payments.findByGatewayAndStatus(pasarela, Payment.Status.created)) {
             try {
-                conciliar(pago);
-            } catch (ApiException khipuNoResponde) {
+                conciliador.accept(pago);
+            } catch (ApiException pasarelaNoResponde) {
                 continue;
             }
             if (pago.getStatus() == Payment.Status.created && pago.getCreatedAt().isBefore(limite)) {
@@ -573,9 +587,14 @@ public class PaymentService {
      *
      * <p>Hace falta porque en local Mercado Pago no puede devolverse a un
      * {@code http://localhost} (descarta las back_urls que no son https) ni
-     * avisar a la maquina del desarrollador. La preferencia es lo que guarda que
-     * pagos se hicieron sobre ella, asi que se pregunta ahi y no se espera a que
-     * el deudor vuelva.</p>
+     * avisar a la maquina del desarrollador. Mercado Pago guarda los pagos de
+     * cada preferencia, asi que se pregunta ahi y no se espera a que el deudor
+     * vuelva.</p>
+     *
+     * <p>Un intento rechazado no cierra el cobro: en Checkout Pro el deudor
+     * puede reintentar con otra tarjeta sobre la misma preferencia, y si aca
+     * quedara fallido, el pago que hiciera despues no se registraria. Si no lo
+     * logra, la preferencia vence y aca el cobro queda vencido.</p>
      *
      * <p>El estado no se toma de la respuesta: se usa el id del pago para
      * preguntarle a {@code /v1/payments}, que es la fuente que tambien usa el
@@ -607,12 +626,10 @@ public class PaymentService {
                 //  Pagado, pero no es el cobro que se abrio: no se acepta.
                 log.warn("Mercado Pago pago {} del pago {} no calza con la preferencia abierta", info.id(), pago.getId());
                 fallido(pago, crudo);
-            } else if ("rejected".equalsIgnoreCase(info.status()) || "cancelled".equalsIgnoreCase(info.status())) {
-                fallido(pago, crudo);
             }
         } catch (ApiException e) {
             //  Mercado Pago no respondio: se deja el pago abierto y se reintenta
-            //  en la proxima consulta de la pagina del resultado.
+            //  en la proxima consulta (la periodica o la de la pagina del resultado).
             log.warn("No se pudo conciliar el pago {} con Mercado Pago: {}", pago.getId(), e.getMessage());
         }
     }

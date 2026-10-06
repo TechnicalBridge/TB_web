@@ -73,7 +73,8 @@ class PaymentServiceTest {
     @BeforeEach
     void preparar() {
         servicio = new PaymentService(payments, eventos, avisos, firmas, deudas, uf, khipu, firmaDeKhipu, webpay,
-                mercadopago, "http://localhost:8080/", "", java.time.Duration.ofMinutes(30));
+                mercadopago, "http://localhost:8080/", "", java.time.Duration.ofMinutes(30),
+                java.time.Duration.ofMinutes(30));
         when(payments.save(any())).thenAnswer(llamada -> {
             Payment pago = llamada.getArgument(0);
             if (pago.getId() == null) {
@@ -638,7 +639,7 @@ class PaymentServiceTest {
         when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
         when(mercadopago.real()).thenReturn(true);
         when(mercadopago.testMode()).thenReturn(true);
-        when(mercadopago.crearPreferencia(any(), any(), anyLong(), any(), any()))
+        when(mercadopago.crearPreferencia(any(), any(), anyLong(), any(), any(), any()))
                 .thenReturn(new com.tbridge.payments.client.MercadoPagoClient.Preferencia(
                         "pref_123", "https://mp.test/init", "https://sandbox.mp.test/init"));
 
@@ -646,7 +647,9 @@ class PaymentServiceTest {
 
         assertFalse(pago.simulada());
         assertEquals("https://mp.test/init", pago.checkoutUrl(), "Mercado Pago cerro el sandbox: siempre init_point");
-        verify(mercadopago).crearPreferencia(eq("41"), any(), eq(410000L), any(), any());
+        ArgumentCaptor<java.time.OffsetDateTime> vence = ArgumentCaptor.forClass(java.time.OffsetDateTime.class);
+        verify(mercadopago).crearPreferencia(eq("41"), any(), eq(410000L), any(), any(), vence.capture());
+        assertTrue(vence.getValue().isAfter(java.time.OffsetDateTime.now().plusMinutes(29)), "vence en 30 minutos");
     }
 
     @Test
@@ -720,6 +723,39 @@ class PaymentServiceTest {
     }
 
     @Test
+    void la_consulta_periodica_cierra_lo_pagado_en_mercadopago_y_vence_lo_abandonado() {
+        Payment pagado = abiertoEnMercadoPago();
+        Payment abandonado = new Payment();
+        abandonado.setId(42L);
+        abandonado.setAmount(new BigDecimal("1000"));
+        abandonado.setAmountClp(1000L);
+        abandonado.setGateway(Payment.Gateway.mercadopago);
+        abandonado.setStatus(Payment.Status.created);
+        abandonado.setGatewayTxnId("pref_abandonada");
+        abandonado.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+        when(payments.findByGatewayAndStatus(Payment.Gateway.mercadopago, Payment.Status.created))
+                .thenReturn(List.of(pagado, abandonado));
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("approved"));
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("approved", "410000", "41"));
+        when(mercadopago.consultarPreferencia("pref_abandonada")).thenReturn(preferencia(null));
+
+        assertEquals(2, servicio.conciliarPendientes());
+
+        assertEquals(Payment.Status.paid, pagado.getStatus(), "sin que el deudor vuelva al portal");
+        assertEquals(Payment.Status.expired, abandonado.getStatus());
+        verify(khipu, never()).estado(any());
+    }
+
+    @Test
+    void sin_token_de_mercadopago_la_consulta_periodica_no_le_pregunta() {
+        when(payments.findByGatewayAndStatus(any(), any())).thenReturn(List.of());
+
+        assertEquals(0, servicio.conciliarPendientes());
+
+        verify(mercadopago, never()).consultarPreferencia(any());
+    }
+
+    @Test
     void mientras_el_deudor_no_paga_en_mercadopago_el_pago_sigue_abierto() {
         Payment pago = abiertoEnMercadoPago();
         when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia(null));
@@ -732,12 +768,15 @@ class PaymentServiceTest {
     }
 
     @Test
-    void un_pago_rechazado_en_mercadopago_se_cierra_fallido() {
+    void una_tarjeta_rechazada_en_mercadopago_deja_el_cobro_abierto_para_reintentar() {
         Payment pago = abiertoEnMercadoPago();
         when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("rejected"));
         when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("rejected", "410000", "41"));
 
-        assertEquals(Payment.Status.failed, servicio.verificar(41L, firmaDe(pago)).status());
+        //  El deudor sigue en Mercado Pago y puede probar con otra tarjeta: si
+        //  aca quedara fallido, ese segundo pago no se registraria.
+        assertEquals(Payment.Status.created, servicio.verificar(41L, firmaDe(pago)).status());
+        verify(avisos, never()).save(any());
     }
 
     @Test

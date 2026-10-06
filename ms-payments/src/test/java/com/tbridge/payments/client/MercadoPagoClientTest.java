@@ -39,18 +39,22 @@ class MercadoPagoClientTest {
 
     private static final String TOKEN = "APP_USR-token-de-prueba-inventado";
 
-    private record Llamada(String metodo, String ruta, Map<String, List<String>> encabezados, String cuerpo) {}
+    private record Llamada(String metodo, String ruta, Map<String, List<String>> encabezados, String cuerpo,
+                           String consulta) {}
 
     private HttpServer mp;
     private final List<Llamada> llamadas = new ArrayList<>();
     private String respuestaPreferencia = """
-            {"id":"3737969390-pref1","external_reference":"41","total_amount":410000,"payments":null,
+            {"id":"3737969390-pref1","external_reference":"41","total_amount":410000,
              "init_point":"https://www.mercadopago.cl/checkout/v1/redirect?pref_id=3737969390-pref1",
              "sandbox_init_point":"https://sandbox.mercadopago.cl/checkout/v1/redirect?pref_id=3737969390-pref1",
              "back_urls":{"success":"https://databridge.cl/vuelta","failure":"","pending":""}}""";
     private String respuestaPago = """
             {"id":999,"status":"approved","status_detail":"accredited","transaction_amount":410000,
              "currency_id":"CLP","external_reference":"41"}""";
+    //  Asi responde Mercado Pago mientras nadie paga la preferencia (o si no existe).
+    private String respuestaOrdenes = """
+            {"elements":null,"next_offset":0,"total":0}""";
     private int codigo = 200;
 
     @BeforeEach
@@ -60,7 +64,7 @@ class MercadoPagoClientTest {
             String ruta = intercambio.getRequestURI().getPath();
             String cuerpo = new String(intercambio.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             llamadas.add(new Llamada(intercambio.getRequestMethod(), ruta,
-                    intercambio.getRequestHeaders(), cuerpo));
+                    intercambio.getRequestHeaders(), cuerpo, intercambio.getRequestURI().getQuery()));
 
             String respuesta;
             int estado = codigo;
@@ -83,8 +87,8 @@ class MercadoPagoClientTest {
                 }
             } else if (ruta.startsWith("/v1/payments/")) {
                 respuesta = respuestaPago;
-            } else if (ruta.startsWith("/checkout/preferences/")) {
-                respuesta = respuestaPreferencia;
+            } else if (ruta.equals("/merchant_orders/search")) {
+                respuesta = respuestaOrdenes;
             } else {
                 estado = 404;
                 respuesta = "{\"message\":\"not found\",\"status\":404}";
@@ -111,6 +115,25 @@ class MercadoPagoClientTest {
 
     private JsonNode cuerpoDeLaPreferencia() throws Exception {
         return new ObjectMapper().readTree(llamadas.getFirst().cuerpo());
+    }
+
+    @Test
+    void con_vencimiento_la_preferencia_expira_a_esa_hora() throws Exception {
+        cliente().crearPreferencia("41", "Pago", 410000L, "a@b.cl", "http://localhost:5173/vuelta",
+                java.time.OffsetDateTime.parse("2026-10-06T02:30:15.987-03:00"));
+
+        JsonNode cuerpo = cuerpoDeLaPreferencia();
+        assertTrue(cuerpo.get("expires").asBoolean());
+        assertEquals("2026-10-06T02:30:15.000-03:00", cuerpo.get("expiration_date_to").asText(),
+                "con milisegundos y zona, como pide Mercado Pago");
+    }
+
+    @Test
+    void sin_vencimiento_no_se_manda_nada_de_expiracion() throws Exception {
+        cliente().crearPreferencia("41", "Pago", 410000L, "a@b.cl", "http://localhost:5173/vuelta");
+
+        assertTrue(cuerpoDeLaPreferencia().path("expires").isMissingNode());
+        assertTrue(cuerpoDeLaPreferencia().path("expiration_date_to").isMissingNode());
     }
 
     // ------------------------------------------------------------------
@@ -198,22 +221,42 @@ class MercadoPagoClientTest {
         MercadoPagoClient.EstadoPreferencia pref = cliente().consultarPreferencia("3737969390-pref1");
 
         assertEquals("GET", llamadas.getFirst().metodo());
-        assertEquals("/checkout/preferences/3737969390-pref1", llamadas.getFirst().ruta());
-        assertEquals("41", pref.externalReference());
+        assertEquals("/merchant_orders/search", llamadas.getFirst().ruta(),
+                "la preferencia no trae sus pagos: estan en sus ordenes");
+        assertEquals("preference_id=3737969390-pref1", llamadas.getFirst().consulta());
         assertNull(pref.pago(), "sin pagos no se concilia nada");
     }
 
     @Test
-    void la_preferencia_con_un_pago_aprobado_lo_entrega_para_conciliar() {
-        respuestaPreferencia = respuestaPreferencia.replace("\"payments\":null", """
-                "payments":[{"id":999,"status":"approved","status_detail":"accredited","amount":410000}]""");
+    void la_preferencia_con_un_pago_aprobado_lo_entrega_aunque_antes_hubo_un_rechazo() {
+        //  Primero una tarjeta rechazada y despues otra aprobada, en la misma orden.
+        respuestaOrdenes = """
+                {"elements":[{"id":45014334177,"preference_id":"3737969390-pref1","external_reference":"41",
+                  "total_amount":410000,"order_status":"paid",
+                  "payments":[{"id":998,"status":"rejected","transaction_amount":410000},
+                              {"id":999,"status":"approved","transaction_amount":410000}]}],
+                 "next_offset":0,"total":1}""";
 
         MercadoPagoClient.EstadoPreferencia pref = cliente().consultarPreferencia("3737969390-pref1");
 
+        assertEquals("41", pref.externalReference());
+        assertEquals(410000L, pref.totalAmount());
         assertNotNull(pref.pago());
         assertEquals(999L, pref.pago().id());
-        assertEquals("approved", pref.pago().status());
         assertTrue(pref.pago().pagado());
+    }
+
+    @Test
+    void si_ningun_intento_se_aprobo_entrega_el_ultimo() {
+        respuestaOrdenes = """
+                {"elements":[{"id":45014334177,"external_reference":"41","total_amount":410000,
+                  "payments":[{"id":997,"status":"rejected"},{"id":998,"status":"in_process"}]}],
+                 "next_offset":0,"total":1}""";
+
+        MercadoPagoClient.PagoDePreferencia pago = cliente().consultarPreferencia("3737969390-pref1").pago();
+
+        assertEquals(998L, pago.id());
+        assertFalse(pago.pagado());
     }
 
     @Test
