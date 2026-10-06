@@ -102,8 +102,11 @@ export default function Pay() {
   async function pagar() {
     setBusy(true);
     setError("");
-    // Se abre la ventana de inmediato en el evento del usuario para que el navegador no la bloquee
-    const popup = window.open("", "_blank", "noopener,width=480,height=720");
+    // Se abre la ventana de inmediato en el evento del usuario para que el navegador no la bloquee.
+    // Sin "noopener": con esa opcion window.open devuelve null y quedaba una ventana en blanco
+    // mientras el portal se iba a la pasarela. El opener se corta a mano.
+    const popup = window.open("", "_blank", "width=480,height=720");
+    if (popup) popup.opener = null;
     try {
       const cuotas = enConvenio ? elegidas.map((c) => c.id) : null;
       const data = await abrirCobro(Number(id), cuotas, pasarela);

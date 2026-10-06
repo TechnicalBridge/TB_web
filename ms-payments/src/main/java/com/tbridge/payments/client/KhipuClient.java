@@ -22,8 +22,9 @@ import java.util.Set;
  * Khipu, por su API de pagos v3.
  *
  * <pre>
- *   POST /v3/payments        crea el cobro  -> {payment_id, payment_url, ...}
- *   GET  /v3/payments/{id}   en que va      -> {status, status_detail, amount, transaction_id, ...}
+ *   POST   /v3/payments        crea el cobro  -> {payment_id, payment_url, ...}
+ *   GET    /v3/payments/{id}   en que va      -> {status, status_detail, amount, transaction_id, ...}
+ *   DELETE /v3/payments/{id}   lo anula, solo mientras esta pendiente
  *   x-api-key                la llave de la cuenta de cobro
  * </pre>
  *
@@ -123,6 +124,20 @@ public class KhipuClient {
                     texto(r, "transaction_id"), r);
         } catch (RestClientException | NumberFormatException e) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Khipu no dijo en que va el pago");
+        }
+    }
+
+    /**
+     * Anula el cobro en Khipu, para que nadie lo pueda pagar despues. Khipu solo
+     * anula un cobro pendiente: si ya se pago, o si Khipu no responde, devuelve
+     * false, y quien llama tiene que volver a preguntar en que va.
+     */
+    public boolean anular(String paymentId) {
+        try {
+            rest.delete().uri(PAGOS + "/{id}", paymentId).retrieve().toBodilessEntity();
+            return true;
+        } catch (RestClientException e) {
+            return false;
         }
     }
 

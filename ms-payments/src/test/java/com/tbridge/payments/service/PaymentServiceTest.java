@@ -335,11 +335,25 @@ class PaymentServiceTest {
     void si_el_deudor_se_arrepiente_queda_fallido_salvo_que_haya_alcanzado_a_pagar() throws Exception {
         Payment arrepentido = abierto();
         when(khipu.estado(KHIPU_ID)).thenReturn(estado("pending", "pending", "410000", "TB-41"));
+        when(khipu.anular(KHIPU_ID)).thenReturn(true);
         assertEquals(Payment.Status.failed, servicio.cancelar(41L, firmaDe(arrepentido)).status());
+        verify(khipu).anular(KHIPU_ID);
 
         Payment alcanzo = abierto();
         when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "normal", "410000", "TB-41"));
         assertEquals(Payment.Status.paid, servicio.cancelar(41L, firmaDe(alcanzo)).status());
+    }
+
+    @Test
+    void si_khipu_no_deja_anular_porque_justo_se_pago_el_pago_vale() throws Exception {
+        Payment pago = abierto();
+        when(khipu.estado(KHIPU_ID))
+                .thenReturn(estado("pending", "pending", "410000", "TB-41"))
+                .thenReturn(estado("done", "normal", "410000", "TB-41"));
+        when(khipu.anular(KHIPU_ID)).thenReturn(false);
+
+        assertEquals(Payment.Status.paid, servicio.cancelar(41L, firmaDe(pago)).status());
+        verify(avisos).save(any(DebtNotification.class));
     }
 
     @Test

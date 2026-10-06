@@ -137,6 +137,17 @@ class KhipuClientTest {
     }
 
     @Test
+    void anular_es_un_delete_con_la_llave_y_si_khipu_se_niega_devuelve_false() {
+        assertTrue(cliente().anular("gqzdy6chjne9"));
+        assertEquals("DELETE", llamadas.getFirst().metodo());
+        assertEquals("/v3/payments/gqzdy6chjne9", llamadas.getFirst().ruta());
+        assertEquals("llave-de-prueba", llamadas.getFirst().encabezados().get("X-api-key").getFirst());
+
+        codigo = 403;
+        assertFalse(cliente().anular("gqzdy6chjne9"), "un cobro ya pagado no se anula");
+    }
+
+    @Test
     void sin_llave_khipu_no_es_real() {
         assertFalse(new KhipuClient("https://payment-api.khipu.com", "").real());
         assertFalse(new KhipuClient("https://payment-api.khipu.com", "  ").real());

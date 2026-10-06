@@ -365,13 +365,19 @@ public class PaymentService {
     /**
      * El deudor se arrepintio en Khipu y volvio por la {@code cancel_url}.
      * Antes de darlo por fallido se le pregunta a Khipu: si alcanzo a pagar,
-     * el pago vale.
+     * el pago vale. Si no, se anula el cobro en Khipu: sin eso seguiria vivo
+     * hasta vencer, y si el deudor volvia atras y pagaba en esa misma pagina,
+     * Khipu recibia la plata con el pago ya fallido aca. Si Khipu no lo deja
+     * anular, es que alguien lo pago en el intermedio: se vuelve a preguntar.
      */
     @Transactional
     public PaymentResponse cancelar(Long id, String sig) {
         Payment pago = conFirmaValida(id, sig);
         if (cobraKhipu(pago)) {
             conciliar(pago);
+            if (pago.getStatus() == Payment.Status.created && !khipu.anular(pago.getGatewayTxnId())) {
+                conciliar(pago);
+            }
             if (pago.getStatus() == Payment.Status.created) {
                 fallido(pago, null);
             }
