@@ -100,6 +100,14 @@ export default function Pasarela() {
             <h2>Pago aprobado</h2>
             <p className="hint">Puedes cerrar esta ventana: el portal se actualiza solo.</p>
           </div>
+        ) : pago?.status === "duplicated" ? (
+          <div style={{ padding: "16px 0 4px" }}>
+            <h2>Estas cuotas ya estaban pagadas</h2>
+            <p className="hint">
+              Las pagaste con otro pago, así que este no se abonó. Queda marcado para devolución: la empresa te
+              devolverá el dinero en {nombreDePasarela(pago.gateway)}.
+            </p>
+          </div>
         ) : pago?.status === "failed" || pago?.status === "expired" ? (
           <div style={{ padding: "16px 0 4px" }}>
             <h2>El pago no se completó</h2>

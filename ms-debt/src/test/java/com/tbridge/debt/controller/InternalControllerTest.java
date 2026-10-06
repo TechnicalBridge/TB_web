@@ -57,7 +57,7 @@ class InternalControllerTest {
     @Test
     void con_la_clave_ms_payments_sabe_cuanto_cobrar() throws Exception {
         when(debts.snapshotInterno(3L, null)).thenReturn(new DebtSnapshotResponse(
-                3L, "76418902-7", "18905214-6", "CLP", new BigDecimal("410000"), 12L));
+                3L, "76418902-7", "18905214-6", "CLP", new BigDecimal("410000"), 12L, List.of(12L)));
 
         mvc.perform(get("/internal/debts/3").header("X-Internal-Key", CLAVE))
                 .andExpect(status().isOk())
@@ -69,13 +69,27 @@ class InternalControllerTest {
     @Test
     void las_cuotas_pedidas_llegan_como_lista() throws Exception {
         when(debts.snapshotInterno(3L, List.of(12L, 13L))).thenReturn(new DebtSnapshotResponse(
-                3L, "76418902-7", "16482337-7", "CLP", new BigDecimal("280000"), null));
+                3L, "76418902-7", "16482337-7", "CLP", new BigDecimal("280000"), null, List.of(12L, 13L)));
 
         mvc.perform(get("/internal/debts/3").param("installmentIds", "12", "13").header("X-Internal-Key", CLAVE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.amount").value(280000))
                 //  Con varias cuotas no va ninguna: el pago se imputa en orden.
-                .andExpect(jsonPath("$.installmentId").doesNotExist());
+                .andExpect(jsonPath("$.installmentId").doesNotExist())
+                //  Pero si cuales cubre, para saber si dos pagos se pisan.
+                .andExpect(jsonPath("$.installmentIds[0]").value(12))
+                .andExpect(jsonPath("$.installmentIds[1]").value(13));
+    }
+
+    @Test
+    void la_cartera_de_una_empresa_va_detras_de_la_clave() throws Exception {
+        when(debts.carteraInterna("77305118-6")).thenReturn(List.of(3L, 7L));
+
+        mvc.perform(get("/internal/cartera/77305118-6")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/internal/cartera/77305118-6").header("X-Internal-Key", CLAVE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value(3))
+                .andExpect(jsonPath("$[1]").value(7));
     }
 
     @Test

@@ -36,6 +36,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -86,7 +87,7 @@ class PaymentServiceTest {
     }
 
     private static DebtClient.DebtSnapshot deudaDe(String rut, String moneda, String monto) {
-        return new DebtClient.DebtSnapshot(3L, "76418902-7", rut, moneda, new BigDecimal(monto), 12L);
+        return new DebtClient.DebtSnapshot(3L, "76418902-7", rut, moneda, new BigDecimal(monto), 12L, List.of(12L));
     }
 
     @Test
@@ -439,6 +440,203 @@ class PaymentServiceTest {
     }
 
     // ------------------------------------------------------------------
+    //  Mientras la pasarela verifica: no cobrar dos veces, no perder un pago
+    // ------------------------------------------------------------------
+
+    private Payment pagadoAntes(Long id, Long... cuotas) {
+        Payment pago = new Payment();
+        pago.setId(id);
+        pago.setDebtId(3L);
+        pago.setStatus(Payment.Status.paid);
+        pago.setCuotas(List.of(cuotas));
+        return pago;
+    }
+
+    @Test
+    void la_consulta_periodica_no_vence_lo_que_khipu_esta_verificando() throws Exception {
+        Payment pago = abierto();
+        pago.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+        when(payments.findByGatewayAndStatus(Payment.Gateway.khipu, Payment.Status.created)).thenReturn(List.of(pago));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("verifying", "pending", "410000", "TB-41"));
+
+        assertEquals(0, servicio.conciliarPendientes());
+
+        assertEquals(Payment.Status.created, pago.getStatus(), "el deudor ya pago: vencerlo dejaria la plata sin abonar");
+        verify(khipu, never()).anular(any());
+    }
+
+    @Test
+    void al_vencer_se_anula_en_khipu_para_que_no_se_pueda_pagar_despues() throws Exception {
+        Payment pago = abierto();
+        pago.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+        when(payments.findByGatewayAndStatus(Payment.Gateway.khipu, Payment.Status.created)).thenReturn(List.of(pago));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("pending", "pending", "410000", "TB-41"));
+        when(khipu.anular(KHIPU_ID)).thenReturn(true);
+
+        servicio.conciliarPendientes();
+
+        verify(khipu).anular(KHIPU_ID);
+        assertEquals(Payment.Status.expired, pago.getStatus());
+    }
+
+    @Test
+    void un_vencido_que_khipu_concilia_despues_se_registra() throws Exception {
+        Payment pago = abierto();
+        pago.setStatus(Payment.Status.expired);
+        when(payments.findByGatewayAndStatusAndCreatedAtAfter(eq(Payment.Gateway.khipu), eq(Payment.Status.expired),
+                any())).thenReturn(List.of(pago));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "normal", "410000", "TB-41"));
+
+        assertEquals(1, servicio.revisarVencidos());
+
+        assertEquals(Payment.Status.paid, pago.getStatus(), "esa plata se cobro: se abona");
+        verify(avisos).save(any(DebtNotification.class));
+    }
+
+    @Test
+    void un_vencido_sin_pagar_queda_vencido() throws Exception {
+        Payment pago = abierto();
+        pago.setStatus(Payment.Status.expired);
+        when(payments.findByGatewayAndStatusAndCreatedAtAfter(eq(Payment.Gateway.khipu), eq(Payment.Status.expired),
+                any())).thenReturn(List.of(pago));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "rejected-by-payer", "410000", "TB-41"));
+
+        assertEquals(0, servicio.revisarVencidos());
+
+        assertEquals(Payment.Status.expired, pago.getStatus());
+    }
+
+    @Test
+    void el_aviso_de_khipu_de_un_pago_ya_vencido_lo_registra() throws Exception {
+        Payment pago = abierto();
+        pago.setStatus(Payment.Status.expired);
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "normal", "410000", "TB-41"));
+        String cuerpo = "{\"payment_id\":\"" + KHIPU_ID + "\"}";
+        String firma = "t=1711965600393,s=" + java.util.Base64.getEncoder()
+                .encodeToString(firmaDeKhipu.firmar("1711965600393." + cuerpo));
+
+        servicio.avisoDeKhipu(cuerpo, firma, KHIPU_ID);
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
+    }
+
+    @Test
+    void mientras_khipu_verifica_no_se_abre_otro_pago_por_la_misma_deuda() throws Exception {
+        Payment enVerificacion = abierto();
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(enVerificacion));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("verifying", "pending", "410000", "TB-41"));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        ApiException error = assertThrows(ApiException.class,
+                () -> servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay")));
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertTrue(error.getMessage().contains("en verificación en Khipu"), error.getMessage());
+        verify(payments, never()).save(any());
+        verify(khipu, never()).anular(any());
+    }
+
+    @Test
+    void un_pago_abierto_sin_pagar_se_anula_al_abrir_otro() throws Exception {
+        Payment olvidado = abierto();
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(olvidado));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("pending", "pending", "410000", "TB-41"));
+        when(khipu.anular(KHIPU_ID)).thenReturn(true);
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        PaymentResponse nuevo = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        verify(khipu).anular(KHIPU_ID);
+        assertEquals(Payment.Status.expired, olvidado.getStatus(), "ya no se puede pagar: no se cobran los dos");
+        assertEquals(Payment.Status.created, nuevo.status());
+    }
+
+    @Test
+    void un_cobro_de_mercadopago_sin_pagar_se_vence_alla_al_abrir_otro() {
+        Payment olvidado = abiertoEnMercadoPago();
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(olvidado));
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia(null));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        verify(mercadopago).vencerPreferencia("pref_123");
+        assertEquals(Payment.Status.expired, olvidado.getStatus());
+    }
+
+    @Test
+    void cuotas_ya_pagadas_que_ms_debt_todavia_no_abona_no_se_cobran_de_nuevo() {
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.paid)).thenReturn(List.of(pagadoAntes(40L, 12L)));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        ApiException error = assertThrows(ApiException.class,
+                () -> servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay")));
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        verify(payments, never()).save(any());
+    }
+
+    @Test
+    void el_cobro_guarda_las_cuotas_que_cubre() {
+        when(deudas.obtener(3L, List.of(12L, 13L))).thenReturn(
+                new DebtClient.DebtSnapshot(3L, "76418902-7", FELIPE, "CLP", new BigDecimal("280000"), null,
+                        List.of(12L, 13L)));
+        ArgumentCaptor<Payment> guardado = ArgumentCaptor.forClass(Payment.class);
+
+        servicio.checkout(DEUDOR, new CheckoutRequest(3L, List.of(12L, 13L), "webpay"));
+
+        verify(payments, org.mockito.Mockito.atLeastOnce()).save(guardado.capture());
+        assertEquals(java.util.Set.of(12L, 13L), guardado.getValue().cuotas());
+    }
+
+    @Test
+    void si_igual_se_pagan_dos_veces_las_mismas_cuotas_el_segundo_queda_para_devolver() throws Exception {
+        Payment segundo = abierto();
+        segundo.setCuotas(List.of(12L, 13L));
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.paid)).thenReturn(List.of(pagadoAntes(40L, 13L)));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "normal", "410000", "TB-41"));
+
+        PaymentResponse respuesta = servicio.verificar(41L, firmaDe(segundo));
+
+        assertEquals(Payment.Status.duplicated, respuesta.status());
+        assertNull(segundo.getPaidAt());
+        verify(avisos, never()).save(any());
+        assertEquals(KHIPU_ID, respuesta.referenciaPasarela(), "con que transaccion devolverlo");
+        assertEquals(FELIPE, respuesta.deudorRut(), "a quien devolverlo");
+        ArgumentCaptor<PaymentEvent> evento = ArgumentCaptor.forClass(PaymentEvent.class);
+        verify(eventos).save(evento.capture());
+        assertEquals(PaymentEvent.Type.duplicated, evento.getValue().getType());
+    }
+
+    @Test
+    void la_empresa_ve_los_duplicados_de_la_cartera_que_le_dice_ms_debt() {
+        JwtPrincipal agencia = new JwtPrincipal("1", "camila.reyes@apofyx.cl", "CREDITOR", "Camila", "77305118-6");
+        Payment duplicado = abierto();
+        duplicado.setStatus(Payment.Status.duplicated);
+        when(deudas.cartera("77305118-6")).thenReturn(List.of(3L));
+        when(payments.findByStatusAndDebtIdInOrderByCreatedAtDesc(Payment.Status.duplicated, List.of(3L)))
+                .thenReturn(List.of(duplicado));
+
+        List<PaymentResponse> paraDevolver = servicio.paraDevolver(agencia);
+
+        assertEquals(1, paraDevolver.size(), "la agencia ve la cartera que entrego, aunque el acreedor sea otro");
+        assertEquals(KHIPU_ID, paraDevolver.getFirst().referenciaPasarela());
+        assertEquals(HttpStatus.FORBIDDEN,
+                assertThrows(ApiException.class, () -> servicio.paraDevolver(DEUDOR)).getStatus());
+    }
+
+    @Test
+    void pagar_otras_cuotas_de_la_misma_deuda_no_es_duplicado() throws Exception {
+        Payment segundo = abierto();
+        segundo.setCuotas(List.of(13L));
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.paid)).thenReturn(List.of(pagadoAntes(40L, 12L)));
+        when(khipu.estado(KHIPU_ID)).thenReturn(estado("done", "normal", "410000", "TB-41"));
+
+        assertEquals(Payment.Status.paid, servicio.verificar(41L, firmaDe(segundo)).status());
+        assertNull(servicio.verificar(41L, firmaDe(segundo)).referenciaPasarela(), "solo el duplicado la muestra");
+    }
+
+    // ------------------------------------------------------------------
     //  Webpay de verdad (ambiente de integracion de Transbank)
     // ------------------------------------------------------------------
 
@@ -744,6 +942,34 @@ class PaymentServiceTest {
         assertEquals(Payment.Status.paid, pagado.getStatus(), "sin que el deudor vuelva al portal");
         assertEquals(Payment.Status.expired, abandonado.getStatus());
         verify(khipu, never()).estado(any());
+    }
+
+    @Test
+    void la_consulta_periodica_no_vence_un_pago_de_mercadopago_en_revision() {
+        Payment pago = abiertoEnMercadoPago();
+        pago.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+        when(payments.findByGatewayAndStatus(Payment.Gateway.mercadopago, Payment.Status.created))
+                .thenReturn(List.of(pago));
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("in_process"));
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("in_process", "410000", "41"));
+
+        servicio.conciliarPendientes();
+
+        assertEquals(Payment.Status.created, pago.getStatus(), "Mercado Pago todavia lo puede aprobar");
+    }
+
+    @Test
+    void un_vencido_que_mercadopago_aprueba_despues_se_registra() {
+        Payment pago = abiertoEnMercadoPago();
+        pago.setStatus(Payment.Status.expired);
+        when(payments.findByGatewayAndStatusAndCreatedAtAfter(eq(Payment.Gateway.mercadopago),
+                eq(Payment.Status.expired), any())).thenReturn(List.of(pago));
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("approved"));
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("approved", "410000", "41"));
+
+        assertEquals(1, servicio.revisarVencidos());
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
     }
 
     @Test

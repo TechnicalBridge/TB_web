@@ -40,7 +40,7 @@ export default function Pay() {
   // rechazo, o el deudor lo anulo) o vencido, no hay nada mas que esperar. El
   // enlace a la pasarela solo viene al abrir el cobro: se conserva.
   useEffect(() => {
-    if (!pago || ["paid", "failed", "expired"].includes(pago.status)) return;
+    if (!pago || ["paid", "failed", "expired", "duplicated"].includes(pago.status)) return;
     const t = setInterval(async () => {
       try {
         const nuevo = await obtenerPago(pago.id);
@@ -272,6 +272,11 @@ export default function Pay() {
                   {pago.status === "expired" ? "pasó el plazo para pagarlo" : "se rechazó o lo anulaste"}. No se te
                   cobró nada.{" "}
                   <button type="button" className="link-btn" onClick={() => setPago(null)}>Intentar de nuevo</button>
+                </div>
+              ) : pago?.status === "duplicated" ? (
+                <div className="error">
+                  Estas cuotas ya estaban pagadas con otro pago, así que este no se abonó. Queda marcado para
+                  devolución: la empresa te devolverá el dinero en {nombreDePasarela(pago.gateway)}.
                 </div>
               ) : pago ? (
                 <div className="esperando">

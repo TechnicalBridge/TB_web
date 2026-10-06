@@ -129,6 +129,17 @@ public class DebtService {
                         "Esa empresa no esta registrada en DataBridge"));
     }
 
+    /**
+     * Las deudas de la cartera de una empresa, para ms-payments: las mismas que
+     * ve en el portal, la suya como acreedora y la que entrego como agencia.
+     * Vacia si la empresa no esta registrada.
+     */
+    public List<Long> carteraInterna(String rut) {
+        return organizations.findByRut(rut)
+                .map(org -> debts.carteraDe(org).stream().map(Debt::getId).toList())
+                .orElse(List.of());
+    }
+
     /** El deudor detras del token, por RUT: es lo unico que trae su sesion. */
     Debtor deudorDe(JwtPrincipal user) {
         if (user == null || user.rut() == null || user.rut().isBlank()) {
@@ -401,7 +412,7 @@ public class DebtService {
         }
         Long cuotaId = aPagar.size() == 1 ? aPagar.getFirst().getId() : null;
         return new DebtSnapshotResponse(deuda.getId(), deuda.getCreditor().getRut(), deuda.getDebtor().getRut(),
-                deuda.getCurrency().name(), monto, cuotaId);
+                deuda.getCurrency().name(), monto, cuotaId, aPagar.stream().map(Installment::getId).toList());
     }
 
     /** Por que una cuota pedida no esta entre las que se pueden pagar. */

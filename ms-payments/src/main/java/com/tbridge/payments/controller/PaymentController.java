@@ -89,6 +89,20 @@ public class PaymentController {
         return enlaces.toCollectionModel(payments.list(user));
     }
 
+    @GetMapping("/para-devolver")
+    @Operation(summary = "Los pagos para devolver",
+            description = "Los pagos duplicados de la cartera de la empresa: el deudor pago dos veces las mismas "
+                    + "cuotas y el segundo no se abono. Traen la referencia de la pasarela y el RUT del deudor, "
+                    + "para devolverlos alla.")
+    @SecurityRequirement(name = OpenApiConfig.JWT)
+    @ApiResponse(responseCode = "200", description = "Los pagos, del mas nuevo al mas antiguo, en `_embedded.payments`")
+    @ApiResponse(responseCode = "403", description = "Quien pregunta no es una empresa",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public CollectionModel<EntityModel<PaymentResponse>> paraDevolver(
+            @Parameter(hidden = true) @AuthenticationPrincipal JwtPrincipal user) {
+        return enlaces.toCollectionModel(payments.paraDevolver(user));
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Un pago")
     @SecurityRequirement(name = OpenApiConfig.JWT)

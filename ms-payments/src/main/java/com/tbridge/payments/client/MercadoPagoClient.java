@@ -17,10 +17,13 @@ import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Cliente REST para la API de Mercado Pago (Checkout Pro y Pagos v1).
@@ -277,6 +280,28 @@ public class MercadoPagoClient {
         } catch (RestClientException e) {
             log.error("Error al consultar la preferencia {} en Mercado Pago: {}", preferenceId, e.getMessage());
             throw new ApiException(HttpStatus.BAD_GATEWAY, "No se pudo consultar la preferencia en Mercado Pago");
+        }
+    }
+
+    /**
+     * Vence la preferencia ya: desde ahora Mercado Pago no deja pagarla. Se
+     * usa cuando el deudor abre otro pago por la misma deuda, para que no
+     * pague los dos. Si Mercado Pago no responde, devuelve false.
+     */
+    public boolean vencerPreferencia(String preferenceId) {
+        String ahora = ZonedDateTime.now(ZoneId.of("America/Santiago")).truncatedTo(ChronoUnit.SECONDS).format(FECHA);
+        try {
+            rest.put()
+                    .uri(PREFERENCIAS + "/{id}", preferenceId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("expires", true, "expiration_date_to", ahora))
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Preferencia Mercado Pago {} vencida", preferenceId);
+            return true;
+        } catch (RestClientException e) {
+            log.warn("No se pudo vencer la preferencia {} en Mercado Pago: {}", preferenceId, e.getMessage());
+            return false;
         }
     }
 

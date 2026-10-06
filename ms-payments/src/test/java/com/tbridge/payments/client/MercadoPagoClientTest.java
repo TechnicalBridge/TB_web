@@ -89,6 +89,8 @@ class MercadoPagoClientTest {
                 respuesta = respuestaPago;
             } else if (ruta.equals("/merchant_orders/search")) {
                 respuesta = respuestaOrdenes;
+            } else if (ruta.startsWith("/checkout/preferences/") && intercambio.getRequestMethod().equals("PUT")) {
+                respuesta = respuestaPreferencia;
             } else {
                 estado = 404;
                 respuesta = "{\"message\":\"not found\",\"status\":404}";
@@ -257,6 +259,27 @@ class MercadoPagoClientTest {
 
         assertEquals(998L, pago.id());
         assertFalse(pago.pagado());
+    }
+
+    @Test
+    void vencer_la_preferencia_la_cierra_desde_ya() throws Exception {
+        assertTrue(cliente().vencerPreferencia("3737969390-pref1"));
+
+        Llamada put = llamadas.getFirst();
+        assertEquals("PUT", put.metodo());
+        assertEquals("/checkout/preferences/3737969390-pref1", put.ruta());
+        JsonNode cuerpo = new ObjectMapper().readTree(put.cuerpo());
+        assertTrue(cuerpo.get("expires").asBoolean());
+        assertTrue(cuerpo.get("expiration_date_to").asText()
+                .matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.000-0[34]:00"),
+                "con milisegundos y la zona de Chile: " + cuerpo.get("expiration_date_to").asText());
+    }
+
+    @Test
+    void si_mercado_pago_no_deja_vencerla_lo_dice() {
+        codigo = 500;
+
+        assertFalse(cliente().vencerPreferencia("3737969390-pref1"));
     }
 
     @Test

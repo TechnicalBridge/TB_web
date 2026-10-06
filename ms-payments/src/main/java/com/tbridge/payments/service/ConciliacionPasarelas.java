@@ -31,4 +31,13 @@ public class ConciliacionPasarelas {
             log.info("Pasarelas: {} cobro(s) quedaron cerrados", cerrados);
         }
     }
+
+    /** Cada 5 minutos, los vencidos del ultimo dia: por si alguno se pago igual. */
+    @Scheduled(fixedDelay = 300_000, initialDelay = 60_000)
+    public void revisarVencidos() {
+        int registrados = pagos.revisarVencidos();
+        if (registrados > 0) {
+            log.warn("Pasarelas: {} cobro(s) vencido(s) se pagaron igual y quedaron registrados", registrados);
+        }
+    }
 }

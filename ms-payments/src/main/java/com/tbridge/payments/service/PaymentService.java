@@ -36,8 +36,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -80,6 +85,16 @@ public class PaymentService {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Pattern ORDEN = Pattern.compile("^ORD(\\d{1,18})(T\\d+)?$");
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+
+    /**
+     * Cuanto tiempo despues de vencer se sigue preguntando por un cobro. Un
+     * intento empezado justo antes de vencer puede terminar despues: en Khipu,
+     * cada intento tiene hasta 3 horas.
+     */
+    private static final Duration REVISAR_VENCIDOS = Duration.ofHours(24);
+
+    /** Los estados de un pago de Mercado Pago que todavia se pueden aprobar. */
+    private static final Set<String> EN_CURSO_MERCADOPAGO = Set.of("pending", "in_process", "authorized");
 
     private final PaymentRepository payments;
     private final PaymentEventRepository eventos;
@@ -164,10 +179,15 @@ public class PaymentService {
         if (!user.rut().equalsIgnoreCase(deuda.debtorRut())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Esa deuda no es tuya");
         }
+        //  Un pago a la vez por deuda: si no, el deudor puede pagar dos veces
+        //  las mismas cuotas.
+        antesDeAbrirOtro(deuda.debtId());
+        noPagadasYa(deuda);
 
         Payment pago = new Payment();
         pago.setDebtId(deuda.debtId());
         pago.setInstallmentId(deuda.installmentId());
+        pago.setCuotas(deuda.installmentIds());
         pago.setDebtorRut(deuda.debtorRut());
         pago.setCreditorRut(deuda.creditorRut());
         pago.setAmount(deuda.amount());
@@ -223,6 +243,67 @@ public class PaymentService {
             return respuesta(pago).conEnlaceDePago(pref.url(mercadopago.testMode()));
         }
         return respuesta(pago).conEnlaceDePago(enlaceDePago(pago));
+    }
+
+    /**
+     * Antes de abrir un pago, los otros pagos abiertos de la misma deuda.
+     *
+     * <ul>
+     *   <li>Uno que la pasarela esta verificando (el deudor ya pago y falta que
+     *       la pasarela lo confirme) frena el nuevo: pagar de nuevo seria
+     *       cobrarle dos veces.</li>
+     *   <li>Uno abierto sin pagar se anula en la pasarela, para que no se pueda
+     *       pagar ademas del nuevo, y queda vencido.</li>
+     *   <li>Uno ya pagado se registra; {@link #noPagadasYa} frena despues el
+     *       pago nuevo si cubre esas cuotas.</li>
+     * </ul>
+     *
+     * <p>Webpay no cobra si DataBridge no confirma la transaccion al volver el
+     * deudor, y la simulada no cobra: esos se dejan. Si igual se pagaran los
+     * dos, el segundo queda como duplicado ({@link #confirmar}).
+     */
+    private void antesDeAbrirOtro(Long debtId) {
+        for (Payment otro : payments.findByDebtIdAndStatus(debtId, Payment.Status.created)) {
+            boolean enVerificacion;
+            if (cobraKhipu(otro)) {
+                enVerificacion = conciliar(otro);
+                if (!enVerificacion && otro.getStatus() == Payment.Status.created) {
+                    //  Si Khipu no deja anularlo, alguien lo esta pagando: se pregunta de nuevo.
+                    khipu.anular(otro.getGatewayTxnId());
+                    enVerificacion = conciliar(otro);
+                }
+            } else if (cobraMercadoPago(otro)) {
+                enVerificacion = conciliarMercadoPago(otro);
+                if (!enVerificacion && otro.getStatus() == Payment.Status.created) {
+                    mercadopago.vencerPreferencia(otro.getGatewayTxnId());
+                    enVerificacion = conciliarMercadoPago(otro);
+                }
+            } else {
+                continue;
+            }
+            if (enVerificacion) {
+                throw new ApiException(HttpStatus.CONFLICT, "Tienes un pago en verificación en " + nombre(otro)
+                        + ": espera a que se confirme antes de pagar de nuevo.");
+            }
+            if (otro.getStatus() == Payment.Status.created) {
+                vencer(otro);
+            }
+        }
+    }
+
+    /**
+     * Si otro pago ya cubrio alguna de estas cuotas. ms-debt la abona unos
+     * segundos despues de confirmarse el pago, y mientras tanto la sigue
+     * mostrando pendiente: sin esto se podia pagar dos veces.
+     */
+    private void noPagadasYa(DebtClient.DebtSnapshot deuda) {
+        Set<Long> cuotas = deuda.installmentIds() == null ? Set.of() : new HashSet<>(deuda.installmentIds());
+        boolean yaPagadas = payments.findByDebtIdAndStatus(deuda.debtId(), Payment.Status.paid).stream()
+                .anyMatch(otro -> !Collections.disjoint(otro.cuotas(), cuotas));
+        if (yaPagadas) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Esas cuotas ya están pagadas: el pago se está registrando y en unos segundos se verá en tu deuda.");
+        }
     }
 
     private String enlaceDePago(Payment pago) {
@@ -309,6 +390,24 @@ public class PaymentService {
         return filas.stream().map(this::respuesta).toList();
     }
 
+    /**
+     * Los pagos duplicados de la cartera de una empresa, para devolverlos. La
+     * cartera la decide ms-debt, como en Pagos recibidos: la agencia ve la que
+     * entrego, no solo aquella de la que es acreedora.
+     */
+    public List<PaymentResponse> paraDevolver(JwtPrincipal user) {
+        if (user == null || !user.isCreditor() || user.rut() == null) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Solo una empresa ve sus pagos para devolver");
+        }
+        List<Long> cartera = deudas.cartera(user.rut());
+        if (cartera.isEmpty()) {
+            return List.of();
+        }
+        return payments.findByStatusAndDebtIdInOrderByCreatedAtDesc(Payment.Status.duplicated, cartera).stream()
+                .map(this::respuesta)
+                .toList();
+    }
+
     /** El libro de un pago, para el panel y para auditar. */
     public HistoriaResponse historia(JwtPrincipal user, Long id) {
         visible(user, id);
@@ -361,7 +460,13 @@ public class PaymentService {
             conciliar(pago);
         }
         if (cobraMercadoPago(pago)) {
-            conciliarMercadoPago(pago);
+            try {
+                conciliarMercadoPago(pago);
+            } catch (ApiException e) {
+                //  Mercado Pago no respondio: el pago sigue abierto y se reintenta
+                //  en la proxima consulta (la periodica o la de esta pagina).
+                log.warn("No se pudo conciliar el pago {} con Mercado Pago: {}", pago.getId(), e.getMessage());
+            }
         }
         return respuesta(pago);
     }
@@ -413,34 +518,45 @@ public class PaymentService {
      * pasarela por cada uno. Asi un pago se registra aunque el deudor cierre la
      * ventana antes de volver, y sin depender del aviso ni de la vuelta, que en
      * local no llegan (Mercado Pago ni siquiera devuelve a una direccion http).
-     * El que paso el plazo sin pagarse queda vencido: la pasarela lo vence a la
-     * misma hora, asi que ya no se puede pagar. Devuelve cuantos se cerraron.
+     *
+     * <p>El que paso el plazo sin pagarse se anula en la pasarela y queda
+     * vencido. No si la pasarela lo esta verificando: el deudor ya pago, y
+     * vencerlo dejaria la plata cobrada sin abonar. Devuelve cuantos se
+     * cerraron.
      */
     @Transactional
     public int conciliarPendientes() {
         int cerrados = 0;
         if (khipu.real()) {
-            cerrados += pendientes(Payment.Gateway.khipu, venceEn, this::conciliar);
+            cerrados += pendientes(Payment.Gateway.khipu, venceEn, this::conciliar,
+                    pago -> khipu.anular(pago.getGatewayTxnId()));
         }
         if (mercadopago.real()) {
-            cerrados += pendientes(Payment.Gateway.mercadopago, venceEnMercadoPago, this::conciliarMercadoPago);
+            //  La preferencia ya vence sola en Mercado Pago, a la misma hora.
+            cerrados += pendientes(Payment.Gateway.mercadopago, venceEnMercadoPago, this::conciliarMercadoPago,
+                    pago -> { });
         }
         return cerrados;
     }
 
-    private int pendientes(Payment.Gateway pasarela, Duration plazo, java.util.function.Consumer<Payment> conciliador) {
+    private int pendientes(Payment.Gateway pasarela, Duration plazo, Predicate<Payment> conciliador,
+                           Consumer<Payment> anular) {
         int cerrados = 0;
         Instant limite = Instant.now().minus(plazo);
         for (Payment pago : payments.findByGatewayAndStatus(pasarela, Payment.Status.created)) {
             try {
-                conciliador.accept(pago);
+                boolean enVerificacion = conciliador.test(pago);
+                if (pago.getStatus() == Payment.Status.created && pago.getCreatedAt().isBefore(limite)
+                        && !enVerificacion) {
+                    //  Anulado, ya no se puede pagar. Si alcanzo a pagarse, la
+                    //  segunda pregunta lo registra o lo encuentra verificando.
+                    anular.accept(pago);
+                    if (!conciliador.test(pago) && pago.getStatus() == Payment.Status.created) {
+                        vencer(pago);
+                    }
+                }
             } catch (ApiException pasarelaNoResponde) {
                 continue;
-            }
-            if (pago.getStatus() == Payment.Status.created && pago.getCreatedAt().isBefore(limite)) {
-                pago.setStatus(Payment.Status.expired);
-                payments.save(pago);
-                eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.expired, PaymentEvent.Source.webhook));
             }
             if (pago.getStatus() != Payment.Status.created) {
                 cerrados++;
@@ -450,13 +566,62 @@ public class PaymentService {
     }
 
     /**
+     * Los cobros de Khipu y de Mercado Pago que se dieron por vencidos en el
+     * ultimo dia: se vuelve a preguntar por ellos. Un intento empezado justo
+     * antes de vencer puede terminar despues, y esa plata se cobro: se
+     * registra. Devuelve cuantos aparecieron pagados.
+     */
+    @Transactional
+    public int revisarVencidos() {
+        int registrados = 0;
+        if (khipu.real()) {
+            registrados += vencidos(Payment.Gateway.khipu, venceEn, this::conciliar);
+        }
+        if (mercadopago.real()) {
+            registrados += vencidos(Payment.Gateway.mercadopago, venceEnMercadoPago, this::conciliarMercadoPago);
+        }
+        return registrados;
+    }
+
+    private int vencidos(Payment.Gateway pasarela, Duration plazo, Predicate<Payment> conciliador) {
+        int registrados = 0;
+        Instant desde = Instant.now().minus(plazo).minus(REVISAR_VENCIDOS);
+        for (Payment pago : payments.findByGatewayAndStatusAndCreatedAtAfter(pasarela, Payment.Status.expired, desde)) {
+            try {
+                conciliador.test(pago);
+            } catch (ApiException pasarelaNoResponde) {
+                continue;
+            }
+            if (pago.getStatus() != Payment.Status.expired) {
+                registrados++;
+                log.warn("El pago {} se pago en {} despues de vencido: quedo {}", pago.getId(), nombre(pago),
+                        pago.getStatus());
+            }
+        }
+        return registrados;
+    }
+
+    private void vencer(Payment pago) {
+        pago.setStatus(Payment.Status.expired);
+        payments.save(pago);
+        eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.expired, PaymentEvent.Source.webhook));
+    }
+
+    /**
      * Lo que dice Khipu, aplicado al pago. Pagado solo si Khipu lo concilio,
      * el monto es el que se cobro y la transaccion es la nuestra; terminado
      * sin plata, fallido; todavia en curso, no cambia nada.
+     *
+     * <p>Un pago vencido tambien se mira: si Khipu lo concilio despues, esa
+     * plata se cobro y se registra.
+     *
+     * @return si Khipu lo esta verificando: el deudor ya pago y falta que
+     *         Khipu lo confirme.
      */
-    private void conciliar(Payment pago) {
-        if (pago.getStatus() != Payment.Status.created || pago.getGatewayTxnId() == null) {
-            return;
+    private boolean conciliar(Payment pago) {
+        boolean abierto = pago.getStatus() == Payment.Status.created;
+        if ((!abierto && pago.getStatus() != Payment.Status.expired) || pago.getGatewayTxnId() == null) {
+            return false;
         }
         KhipuClient.Estado estado = khipu.estado(pago.getGatewayTxnId());
         String crudo = estado.crudo() == null ? null : estado.crudo().toString();
@@ -464,11 +629,12 @@ public class PaymentService {
                 && transaccion(pago).equals(estado.transactionId());
         if (estado.pagado() && calza) {
             confirmar(pago, PaymentEvent.Source.webhook, pago.getGatewayTxnId(), null, crudo);
-        } else if (estado.sinCobro() || estado.pagado()) {
+        } else if (abierto && (estado.sinCobro() || estado.pagado())) {
             //  Pagado pero por otro monto u otra transaccion no se acepta: no
             //  es el cobro que se abrio.
             fallido(pago, crudo);
         }
+        return "verifying".equals(estado.status());
     }
 
     // ------------------------------------------------------------------
@@ -599,39 +765,42 @@ public class PaymentService {
      * <p>El estado no se toma de la respuesta: se usa el id del pago para
      * preguntarle a {@code /v1/payments}, que es la fuente que tambien usa el
      * aviso. Asi un pago de otra preferencia no puede cerrar este pago.</p>
+     *
+     * <p>Un pago vencido tambien se mira: si Mercado Pago lo aprobo despues,
+     * esa plata se cobro y se registra.</p>
+     *
+     * @return si el pago sigue en curso en Mercado Pago (pendiente o en
+     *         revision): todavia se puede aprobar.
+     * @throws ApiException si Mercado Pago no responde.
      */
-    private void conciliarMercadoPago(Payment pago) {
-        if (pago.getStatus() != Payment.Status.created) {
-            return;
+    private boolean conciliarMercadoPago(Payment pago) {
+        boolean abierto = pago.getStatus() == Payment.Status.created;
+        if (!abierto && pago.getStatus() != Payment.Status.expired) {
+            return false;
         }
         //  Al abrirse el cobro se guardo el id de la preferencia; ya confirmado
         //  queda el id del pago, y entonces no hay nada que conciliar.
         String referencia = pago.getGatewayTxnId();
         if (referencia == null || referencia.isBlank()) {
-            return;
+            return false;
         }
-        try {
-            MercadoPagoClient.EstadoPreferencia pref = mercadopago.consultarPreferencia(referencia.trim());
-            if (pref == null || pref.pago() == null || pref.pago().id() == null) {
-                return; //  Todavia no se ha pagado nada sobre esta preferencia.
-            }
-            MercadoPagoClient.PagoInfo info = mercadopago.consultarPago(String.valueOf(pref.pago().id()));
-            String crudo = info.crudo() != null ? info.crudo().toString() : null;
-            boolean esElMismo = String.valueOf(pago.getId()).equals(String.valueOf(info.externalReference()).trim())
-                    && info.transactionAmount() != null
-                    && info.transactionAmount().compareTo(BigDecimal.valueOf(pago.getAmountClp())) == 0;
-            if (info.pagado() && esElMismo) {
-                confirmar(pago, PaymentEvent.Source.webhook, String.valueOf(info.id()), null, crudo);
-            } else if (info.pagado()) {
-                //  Pagado, pero no es el cobro que se abrio: no se acepta.
-                log.warn("Mercado Pago pago {} del pago {} no calza con la preferencia abierta", info.id(), pago.getId());
-                fallido(pago, crudo);
-            }
-        } catch (ApiException e) {
-            //  Mercado Pago no respondio: se deja el pago abierto y se reintenta
-            //  en la proxima consulta (la periodica o la de la pagina del resultado).
-            log.warn("No se pudo conciliar el pago {} con Mercado Pago: {}", pago.getId(), e.getMessage());
+        MercadoPagoClient.EstadoPreferencia pref = mercadopago.consultarPreferencia(referencia.trim());
+        if (pref == null || pref.pago() == null || pref.pago().id() == null) {
+            return false; //  Todavia no se ha pagado nada sobre esta preferencia.
         }
+        MercadoPagoClient.PagoInfo info = mercadopago.consultarPago(String.valueOf(pref.pago().id()));
+        String crudo = info.crudo() != null ? info.crudo().toString() : null;
+        boolean esElMismo = String.valueOf(pago.getId()).equals(String.valueOf(info.externalReference()).trim())
+                && info.transactionAmount() != null
+                && info.transactionAmount().compareTo(BigDecimal.valueOf(pago.getAmountClp())) == 0;
+        if (info.pagado() && esElMismo) {
+            confirmar(pago, PaymentEvent.Source.webhook, String.valueOf(info.id()), null, crudo);
+        } else if (info.pagado() && abierto) {
+            //  Pagado, pero no es el cobro que se abrio: no se acepta.
+            log.warn("Mercado Pago pago {} del pago {} no calza con la preferencia abierta", info.id(), pago.getId());
+            fallido(pago, crudo);
+        }
+        return info.status() != null && EN_CURSO_MERCADOPAGO.contains(info.status().toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -820,7 +989,7 @@ public class PaymentService {
     private PaymentResponse confirmar(Payment pago, PaymentEvent.Source origen, String txnId, Boolean firmaOk,
                                       String respuestaDeLaPasarela) {
         //  Idempotencia: el pago ya cobrado se devuelve tal cual.
-        if (pago.getStatus() == Payment.Status.paid) {
+        if (pago.getStatus() == Payment.Status.paid || pago.getStatus() == Payment.Status.duplicated) {
             return respuesta(pago);
         }
         //  Solo los cobros abiertos antes de que se fijaran al abrir.
@@ -828,12 +997,27 @@ public class PaymentService {
             fijarPesos(pago);
         }
 
+        //  Si otro pago ya cubrio alguna de estas cuotas, el deudor pago dos
+        //  veces: este no se abona (ms-debt no se entera) y queda duplicado,
+        //  con su transaccion, para devolverlo en la pasarela.
+        Payment anterior = pagoQueYaLasCubrio(pago);
         pago.setGatewayTxnId(txnId == null || txnId.isBlank() ? "int-" + pago.getId() : txnId.trim());
-        pago.setStatus(Payment.Status.paid);
-        pago.setPaidAt(Instant.now());
+        if (anterior != null) {
+            pago.setStatus(Payment.Status.duplicated);
+        } else {
+            pago.setStatus(Payment.Status.paid);
+            pago.setPaidAt(Instant.now());
+        }
 
         try {
             payments.save(pago);
+            if (anterior != null) {
+                eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.duplicated, origen).conFirma(firmaOk)
+                        .conRespuesta(respuestaDeLaPasarela));
+                log.warn("Pago {} duplicado: sus cuotas ya las pago el {}. Hay que devolverlo en {} ({})",
+                        pago.getId(), anterior.getId(), nombre(pago), pago.getGatewayTxnId());
+                return respuesta(pago);
+            }
             eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.paid, origen).conFirma(firmaOk)
                     .conRespuesta(respuestaDeLaPasarela));
             //  El aviso queda encolado aqui, en la misma transaccion. Si
@@ -846,6 +1030,19 @@ public class PaymentService {
             throw new ApiException(HttpStatus.CONFLICT, "Ese pago de la pasarela ya estaba registrado");
         }
         return respuesta(pago);
+    }
+
+    /** Otro pago de la misma deuda, ya pagado, que cubre alguna de las cuotas de este. */
+    private Payment pagoQueYaLasCubrio(Payment pago) {
+        Set<Long> cuotas = pago.cuotas();
+        if (cuotas.isEmpty()) {
+            return null;
+        }
+        return payments.findByDebtIdAndStatus(pago.getDebtId(), Payment.Status.paid).stream()
+                .filter(otro -> !otro.getId().equals(pago.getId()))
+                .filter(otro -> !Collections.disjoint(otro.cuotas(), cuotas))
+                .findFirst()
+                .orElse(null);
     }
 
     // ------------------------------------------------------------------
