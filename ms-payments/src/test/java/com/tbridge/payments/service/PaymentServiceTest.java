@@ -5,6 +5,7 @@ import com.tbridge.common.jwt.JwtPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tbridge.payments.client.DebtClient;
 import com.tbridge.payments.client.KhipuClient;
+import com.tbridge.payments.client.MercadoPagoClient;
 import com.tbridge.payments.client.WebpayClient;
 import com.tbridge.payments.dto.gateway.WebpayCommitResponse;
 import com.tbridge.payments.dto.gateway.WebpayCreateResponse;
@@ -39,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -62,6 +64,7 @@ class PaymentServiceTest {
     @Mock private UfService uf;
     @Mock private KhipuClient khipu;
     @Mock private WebpayClient webpay;
+    @Mock private com.tbridge.payments.client.MercadoPagoClient mercadopago;
 
     private final WebhookVerifier firmas = new WebhookVerifier("secreto-de-prueba");
     private final FirmaDeKhipu firmaDeKhipu = new FirmaDeKhipu("secreto-de-khipu");
@@ -70,7 +73,7 @@ class PaymentServiceTest {
     @BeforeEach
     void preparar() {
         servicio = new PaymentService(payments, eventos, avisos, firmas, deudas, uf, khipu, firmaDeKhipu, webpay,
-                "http://localhost:8080/", "", java.time.Duration.ofMinutes(30));
+                mercadopago, "http://localhost:8080/", "", java.time.Duration.ofMinutes(30));
         when(payments.save(any())).thenAnswer(llamada -> {
             Payment pago = llamada.getArgument(0);
             if (pago.getId() == null) {
@@ -614,5 +617,134 @@ class PaymentServiceTest {
         assertTrue(pago.simulada());
         assertTrue(pago.checkoutUrl().startsWith("http://localhost:8080/pasarela/41?sig="));
         verify(webpay, never()).createTransaction(any(), any(), anyLong(), any());
+    }
+
+    @Test
+    void checkout_con_mercadopago_crea_preferencia_y_devuelve_init_point() {
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+        when(mercadopago.real()).thenReturn(true);
+        when(mercadopago.testMode()).thenReturn(true);
+        when(mercadopago.crearPreferencia(any(), any(), anyLong(), any(), any()))
+                .thenReturn(new com.tbridge.payments.client.MercadoPagoClient.Preferencia(
+                        "pref_123", "https://mp.test/init", "https://sandbox.mp.test/init"));
+
+        PaymentResponse pago = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "mercadopago"));
+
+        assertFalse(pago.simulada());
+        assertEquals("https://sandbox.mp.test/init", pago.checkoutUrl());
+        verify(mercadopago).crearPreferencia(eq("41"), any(), eq(410000L), any(), any());
+    }
+
+    @Test
+    void retorno_mercadopago_aprobado_confirma_el_pago() {
+        Payment pago = new Payment();
+        pago.setId(41L);
+        pago.setDebtId(3L);
+        pago.setAmount(new BigDecimal("410000"));
+        pago.setCurrency(Payment.Currency.CLP);
+        pago.setAmountClp(410000L);
+        pago.setGateway(Payment.Gateway.mercadopago);
+        pago.setStatus(Payment.Status.created);
+        pago.setGatewayTxnId("pref_123");
+
+        when(payments.findById(41L)).thenReturn(Optional.of(pago));
+        when(mercadopago.consultarPago("pay_999"))
+                .thenReturn(new com.tbridge.payments.client.MercadoPagoClient.PagoInfo(
+                        999L, "approved", "accredited", new BigDecimal("410000"), "CLP", "41", null));
+
+        String destino = servicio.retornoMercadoPago("pay_999", "approved", "approved", "41", "pref_123");
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
+        assertTrue(destino.startsWith("http://localhost:8080/pasarela/41?sig="));
+        verify(avisos).save(any());
+    }
+
+    // ------------------------------------------------------------------
+    //  Mercado Pago: conciliar sin que el deudor vuelva al portal
+    // ------------------------------------------------------------------
+
+    private Payment abiertoEnMercadoPago() {
+        Payment pago = new Payment();
+        pago.setId(41L);
+        pago.setDebtId(3L);
+        pago.setDebtorRut(FELIPE);
+        pago.setCreditorRut("76418902-7");
+        pago.setAmount(new BigDecimal("410000"));
+        pago.setAmountClp(410000L);
+        pago.setCurrency(Payment.Currency.CLP);
+        pago.setGateway(Payment.Gateway.mercadopago);
+        pago.setStatus(Payment.Status.created);
+        //  Al abrir el cobro se guardo la preferencia, no el pago.
+        pago.setGatewayTxnId("pref_123");
+        pago.setCreatedAt(Instant.now());
+        when(mercadopago.real()).thenReturn(true);
+        when(payments.findById(41L)).thenReturn(Optional.of(pago));
+        return pago;
+    }
+
+    private static MercadoPagoClient.PagoInfo pagoEnMp(String status, String monto, String referencia) {
+        return new MercadoPagoClient.PagoInfo(999L, status, "accredited", new BigDecimal(monto), "CLP",
+                referencia, null);
+    }
+
+    private static MercadoPagoClient.EstadoPreferencia preferencia(String estadoPago) {
+        MercadoPagoClient.PagoDePreferencia p = estadoPago == null ? null
+                : new MercadoPagoClient.PagoDePreferencia(999L, estadoPago, null);
+        return new MercadoPagoClient.EstadoPreferencia("pref_123", "41", 410000L, p);
+    }
+
+    @Test
+    void verificar_concilia_el_pago_de_mercadopago_preguntando_a_la_preferencia() {
+        Payment pago = abiertoEnMercadoPago();
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("approved"));
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("approved", "410000", "41"));
+
+        PaymentResponse respuesta = servicio.verificar(41L, firmaDe(pago));
+
+        assertEquals(Payment.Status.paid, respuesta.status());
+        verify(avisos).save(any(DebtNotification.class));
+    }
+
+    @Test
+    void mientras_el_deudor_no_paga_en_mercadopago_el_pago_sigue_abierto() {
+        Payment pago = abiertoEnMercadoPago();
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia(null));
+
+        PaymentResponse respuesta = servicio.verificar(41L, firmaDe(pago));
+
+        assertEquals(Payment.Status.created, respuesta.status());
+        verify(mercadopago, never()).consultarPago(any());
+        verify(avisos, never()).save(any());
+    }
+
+    @Test
+    void un_pago_rechazado_en_mercadopago_se_cierra_fallido() {
+        Payment pago = abiertoEnMercadoPago();
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("rejected"));
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("rejected", "410000", "41"));
+
+        assertEquals(Payment.Status.failed, servicio.verificar(41L, firmaDe(pago)).status());
+    }
+
+    @Test
+    void un_pago_de_otro_cobro_no_cierra_este_pago() {
+        Payment pago = abiertoEnMercadoPago();
+        when(mercadopago.consultarPreferencia("pref_123")).thenReturn(preferencia("approved"));
+        //  Pagado, pero por otro monto y otra referencia: no es este cobro.
+        when(mercadopago.consultarPago("999")).thenReturn(pagoEnMp("approved", "1", "99"));
+
+        assertEquals(Payment.Status.failed, servicio.verificar(41L, firmaDe(pago)).status());
+    }
+
+    @Test
+    void si_mercadopago_no_responde_el_pago_queda_abierto_para_reintentar() {
+        Payment pago = abiertoEnMercadoPago();
+        when(mercadopago.consultarPreferencia("pref_123"))
+                .thenThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Mercado Pago no responde"));
+
+        PaymentResponse respuesta = servicio.verificar(41L, firmaDe(pago));
+
+        assertEquals(Payment.Status.created, respuesta.status());
+        verify(avisos, never()).save(any());
     }
 }
