@@ -57,12 +57,22 @@ public record DebtDetailResponse(
             @Schema(nullable = true) Instant pagadaEn,
             @Schema(description = "Si es cuota de un convenio. En una deuda en convenio, una que no lo es es un mes "
                     + "que el acreedor informo despues: se paga aparte", example = "true")
-            boolean enConvenio
+            boolean enConvenio,
+            @Schema(description = "Lo que la cuota trae de interes del convenio; el resto es capital", example = "0")
+            BigDecimal interesConvenio,
+            @Schema(description = "Solo en una cuota pendiente vencida de una deuda con tasa: la mora de hoy, que se "
+                    + "paga junto con ella", nullable = true, example = "1.20")
+            BigDecimal interesMora
     ) {
         public static Cuota from(Installment cuota) {
+            return from(cuota, null);
+        }
+
+        public static Cuota from(Installment cuota, BigDecimal mora) {
             String estado = cuota.getStatus() == Installment.Status.void_ ? "anulada" : cuota.getStatus().name();
             return new Cuota(cuota.getId(), cuota.getNumber(), cuota.getDueDate(), cuota.getAmount(), estado,
-                    cuota.getPaidAt(), cuota.enConvenio());
+                    cuota.getPaidAt(), cuota.enConvenio(), cuota.getInterestAmount(),
+                    mora == null || mora.signum() == 0 ? null : mora);
         }
     }
 

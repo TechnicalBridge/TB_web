@@ -550,7 +550,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .deuda-monto { text-align: right; }
 .deuda-monto span { display: block; color: var(--muted); font-size: 14px; }
 .deuda-monto b { display: block; font-size: 30px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.deuda-monto small { color: var(--muted); font-size: 14px; }
+.deuda-monto small { display: block; color: var(--muted); font-size: 14px; }
 .deuda-acciones {
   display: flex;
   flex-wrap: wrap;
@@ -694,7 +694,9 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .cuota-fila input:focus-visible + .casilla { box-shadow: 0 0 0 4px var(--ring); }
 .cuota-info b { display: block; font-weight: 600; }
 .cuota-info span { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
-.cuota-monto { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cuota-monto { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+/*  La mora de una cuota vencida, debajo de su monto. */
+.cuota-monto small, .calendario .monto small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
 .tag-vencida { background: var(--warn-soft); color: var(--warn); }
 .atajos { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; }
@@ -828,7 +830,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   font-size: 13.5px;
   font-weight: 700;
 }
-.calendario .monto { font-weight: 700; font-variant-numeric: tabular-nums; }
+.calendario .monto { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 
 /* ---- Como funciona ------------------------------------------------------------------------- */
 

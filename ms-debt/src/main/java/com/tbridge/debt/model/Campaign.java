@@ -59,6 +59,7 @@ public class Campaign {
     private Instant createdAt = Instant.now();
 
     public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
     public Organization getAgency() { return agency; }
     public void setAgency(Organization agency) { this.agency = agency; }
     public Organization getCreditor() { return creditor; }
@@ -73,7 +74,10 @@ public class Campaign {
     public void setChannels(String channels) { this.channels = channels; }
     public Short getAttempts() { return attempts; }
     public void setAttempts(Short attempts) { this.attempts = attempts; }
+    public String getCadenceDays() { return cadenceDays; }
     public void setCadenceDays(String cadenceDays) { this.cadenceDays = cadenceDays; }
+    public java.time.LocalDate getStartsOn() { return startsOn; }
+    public java.time.LocalDate getEndsOn() { return endsOn; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }

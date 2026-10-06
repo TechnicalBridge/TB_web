@@ -85,7 +85,10 @@ public class NotificationDispatcher {
                 pago.getUfValue(),
                 pago.getGateway().name(),
                 pago.getGatewayTxnId(),
-                pago.getPaidAt()
+                pago.getPaidAt(),
+                //  Las cuotas exactas: el monto ya no alcanza para imputar si trae mora.
+                pago.cuotas().isEmpty() ? null : pago.cuotas().stream().sorted().toList(),
+                pago.getInterestAmount()
         );
     }
 }

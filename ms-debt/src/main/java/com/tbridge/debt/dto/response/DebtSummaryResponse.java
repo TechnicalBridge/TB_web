@@ -49,7 +49,14 @@ public record DebtSummaryResponse(
         Instant codigoEnviado,
         @Schema(description = "Solo si la deuda esta en disputa: el motivo, lo que explico el deudor y desde cuando",
                 nullable = true)
-        Disputa disputa
+        Disputa disputa,
+        @Schema(description = "El interes mensual que pacto el acreedor, en porcentaje. Vacio si la deuda no genera "
+                + "intereses", nullable = true, example = "1.5")
+        BigDecimal tasaInteresMensual,
+        @Schema(description = "La mora de hoy: lo que crecieron las cuotas vencidas. Cero sin tasa", example = "4.20")
+        BigDecimal interesMora,
+        @Schema(description = "Lo que se paga hoy para saldar la deuda: el saldo mas la mora", example = "100.45")
+        BigDecimal totalHoy
 ) {
 
     /** Por que el deudor no reconoce la deuda. */
@@ -80,7 +87,14 @@ public record DebtSummaryResponse(
 
     public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas, Instant codigoEnviado,
                                            Disputa disputa) {
+        return from(deuda, cuotas, codigoEnviado, disputa, BigDecimal.ZERO);
+    }
+
+    /** Con la mora de hoy, que calcula {@code Intereses}. */
+    public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas, Instant codigoEnviado,
+                                           Disputa disputa, BigDecimal interesMora) {
         BigDecimal saldo = suma(cuotas, Installment.Status.pending);
+        BigDecimal mora = interesMora == null ? BigDecimal.ZERO : interesMora;
         //  Lo pagado es lo que se pago por DataBridge. No sale de restar el saldo
         //  al monto original: cuando el acreedor actualiza la deuda, su monto ya
         //  viene descontado de lo que se pago aca.
@@ -117,6 +131,9 @@ public record DebtSummaryResponse(
                 conConvenio,
                 vencidas,
                 codigoEnviado,
-                deuda.getStatus() == Debt.Status.disputed ? disputa : null);
+                deuda.getStatus() == Debt.Status.disputed ? disputa : null,
+                deuda.getInterestRate(),
+                mora,
+                saldo.add(mora));
     }
 }

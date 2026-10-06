@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { resumenDeCartera } from "../api/analitica";
 import { enviarCodigo as pedirCodigo, listarDeudas, listarEnRiesgo, resolverDisputa } from "../api/deudas";
-import { dinero, ESTADO_DEUDA, fecha, MOTIVOS_DISPUTA, rutLegible, totalDeLaDeuda } from "../utils/formato";
+import { dinero, ESTADO_DEUDA, fecha, MOTIVOS_DISPUTA, porcentaje, rutLegible, totalDeLaDeuda } from "../utils/formato";
 import { descargarCsv, montoParaExcel } from "../utils/exportar";
 import BarraEstado, { etapaDe } from "../components/BarraEstado";
 import { EstadoCartera, RecuperadoPorDia } from "../components/Graficos";
@@ -174,6 +174,11 @@ export default function DataBridge() {
                       <td className="num">
                         {dinero(d.saldo, d.moneda)}
                         <span className="sub">de {dinero(totalDeLaDeuda(d), d.moneda)}</span>
+                        {Number(d.interesMora) > 0 ? (
+                          <span className="sub">
+                            + {dinero(d.interesMora, d.moneda)} de mora, al {porcentaje(d.tasaInteresMensual)} mensual
+                          </span>
+                        ) : null}
                       </td>
                       <td>
                         <BarraEstado deuda={d} compacta />
@@ -203,7 +208,7 @@ export default function DataBridge() {
                         ) : null}
                         {cobrable && !aviso ? (
                           <span className="sub">
-                            {d.codigoEnviado ? `Invitado el ${fecha(d.codigoEnviado)}` : "Todavía sin invitar"}
+                            {d.codigoEnviado ? `Último correo el ${fecha(d.codigoEnviado)}` : "Todavía sin invitar"}
                           </span>
                         ) : null}
                         {aviso?.ok ? <span className="sub">{aviso.ok}</span> : null}

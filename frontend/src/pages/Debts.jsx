@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { descargarCertificado, disputar, listarDeudas } from "../api/deudas";
-import { dinero, MOTIVOS_DISPUTA, porMoneda, rutLegible, totalDeLaDeuda } from "../utils/formato";
+import { dinero, MOTIVOS_DISPUTA, porcentaje, porMoneda, rutLegible, totalDeLaDeuda } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
@@ -50,7 +50,7 @@ export default function Debts() {
         <div className="card stat aparece" style={{ "--i": 1 }}>
           <span>Por pagar</span>
           <b className="totales">
-            {porMoneda(vigentes, "saldo").map(([moneda, total]) => (
+            {porMoneda(vigentes, "totalHoy").map(([moneda, total]) => (
               <span key={moneda}>{dinero(total, moneda)}</span>
             ))}
             {vigentes.length === 0 ? dinero(0) : null}
@@ -103,8 +103,14 @@ function TarjetaDeuda({ deuda: d, i, onCambio }) {
         </div>
         <div className="deuda-monto">
           <span>{pagada ? "Pagaste" : "Saldo"}</span>
-          <b>{dinero(pagada ? d.pagado : d.saldo, d.moneda)}</b>
+          <b>{dinero(pagada ? d.pagado : d.totalHoy ?? d.saldo, d.moneda)}</b>
           {abonado ? <small>de {dinero(totalDeLaDeuda(d), d.moneda)}</small> : null}
+          {!pagada && Number(d.interesMora) > 0 ? (
+            <small>
+              Incluye {dinero(d.interesMora, d.moneda)} de intereses por mora ({porcentaje(d.tasaInteresMensual)}{" "}
+              mensual)
+            </small>
+          ) : null}
         </div>
       </div>
 

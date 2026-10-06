@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { obtenerDeuda } from "../api/deudas";
 import { abrirCobro, obtenerPago } from "../api/pagos";
-import { dinero, fecha, hoyEnChile } from "../utils/formato";
+import { dinero, fecha, hoyEnChile, porcentaje } from "../utils/formato";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
 import LogoPasarela, { PASARELAS, nombreDePasarela } from "../components/LogoPasarela";
@@ -93,7 +93,10 @@ export default function Pay() {
   const enConvenio = deuda.conConvenio && pendientes.length > 0;
   const k = Math.min(cuantas, pendientes.length);
   const elegidas = enConvenio ? pendientes.slice(0, k) : pendientes;
-  const monto = elegidas.reduce((suma, c) => suma + Number(c.monto), 0);
+  //  Con tasa, cada cuota vencida se paga con su mora de hoy: ms-debt la suma al cobrar.
+  const capital = elegidas.reduce((suma, c) => suma + Number(c.monto), 0);
+  const mora = elegidas.reduce((suma, c) => suma + Number(c.interesMora || 0), 0);
+  const monto = capital + mora;
   const hoy = hoyEnChile();
 
   /** Marcar la cuota i marca todas las anteriores; desmarcarla, todas las que siguen. */
@@ -199,7 +202,10 @@ export default function Pay() {
                             {c.vencimiento < hoy ? <span className="tag tag-vencida">Vencida</span> : null}
                           </span>
                         </span>
-                        <span className="cuota-monto">{dinero(c.monto, moneda)}</span>
+                        <span className="cuota-monto">
+                          {dinero(c.monto, moneda)}
+                          {Number(c.interesMora) > 0 ? <small>+ {dinero(c.interesMora, moneda)} de mora</small> : null}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -231,12 +237,20 @@ export default function Pay() {
                           <td className="num">{dinero(c.monto, moneda)}</td>
                         </tr>
                       ))}
+                      {mora > 0 ? (
+                        <tr>
+                          <td colSpan={2}>Intereses por mora, al {porcentaje(deuda.tasaInteresMensual)} mensual</td>
+                          <td className="num">{dinero(mora, moneda)}</td>
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                   {deuda.estado === "open" ? (
                     <p className="hint">
                       ¿Mucho de una vez?{" "}
-                      <Link className="link-btn" to={`/app/repactar/${deuda.id}`}>Págalo en cuotas sin interés</Link>
+                      <Link className="link-btn" to={`/app/repactar/${deuda.id}`}>
+                        {deuda.tasaInteresMensual ? "Págalo en cuotas" : "Págalo en cuotas sin interés"}
+                      </Link>
                     </p>
                   ) : null}
                 </>
@@ -254,6 +268,12 @@ export default function Pay() {
                 </div>
                 <b key={`${k}-${monto}`}>{dinero(monto, moneda)}</b>
               </div>
+              {mora > 0 ? (
+                <p className="hint" style={{ marginTop: -6 }}>
+                  {dinero(capital, moneda)} de capital y {dinero(mora, moneda)} de intereses por mora, al{" "}
+                  {porcentaje(deuda.tasaInteresMensual)} mensual que pactaste con {deuda.acreedor}.
+                </p>
+              ) : null}
               <div className="methods">
                 {Object.entries(PASARELAS).map(([id, p]) => (
                   <button key={id} type="button" className={`method${pasarela === id ? " on" : ""}`}

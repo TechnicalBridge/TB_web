@@ -123,6 +123,12 @@
           "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,31}$" },
           "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 120 }
         },
+        "tasa_interes_mensual": {
+          "description": "El interes que pacto el acreedor, en porcentaje mensual. Corre por la mora (interes simple sobre el capital vencido, por dia) y en el convenio (sistema frances). Sin el, la deuda no genera intereses. No puede superar la tasa maxima que acepta el receptor (seccion 6.5).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "multipleOf": 0.01
+        },
         "cargos": {
           "type": "array",
           "description": "Los cargos impagos y vencidos. Vacio: el cliente esta al dia (seccion 6.4)",

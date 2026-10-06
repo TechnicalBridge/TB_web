@@ -187,6 +187,9 @@ public class DataSeeder implements CommandLineRunner {
         if (deuda == null) {
             return;
         }
+        //  El contrato del local pacta un 1,5% mensual: la deuda que se ve con intereses.
+        deuda.setInterestRate(new BigDecimal("1.5"));
+        debts.save(deuda);
         cuota(deuda, 1, "2026-08-05", "77.00", Installment.Status.void_, null, null);
         cuota(deuda, 2, "2026-09-05", "115.50", Installment.Status.pending, null, null);
         evento(deuda, DebtEvent.Type.code_sent, DebtEvent.Actor.agency, "2026-08-19T16:05", null, "ad*************@nandu.cl");
@@ -568,7 +571,7 @@ public class DataSeeder implements CommandLineRunner {
         }
         Long pesos = montoClp != null ? montoClp : monto.longValueExact();
         DetallePago detalle = new DetallePago(null, pesos, valorUf, pasarela,
-                lugares.stream().map(l -> l + 1).toList(), plan.size(), null);
+                lugares.stream().map(l -> l + 1).toList(), plan.size(), null, null);
         DebtEvent aplicado = DebtEvent.de(deuda, DebtEvent.Type.payment_applied, DebtEvent.Actor.system)
                 .conMonto(monto, deuda.getCurrency())
                 .conReferencia(pasarela + ":" + transaccion)

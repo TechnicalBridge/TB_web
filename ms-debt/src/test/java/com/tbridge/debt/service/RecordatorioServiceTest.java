@@ -42,6 +42,7 @@ class RecordatorioServiceTest {
     @Mock private InstallmentRepository installments;
     @Mock private DebtEventRepository events;
     @Mock private AuthClient auth;
+    @Mock private LimiteDeContacto limite;
 
     private RecordatorioService servicio;
     private Installment cuota;
@@ -49,7 +50,8 @@ class RecordatorioServiceTest {
 
     @BeforeEach
     void preparar() {
-        servicio = new RecordatorioService(installments, events, auth, 3);
+        servicio = new RecordatorioService(installments, events, auth, limite, 3);
+        when(limite.permite(any(), any())).thenReturn(true);
         Organization patrimonio = new Organization();
         patrimonio.setTradeName("Patrimonio Inmuebles");
         deudor = new Debtor();
@@ -80,6 +82,16 @@ class RecordatorioServiceTest {
         assertNotNull(cuota.getRemindedAt());
         verify(events).save(any(DebtEvent.class));
         assertEquals(1, pasada.enviados());
+    }
+
+    @Test
+    void si_la_ley_no_deja_escribirle_hoy_el_recordatorio_sale_otro_dia() {
+        when(limite.permite(any(), any())).thenReturn(false);
+
+        assertEquals(1, servicio.enviar(HOY).omitidos());
+
+        verify(auth, never()).emitirCodigo(any());
+        assertNull(cuota.getRemindedAt(), "sin marcar: la proxima pasada lo intenta de nuevo");
     }
 
     @Test

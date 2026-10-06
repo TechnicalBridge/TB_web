@@ -23,7 +23,7 @@ import java.util.List;
  * <pre>
  *   GET /internal/debts/{id}?installmentIds=12&installmentIds=13   (opcional)
  *   X-Internal-Key: ...
- *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds }
+ *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds, capital, interes }
  * </pre>
  */
 @Component
@@ -38,7 +38,10 @@ public class DebtClient {
             BigDecimal amount,
             Long installmentId,
             //  Las cuotas que cubre ese monto, de la que vence primero en adelante.
-            List<Long> installmentIds
+            List<Long> installmentIds,
+            //  Lo que el monto tiene de capital y de mora, si la deuda genera intereses.
+            BigDecimal capital,
+            BigDecimal interes
     ) {}
 
     private final RestClient rest;

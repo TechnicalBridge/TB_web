@@ -43,13 +43,16 @@ public class RecordatorioService {
     private final InstallmentRepository installments;
     private final DebtEventRepository events;
     private final AuthClient auth;
+    private final LimiteDeContacto limite;
     private final int diasAntes;
 
     public RecordatorioService(InstallmentRepository installments, DebtEventRepository events, AuthClient auth,
+                               LimiteDeContacto limite,
                                @Value("${app.recordatorios.dias-antes:3}") int diasAntes) {
         this.installments = installments;
         this.events = events;
         this.auth = auth;
+        this.limite = limite;
         this.diasAntes = diasAntes;
     }
 
@@ -72,6 +75,12 @@ public class RecordatorioService {
             Debt deuda = cuota.getDebt();
             Debtor deudor = deuda.getDebtor();
             if (!deudor.isReminders() || deudor.getEmail() == null || deudor.getEmail().isBlank()) {
+                omitidos++;
+                continue;
+            }
+            if (!limite.permite(deudor, Instant.now())) {
+                //  La ley no deja escribirle hoy: la cuota queda sin marcar y el
+                //  aviso sale en una pasada siguiente.
                 omitidos++;
                 continue;
             }

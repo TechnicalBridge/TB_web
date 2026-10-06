@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { obtenerDeuda, repactar, simularPlan } from "../api/deudas";
-import { dinero, fecha } from "../utils/formato";
+import { dinero, fecha, porcentaje } from "../utils/formato";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
 import { IconoFlecha, IconoVolver } from "../components/Iconos";
@@ -85,7 +85,7 @@ export default function Repact() {
         <div>
           <span className="eyebrow">{deuda.acreedor}</span>
           <h1>Pagar en cuotas</h1>
-          <p>{deuda.concepto}, saldo {dinero(deuda.saldo, moneda)}</p>
+          <p>{deuda.concepto}, saldo {dinero(deuda.totalHoy ?? deuda.saldo, moneda)}</p>
         </div>
         <Link className="btn btn-ghost btn-sm" to="/app">
           <IconoVolver size={16} />
@@ -105,7 +105,11 @@ export default function Repact() {
               <span className="eyebrow">Plazo</span>
               <b key={meses}>{meses}<small>meses</small></b>
             </div>
-            <span className="badge badge-ok">Sin interés</span>
+            {deuda.tasaInteresMensual ? (
+              <span className="badge badge-muted">{porcentaje(deuda.tasaInteresMensual)} mensual</span>
+            ) : (
+              <span className="badge badge-ok">Sin interés</span>
+            )}
           </div>
 
           <div className="plazo">
@@ -145,10 +149,21 @@ export default function Repact() {
               <b key={`t${meses}${!!plan}`}>{plan ? dinero(plan.total, moneda) : "—"}</b>
             </div>
           </div>
-          <p className="hint">
-            El total es lo que debes hoy: no se cobran intereses. La última cuota absorbe el redondeo.
-            {moneda === "UF" ? " En UF, cada cuota se paga al valor de la UF del día en que pagas." : ""}
-          </p>
+          {plan?.tasaInteresMensual ? (
+            <p className="hint">
+              Se repacta lo que debes hoy: {dinero(plan.capital, moneda)}
+              {Number(plan.interesMora) > 0 ? ` más ${dinero(plan.interesMora, moneda)} de intereses por mora` : ""},{" "}
+              {dinero(plan.aRepactar, moneda)}. Las cuotas llevan el {porcentaje(plan.tasaInteresMensual)} de interés
+              mensual que pactaste con {deuda.acreedor}: en total pagas {dinero(plan.total, moneda)}, y{" "}
+              {dinero(plan.interesConvenio, moneda)} son intereses del convenio. La última cuota absorbe el redondeo.
+              {moneda === "UF" ? " En UF, cada cuota se paga al valor de la UF del día en que pagas." : ""}
+            </p>
+          ) : (
+            <p className="hint">
+              El total es lo que debes hoy: no se cobran intereses. La última cuota absorbe el redondeo.
+              {moneda === "UF" ? " En UF, cada cuota se paga al valor de la UF del día en que pagas." : ""}
+            </p>
+          )}
           <button className="btn btn-primary btn-block" style={{ marginTop: 18 }} disabled={busy || !plan}
                   onClick={confirmar}>
             {busy ? <><span className="girando" /> Aceptando…</> : <>Aceptar {meses} cuotas <IconoFlecha size={16} /></>}
@@ -163,7 +178,10 @@ export default function Repact() {
                 <li key={c.number} style={{ "--i": Math.min(i, 14) }}>
                   <span className="num">{c.number}</span>
                   <span>{fecha(c.dueDate)}</span>
-                  <span className="monto">{dinero(c.amount, moneda)}</span>
+                  <span className="monto">
+                    {dinero(c.amount, moneda)}
+                    {Number(c.interest) > 0 ? <small>{dinero(c.interest, moneda)} de interés</small> : null}
+                  </span>
                 </li>
               ))}
             </ol>

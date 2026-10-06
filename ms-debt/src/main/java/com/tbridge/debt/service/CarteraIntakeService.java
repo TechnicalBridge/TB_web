@@ -98,6 +98,7 @@ public class CarteraIntakeService {
     private final EventosService eventos;
     private final ApplicationEventPublisher avisos;
     private final int minDiasMora;
+    private final BigDecimal tasaMaxima;
 
     public CarteraIntakeService(
             OrganizationRepository organizations,
@@ -112,7 +113,8 @@ public class CarteraIntakeService {
             ObjectMapper json,
             EventosService eventos,
             ApplicationEventPublisher avisos,
-            @Value("${app.cartera.min-dias-mora:30}") int minDiasMora
+            @Value("${app.cartera.min-dias-mora:30}") int minDiasMora,
+            @Value("${app.intereses.tasa-maxima-mensual:3.0}") BigDecimal tasaMaxima
     ) {
         if (minDiasMora < 1) {
             throw new IllegalStateException("app.cartera.min-dias-mora tiene que ser al menos 1");
@@ -130,6 +132,7 @@ public class CarteraIntakeService {
         this.eventos = eventos;
         this.avisos = avisos;
         this.minDiasMora = minDiasMora;
+        this.tasaMaxima = tasaMaxima;
     }
 
     /** Desde cuantos dias de mora entra una deuda: el alcance de DataBridge. */
@@ -431,6 +434,25 @@ public class CarteraIntakeService {
             errores.add(error("concepto", "concepto_faltante", "La deuda no trae concepto"));
         }
 
+        //  La tasa la pacta el acreedor y es opcional: sin ella, la deuda no
+        //  genera intereses. Nunca sobre el tope, que es la tasa maxima
+        //  convencional vigente (Ley 18.010).
+        BigDecimal tasa = null;
+        JsonNode nodoTasa = deuda.get("tasa_interes_mensual");
+        if (nodoTasa != null && !nodoTasa.isNull()) {
+            tasa = nodoTasa.isNumber() ? nodoTasa.decimalValue() : null;
+            if (tasa == null || tasa.signum() <= 0 || tasa.stripTrailingZeros().scale() > 2) {
+                errores.add(error("tasa_interes_mensual", "tasa_invalida",
+                        "La tasa va como un numero mayor que cero, en porcentaje mensual y con hasta dos decimales"));
+                tasa = null;
+            } else if (tasa.compareTo(tasaMaxima) > 0) {
+                errores.add(error("tasa_interes_mensual", "tasa_sobre_maxima",
+                        "La tasa de " + tasa.toPlainString() + "% mensual supera la maxima permitida, "
+                                + tasaMaxima.toPlainString() + "%"));
+                tasa = null;
+            }
+        }
+
         List<CargoLeido> cargos = new ArrayList<>();
         JsonNode nodoCargos = deuda.get("cargos");
         if (nodoCargos == null || !nodoCargos.isArray() || nodoCargos.isEmpty()) {
@@ -490,7 +512,8 @@ public class CarteraIntakeService {
         boolean sinCambios = !nueva && mismosCargos(registro, cargos)
                 && (registro.getStatus() == Debt.Status.open || registro.getStatus() == Debt.Status.repacted
                     || registro.getStatus() == Debt.Status.disputed)
-                && registro.getDebtor().getId().equals(deudor.getId());
+                && registro.getDebtor().getId().equals(deudor.getId())
+                && mismaTasa(registro.getInterestRate(), tasa);
 
         registro.setCreditor(acreedor);
         registro.setDebtor(deudor);
@@ -499,6 +522,8 @@ public class CarteraIntakeService {
         registro.setConcept(concepto);
         registro.setRefs(deuda.has("referencias") ? deuda.get("referencias").toString() : null);
         registro.setOriginalAmount(total);
+        //  El acreedor manda lo que vale hoy: una cartera sin tasa la quita.
+        registro.setInterestRate(tasa);
         registro.setLastBatch(batch);
         registro.setMandate(mandato);
         if (campana != null) {
@@ -667,6 +692,10 @@ public class CarteraIntakeService {
         installments.save(cuota);
     }
 
+    private static boolean mismaTasa(BigDecimal antes, BigDecimal ahora) {
+        return antes == null ? ahora == null : ahora != null && antes.compareTo(ahora) == 0;
+    }
+
     /** Si todos los cargos vencen despues del ultimo que tenia la deuda cuando se pago. */
     private boolean soloCargosNuevos(Debt pagada, List<CargoLeido> cargos) {
         LocalDate ultimoPagado = charges.findByDebtOrderByDueDateAsc(pagada).stream()
@@ -781,7 +810,7 @@ public class CarteraIntakeService {
             for (JsonNode deuda : deudas) {
                 deuda.fieldNames().forEachRemaining(campo -> {
                     if (!Set.of("id_externo", "accion", "motivo_retiro", "deudor", "moneda",
-                            "concepto", "referencias", "cargos").contains(campo)) {
+                            "concepto", "referencias", "cargos", "tasa_interes_mensual").contains(campo)) {
                         sobras.add("deudas[]." + campo);
                     }
                 });

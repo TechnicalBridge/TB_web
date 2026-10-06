@@ -36,6 +36,8 @@ public record PagoResponse(
         @Schema(description = "Cuantas cuotas tenia el plan al pagar", nullable = true, example = "6") Integer deCuotas,
         @Schema(description = "Cuotas fuera del convenio que cubrio el pago: meses que el acreedor informo despues",
                 nullable = true, example = "1") Integer fueraDelConvenio,
-        Instant pagadoEn
+        Instant pagadoEn,
+        @Schema(description = "Cuanto del monto fue mora, si la deuda genera intereses", nullable = true,
+                example = "4200") BigDecimal interes
 ) {
 }

@@ -54,6 +54,13 @@ public class Debt {
     @Column(name = "original_amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal originalAmount;
 
+    /**
+     * El interes mensual que pacto el acreedor, en porcentaje: corre por la
+     * mora y en el convenio. Null si la deuda no genera intereses.
+     */
+    @Column(name = "interest_rate", precision = 5, scale = 2)
+    private BigDecimal interestRate;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 12)
     private Status status = Status.open;
@@ -105,6 +112,8 @@ public class Debt {
     public void setRefs(String refs) { this.refs = refs; }
     public BigDecimal getOriginalAmount() { return originalAmount; }
     public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }
+    public BigDecimal getInterestRate() { return interestRate; }
+    public void setInterestRate(BigDecimal interestRate) { this.interestRate = interestRate; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
     public void setMandate(Mandate mandate) { this.mandate = mandate; }

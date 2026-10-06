@@ -13,6 +13,10 @@ import java.math.BigDecimal;
  * es un numero sin tipo fijo. En UF va el valor usado: la UF cambia todos los
  * dias, y sin ese dato nadie podria reconstruir por que UF 38,5 fueron esos
  * pesos. En pesos, {@code valor_uf} no viene.
+ *
+ * <p>{@code monto} es todo lo que se cobro. {@code capital} es lo que se imputa
+ * a los cargos, y {@code interes} la mora de esas cuotas, si la deuda genera
+ * intereses: el acreedor la registra aparte.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record PagoConfirmadoDatos(
@@ -23,6 +27,8 @@ public record PagoConfirmadoDatos(
         Long montoClp,
         BigDecimal valorUf,
         String medio,
-        String pagadoEn
+        String pagadoEn,
+        Number capital,
+        Number interes
 ) {
 }

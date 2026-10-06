@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -31,11 +32,13 @@ public class AccesoService {
     private final DebtService debts;
     private final DebtEventRepository events;
     private final AuthClient auth;
+    private final LimiteDeContacto limite;
 
-    public AccesoService(DebtService debts, DebtEventRepository events, AuthClient auth) {
+    public AccesoService(DebtService debts, DebtEventRepository events, AuthClient auth, LimiteDeContacto limite) {
         this.debts = debts;
         this.events = events;
         this.auth = auth;
+        this.limite = limite;
     }
 
     public CodigoEnviadoResponse enviarCodigo(JwtPrincipal user, Long debtId) {
@@ -50,6 +53,10 @@ public class AccesoService {
         if (deudor.getEmail() == null || deudor.getEmail().isBlank()) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "El deudor no tiene correo registrado, y el envio por WhatsApp aun no esta conectado");
+        }
+        if (!limite.permite(deudor, Instant.now())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Ya se le escribio lo que permite la ley: dos veces por "
+                    + "semana y con dos dias entre una y otra. Intentalo en unos dias");
         }
 
         AuthClient.CodigoEmitido emitido = auth.emitirCodigo(new AuthClient.PedidoDeCodigo(

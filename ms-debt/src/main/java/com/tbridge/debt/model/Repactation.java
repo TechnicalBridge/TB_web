@@ -34,6 +34,14 @@ public class Repactation {
     @Column(nullable = false, length = 3)
     private Debt.Currency currency;
 
+    /** La tasa mensual con que se armo el convenio. Null si fue sin interes. */
+    @Column(name = "interest_rate", precision = 5, scale = 2)
+    private BigDecimal interestRate;
+
+    /** Lo que se repacto: el capital mas la mora acumulada hasta ese dia. */
+    @Column(precision = 18, scale = 2)
+    private BigDecimal principal;
+
     @Column(name = "accepted_at", nullable = false)
     private Instant acceptedAt = Instant.now();
 
@@ -46,6 +54,8 @@ public class Repactation {
     public void setDebt(Debt debt) { this.debt = debt; }
     public void setMonths(Short months) { this.months = months; }
     public void setMonthlyAmount(BigDecimal monthlyAmount) { this.monthlyAmount = monthlyAmount; }
+    public void setInterestRate(BigDecimal interestRate) { this.interestRate = interestRate; }
+    public void setPrincipal(BigDecimal principal) { this.principal = principal; }
     public Debt.Currency getCurrency() { return currency; }
     public void setCurrency(Debt.Currency currency) { this.currency = currency; }
     public void setAcceptedAt(Instant acceptedAt) { this.acceptedAt = acceptedAt; }

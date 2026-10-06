@@ -172,17 +172,34 @@ public class DebtService {
             }
             Map<Long, DebtSummaryResponse.Disputa> disputas = disputas(cartera);
             return cartera.stream()
-                    .map(d -> DebtSummaryResponse.from(d, installments.findByDebtOrderByNumberAsc(d),
-                            enviado.get(d.getId()), disputas.get(d.getId())))
+                    .map(d -> resumen(d, enviado.get(d.getId()), disputas.get(d.getId())))
                     .toList();
         }
         List<Debt> filas = debts.findByDebtorOrderByUpdatedAtDesc(deudorDe(user));
         filas.forEach(this::anotarIngreso);
         Map<Long, DebtSummaryResponse.Disputa> disputas = disputas(filas);
         return filas.stream()
-                .map(d -> DebtSummaryResponse.from(d, installments.findByDebtOrderByNumberAsc(d), null,
-                        disputas.get(d.getId())))
+                .map(d -> resumen(d, null, disputas.get(d.getId())))
                 .toList();
+    }
+
+    /**
+     * La mora de cada cuota pendiente de la deuda, hoy. Los cargos se leen solo
+     * si la deuda genera intereses, que son las menos.
+     */
+    Map<Long, BigDecimal> mora(Debt deuda, List<Installment> cuotas) {
+        if (deuda.getInterestRate() == null) {
+            return Map.of();
+        }
+        return Intereses.deMora(deuda, charges.findByDebtOrderByDueDateAsc(deuda), cuotas, LocalDate.now(CHILE));
+    }
+
+    /** Lo que la deuda tiene de capital pendiente: las cuotas, sin el interes del convenio que aun no corre. */
+    private BigDecimal saldoCapital(List<Installment> cuotas) {
+        return cuotas.stream()
+                .filter(c -> c.getStatus() == Installment.Status.pending)
+                .map(Installment::capital)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /** La disputa abierta de cada deuda que esta en disputa: la ultima que abrio el deudor. */
@@ -279,8 +296,18 @@ public class DebtService {
     // ------------------------------------------------------------------
 
     public RepactPlan simulate(JwtPrincipal user, Long id, int months) {
-        Debt deuda = requireVisible(user, id);
-        return repactation.simulate(saldo(deuda), deuda.getCurrency(), months, LocalDate.now().plusMonths(1));
+        return plan(requireVisible(user, id), months);
+    }
+
+    /**
+     * El plan para una deuda: se repacta el capital pendiente mas la mora de
+     * hoy, con la tasa que pacto el acreedor. El interes del convenio que las
+     * cuotas pendientes traian se deja fuera: todavia no corria.
+     */
+    private RepactPlan plan(Debt deuda, int months) {
+        List<Installment> cuotas = installments.findByDebtOrderByNumberAsc(deuda);
+        return repactation.simulate(saldoCapital(cuotas), Intereses.total(mora(deuda, cuotas)),
+                deuda.getInterestRate(), deuda.getCurrency(), months, LocalDate.now(CHILE).plusMonths(1));
     }
 
     /**
@@ -306,7 +333,8 @@ public class DebtService {
             throw new ApiException(HttpStatus.CONFLICT, "La deuda esta en revision: no se repacta mientras tanto");
         }
 
-        RepactPlan plan = repactation.simulate(saldo(deuda), deuda.getCurrency(), months, LocalDate.now().plusMonths(1));
+        RepactPlan plan = plan(deuda, months);
+        boolean conInteres = plan.tasaInteresMensual() != null;
 
         for (Repactation anterior : repactations.findByDebtAndSupersededAtIsNull(deuda)) {
             anterior.setSupersededAt(Instant.now());
@@ -316,6 +344,8 @@ public class DebtService {
         nueva.setDebt(deuda);
         nueva.setMonths((short) months);
         nueva.setMonthlyAmount(plan.monthlyAmount());
+        nueva.setInterestRate(plan.tasaInteresMensual());
+        nueva.setPrincipal(plan.aRepactar());
         nueva.setCurrency(deuda.getCurrency());
         repactations.save(nueva);
 
@@ -328,6 +358,7 @@ public class DebtService {
             cuota.setNumber(numero++);
             cuota.setDueDate(previa.dueDate());
             cuota.setAmount(previa.amount());
+            cuota.setInterestAmount(previa.interest());
             cuota.setStatus(Installment.Status.pending);
             installments.save(cuota);
         }
@@ -341,7 +372,10 @@ public class DebtService {
                 .conReferencia(months + " cuotas"));
         eventos.publicar(deuda, EventosService.REPACTACION_ACEPTADA, new RepactacionAceptadaDatos(
                 deuda.getExternalId(), months, EventosService.monto(plan.monthlyAmount(), deuda.getCurrency()),
-                deuda.getCurrency().name(), plan.cuotas().getFirst().dueDate().toString()), Instant.now());
+                deuda.getCurrency().name(), plan.cuotas().getFirst().dueDate().toString(),
+                plan.tasaInteresMensual(),
+                conInteres ? EventosService.monto(plan.aRepactar(), deuda.getCurrency()) : null,
+                conInteres ? EventosService.monto(plan.total(), deuda.getCurrency()) : null), Instant.now());
 
         return detalle(deuda);
     }
@@ -375,6 +409,9 @@ public class DebtService {
      * vacia, y al confirmarse el pago se imputa de la mas antigua a la mas
      * nueva: como el monto es justo la suma de las elegidas, paga esas y
      * ninguna otra.
+     *
+     * <p>Si la deuda genera intereses, el monto es el capital de las cuotas mas
+     * su mora de hoy, y la respuesta trae las dos partes.
      */
     public DebtSnapshotResponse snapshotInterno(Long debtId, List<Long> installmentIds) {
         Debt deuda = debts.findById(debtId)
@@ -406,13 +443,17 @@ public class DebtService {
             }
         }
 
-        BigDecimal monto = aPagar.stream().map(Installment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (monto.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal capital = aPagar.stream().map(Installment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (capital.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ApiException(HttpStatus.CONFLICT, "Esa deuda no tiene saldo por pagar");
         }
+        Map<Long, BigDecimal> mora = mora(deuda, pendientes);
+        BigDecimal interes = aPagar.stream().map(c -> mora.getOrDefault(c.getId(), BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         Long cuotaId = aPagar.size() == 1 ? aPagar.getFirst().getId() : null;
         return new DebtSnapshotResponse(deuda.getId(), deuda.getCreditor().getRut(), deuda.getDebtor().getRut(),
-                deuda.getCurrency().name(), monto, cuotaId, aPagar.stream().map(Installment::getId).toList());
+                deuda.getCurrency().name(), capital.add(interes), cuotaId,
+                aPagar.stream().map(Installment::getId).toList(), capital, interes);
     }
 
     /** Por que una cuota pedida no esta entre las que se pueden pagar. */
@@ -461,7 +502,19 @@ public class DebtService {
                 .sorted(EN_ORDEN).toList();
         List<Installment> pagadas = new ArrayList<>();
 
-        if (aviso.installmentId() != null) {
+        if (aviso.installmentIds() != null && !aviso.installmentIds().isEmpty()) {
+            //  El pago dice que cuotas cobro: esas, y ninguna otra. El monto ya
+            //  no sirve para imputar, porque trae la mora.
+            for (Long id : aviso.installmentIds()) {
+                installments.findById(id)
+                        .filter(c -> c.getDebt().getId().equals(deuda.getId()))
+                        .filter(c -> c.getStatus() == Installment.Status.pending)
+                        .ifPresent(cuota -> {
+                            marcarPagada(cuota, aviso.paidAt());
+                            pagadas.add(cuota);
+                        });
+            }
+        } else if (aviso.installmentId() != null) {
             installments.findById(aviso.installmentId())
                     .filter(c -> c.getDebt().getId().equals(deuda.getId()))
                     .filter(c -> c.getStatus() == Installment.Status.pending)
@@ -514,6 +567,9 @@ public class DebtService {
      */
     private static PagoConfirmadoDatos datosDelPago(Debt deuda, PagoConfirmado aviso, Debt.Currency moneda,
                                                     Instant pagadoEn) {
+        //  Sin mora no van ni capital ni interes: el evento queda como siempre.
+        boolean conInteres = aviso.interest() != null && aviso.interest().signum() > 0;
+        BigDecimal capital = conInteres && aviso.amount() != null ? aviso.amount().subtract(aviso.interest()) : null;
         return new PagoConfirmadoDatos(
                 deuda.getExternalId(),
                 String.valueOf(aviso.paymentId()),
@@ -522,7 +578,9 @@ public class DebtService {
                 aviso.amountClp(),
                 moneda == Debt.Currency.UF ? aviso.ufValue() : null,
                 aviso.gateway() == null ? null : aviso.gateway().toLowerCase(),
-                EventosService.enChile(pagadoEn));
+                EventosService.enChile(pagadoEn),
+                EventosService.monto(capital, moneda),
+                conInteres ? EventosService.monto(aviso.interest(), moneda) : null);
     }
 
     /**
@@ -553,7 +611,8 @@ public class DebtService {
         }
         DetallePago detalle = new DetallePago(aviso.paymentId(), aviso.amountClp(), aviso.ufValue(),
                 aviso.gateway() == null ? null : aviso.gateway().toLowerCase(Locale.ROOT), lugares, de,
-                fuera == 0 ? null : (int) fuera);
+                fuera == 0 ? null : (int) fuera,
+                aviso.interest() == null || aviso.interest().signum() == 0 ? null : aviso.interest());
         try {
             return json.writeValueAsString(detalle);
         } catch (JsonProcessingException e) {
@@ -572,17 +631,20 @@ public class DebtService {
     //  Representacion
     // ------------------------------------------------------------------
 
-    /** Con una sola consulta de cuotas: el saldo y el avance salen de la misma lista. */
-    private DebtSummaryResponse resumen(Debt deuda) {
-        return DebtSummaryResponse.from(deuda, installments.findByDebtOrderByNumberAsc(deuda), null,
-                disputas(List.of(deuda)).get(deuda.getId()));
+    /** Con una sola consulta de cuotas: el saldo, la mora y el avance salen de la misma lista. */
+    private DebtSummaryResponse resumen(Debt deuda, Instant codigoEnviado, DebtSummaryResponse.Disputa disputa) {
+        List<Installment> cuotas = installments.findByDebtOrderByNumberAsc(deuda);
+        return DebtSummaryResponse.from(deuda, cuotas, codigoEnviado, disputa, Intereses.total(mora(deuda, cuotas)));
     }
 
     private DebtDetailResponse detalle(Debt deuda) {
+        List<Installment> cuotas = installments.findByDebtOrderByNumberAsc(deuda);
+        Map<Long, BigDecimal> mora = mora(deuda, cuotas);
         return new DebtDetailResponse(
-                resumen(deuda),
+                DebtSummaryResponse.from(deuda, cuotas, null, disputas(List.of(deuda)).get(deuda.getId()),
+                        Intereses.total(mora)),
                 charges.findByDebtOrderByDueDateAsc(deuda).stream().map(DebtDetailResponse.Cargo::from).toList(),
-                installments.findByDebtOrderByNumberAsc(deuda).stream().map(DebtDetailResponse.Cuota::from).toList(),
+                cuotas.stream().map(c -> DebtDetailResponse.Cuota.from(c, mora.get(c.getId()))).toList(),
                 events.findByDebtOrderByOccurredAtAsc(deuda).stream().map(DebtDetailResponse.Suceso::from).toList());
     }
 }

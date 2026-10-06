@@ -2,6 +2,7 @@ package com.tbridge.common.events;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * El aviso que ms-payments le manda a ms-debt cuando un pago se concreta.
@@ -26,8 +27,21 @@ public record PagoConfirmado(
         BigDecimal ufValue,
         String gateway,
         String gatewayTxnId,
-        Instant paidAt
+        Instant paidAt,
+        //  Las cuotas que cubre el pago, tal como las cobro ms-debt, y cuanto de
+        //  amount es interes de mora. Un aviso de antes no los trae.
+        List<Long> installmentIds,
+        BigDecimal interest
 ) {
+
+    /** Un aviso sin el detalle de cuotas ni de intereses. */
+    public PagoConfirmado(String tipo, Long paymentId, Long debtId, Long installmentId, String debtorRut,
+                          String creditorRut, BigDecimal amount, String currency, Long amountClp, BigDecimal ufValue,
+                          String gateway, String gatewayTxnId, Instant paidAt) {
+        this(tipo, paymentId, debtId, installmentId, debtorRut, creditorRut, amount, currency, amountClp, ufValue,
+                gateway, gatewayTxnId, paidAt, null, null);
+    }
+
     public static final String TIPO = "pago.confirmado";
 
     /*

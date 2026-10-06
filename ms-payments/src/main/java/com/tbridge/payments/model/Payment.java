@@ -74,6 +74,13 @@ public class Payment {
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
+    /**
+     * Cuanto de amount es mora, si la deuda genera intereses. Lo dice ms-debt
+     * al abrir el cobro y queda fijo, como los pesos de una deuda en UF.
+     */
+    @Column(name = "interest_amount", precision = 18, scale = 2)
+    private BigDecimal interestAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 3)
     private Currency currency;
@@ -135,6 +142,14 @@ public class Payment {
     }
 
     /** Las cuotas que cubre. En un pago de antes de guardarlas, su cuota si era una. */
+    public BigDecimal getInterestAmount() {
+        return interestAmount;
+    }
+
+    public void setInterestAmount(BigDecimal interestAmount) {
+        this.interestAmount = interestAmount;
+    }
+
     public Set<Long> cuotas() {
         if (installmentIds == null || installmentIds.isBlank()) {
             return installmentId == null ? Set.of() : Set.of(installmentId);
