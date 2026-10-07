@@ -35,7 +35,7 @@ docker compose --profile app up -d --build --wait
 | | |
 | --- | --- |
 | [1. Descripción](#1-descripción) | [2. Tecnologías](#2-tecnologías-utilizadas) · [3. Cómo ejecutarlo](#3-cómo-ejecutar-el-proyecto-localmente) · [4. Equipo](#4-integrantes-del-equipo) |
-| [5. Metodología](#5-metodología-de-trabajo) | [6. Arquitectura](#6-arquitectura-de-la-solución) · [7. Modelo de datos](#7-modelo-de-datos) · [8. Diagramas UML](#8-diagramas-uml) |
+| [5. Metodología](#5-metodología-de-trabajo) | [6. Arquitectura](#6-arquitectura-de-la-solución) · [7. Modelo de datos](#7-modelo-de-datos) · [8. Diagramas 4+1](#8-diagramas-las-vistas-41) |
 | [9. Requisitos no funcionales](#9-requisitos-no-funcionales) | [10. Docker](#10-docker) · [11. Pruebas](#11-pruebas) · [12. Innovación](#12-innovación) |
 | [Recorrido de demostración](#recorrido-de-demostración) | [Estado al 6 de octubre de 2026](#estado-al-6-de-octubre-de-2026) |
 
@@ -840,9 +840,23 @@ gateway_txn_id)` impide cobrar dos veces la misma transacción aunque la pasarel
 
 ---
 
-## 8. Diagramas UML
+## 8. Diagramas: las vistas 4+1
 
-### Casos de uso
+La arquitectura se describe con el **modelo 4+1** de Kruchten: cuatro vistas, cada una responde una
+pregunta distinta para un lector distinto, y un conjunto de escenarios que las recorre a todas y
+las amarra.
+
+| Vista | Qué responde | Para quién | Diagramas |
+| --- | --- | --- | --- |
+| [**Escenarios** (el +1)](#81-escenarios) | Qué hace cada actor, y qué recorridos prueban la arquitectura | Todos | Casos de uso y escenarios clave |
+| [**Lógica**](#82-vista-lógica) | Qué conceptos maneja el sistema y cómo cambian | Quien define el negocio | Clases del dominio y estados de una deuda |
+| [**De procesos**](#83-vista-de-procesos) | Qué pasa en el tiempo: quién le habla a quién y qué corre solo | Quien opera y depura | Proceso BPMN *to-be*, flujo de la cartera, secuencia del pago, actividad de la campaña y tareas programadas |
+| [**De desarrollo**](#84-vista-de-desarrollo) | Cómo está organizado el código | Quien programa | Módulos y capas |
+| [**Física**](#85-vista-física) | Dónde corre cada pieza | Quien despliega | Contenedores, puertos y sistemas externos |
+
+### 8.1 Escenarios
+
+#### Casos de uso
 
 ```mermaid
 flowchart LR
@@ -888,7 +902,241 @@ flowchart LR
 El certificado (`U7`) solo se emite si la deuda está **pagada**: una deuda retirada también queda
 en saldo cero, y certificar eso sería decir algo falso.
 
-### Secuencia: el pago con Khipu, que es la funcionalidad principal
+#### Los escenarios que recorren las cuatro vistas
+
+| Escenario | Lo dispara | Vista lógica | Vista de procesos | Vista física |
+| --- | --- | --- | --- | --- |
+| **E1. Entregar la cartera** | El acreedor, cada mes | `Batch`, `Debt`, `DebtCharge`, `Mandate` | [Flujo de la cartera](#flujo-la-cartera-de-cada-mes) | APOFYX → portal → gateway → ms-debt |
+| **E2. Invitar y recordar** | La deuda que entra, y el reloj | `Campaign`, `DebtEvent` | [Actividad de la campaña](#actividad-cómo-databridge-ejecuta-una-campaña) | ms-debt → ms-auth → correo |
+| **E3. Pagar** | El deudor | `Payment`, `Installment` | [Secuencia del pago](#secuencia-el-pago-con-khipu-que-es-la-funcionalidad-principal) | portal → gateway → ms-payments ↔ pasarela, RabbitMQ → ms-debt |
+| **E4. Repactar** | El deudor | `Repactation`, `Installment` | [Proceso completo](#el-proceso-completo-en-bpmn-to-be) | portal → gateway → ms-debt |
+| **E5. Reclamar** | El deudor; la empresa resuelve | `Debt` en `disputed`, `DebtEvent` | [Estados de una deuda](#estados-de-una-deuda) | portal → gateway → ms-debt → APOFYX |
+
+### 8.2 Vista lógica
+
+#### Clases del dominio
+
+Los conceptos de la cartera viven en ms-debt; el pago, en ms-payments, que nombra la deuda por su
+id porque cada servicio tiene su base. El acceso (códigos y sesiones) vive en ms-auth y se
+describe en el [modelo de datos](#tb_auth--quién-entra).
+
+```mermaid
+classDiagram
+    direction LR
+    class Organization {
+        rut
+        legalName
+        tradeName
+        kind: creditor, agency o both
+    }
+    class Mandate {
+        validFrom
+        validTo
+        status: active o ended
+    }
+    class Campaign {
+        name
+        startsOn
+        endsOn
+        cadenceDays
+        status: running, paused o finished
+    }
+    class Batch {
+        externalId
+        cutOff
+    }
+    class Debtor {
+        rut
+        fullName
+        email
+    }
+    class Debt {
+        externalId
+        currency: CLP o UF
+        interestRate
+        status
+    }
+    class DebtCharge {
+        concept
+        amount
+        dueDate
+    }
+    class Repactation {
+        months
+        interestRate
+        principal
+    }
+    class Installment {
+        number
+        dueDate
+        amount
+        interestAmount
+        status: pending, paid o void
+    }
+    class DebtEvent {
+        type
+        actor
+        detail
+    }
+    class Payment {
+        amount
+        interestAmount
+        gateway: webpay, khipu o mercadopago
+        status
+    }
+
+    Organization "1" --> "*" Mandate : otorga o recibe
+    Organization "1" --> "*" Campaign : gestiona
+    Organization "1" --> "*" Debt : es acreedora de
+    Mandate "1" --> "*" Debt : ampara
+    Campaign "1" --> "*" Batch : agrupa
+    Batch "1" --> "*" Debt : trae
+    Debtor "1" --> "*" Debt : debe
+    Debt "1" *-- "*" DebtCharge : se compone de
+    Debt "1" *-- "*" Installment : se paga en
+    Debt "1" --> "*" Repactation : se repacta en
+    Repactation "1" --> "*" Installment : arma
+    Debt "1" *-- "*" DebtEvent : registra
+    Payment "*" ..> "1" Debt : abona, por id
+```
+
+Lo que se guarda y lo que se calcula: el **saldo** y la **mora** no son atributos, se calculan con
+los cargos, las cuotas y la tasa ([§7](#7-modelo-de-datos)). Lo que sí queda escrito es lo que ya se
+fijó: el interés de cada cuota del convenio y el interés de cada pago.
+
+#### Estados de una deuda
+
+```mermaid
+stateDiagram-v2
+    [*] --> open: llega con 30 días de mora o más
+    open --> repacted: el deudor acepta un convenio
+    open --> paid: paga el total
+    repacted --> paid: paga la última cuota
+    open --> disputed: el deudor reclama
+    repacted --> disputed: el deudor reclama
+    disputed --> open: la empresa reanuda el cobro
+    disputed --> repacted: reanuda, y tenía convenio
+    disputed --> withdrawn: la empresa la retira
+    open --> withdrawn: llega al día, o sale del mandato
+    repacted --> withdrawn: llega al día, o sale del mandato
+    paid --> open: la cartera siguiente trae cargos nuevos
+```
+
+Cada cambio sale como un evento hacia quien entregó la cartera: `repactacion.aceptada`,
+`pago.confirmado`, `deuda.saldada`, `deuda.disputada`, `deuda.reanudada` o `deuda.retirada`.
+
+### 8.3 Vista de procesos
+
+Los diagramas de proceso usan la notación de **BPMN**: cada carril es un participante, el círculo
+verde es el inicio, el rojo doble el fin, el rombo una decisión, y la flecha punteada un mensaje
+de un sistema a otro.
+
+#### El proceso completo, en BPMN (*to-be*)
+
+Así va una deuda desde que alguien se atrasa hasta que la plata vuelve al acreedor, tal como
+funciona hoy:
+
+```mermaid
+flowchart TB
+    classDef inicio fill:#d4edda,stroke:#2e7d32,color:#1b5e20
+    classDef fin fill:#f8d7da,stroke:#c62828,color:#7f0000
+    classDef decision fill:#fff3cd,stroke:#b8860b,color:#5d4037
+    classDef tarea fill:#e8eef7,stroke:#3f5f8a,color:#1a2a40
+
+    subgraph PAT["Acreedor (Patrimonio)"]
+        P0(("Fin de mes")):::inicio --> P1["Genera los cargos<br/>del mes"]:::tarea --> P2["Emite la cartera:<br/>todos sus clientes,<br/>deban o no"]:::tarea
+        P9["Abona el capital y<br/>anota el interés aparte"]:::tarea --> P10((("Cuenta<br/>al día"))):::fin
+    end
+
+    subgraph APX["Agencia (APOFYX)"]
+        A1["Revisa cada deuda:<br/>mora, al día,<br/>más de 120 días"]:::tarea --> A2["La asigna a<br/>la campaña en curso"]:::tarea
+        A8["Pone la deuda al día<br/>y le reenvía el aviso<br/>al acreedor"]:::tarea
+    end
+
+    subgraph DB["DataBridge"]
+        D1{"¿30 días de mora<br/>o más, y tasa<br/>bajo el tope?"}:::decision
+        D1 -->|no| DX((("Rechazada,<br/>con su motivo"))):::fin
+        D1 -->|sí| D2["Registra la deuda y<br/>le manda la invitación"]:::tarea --> D3["Le sigue escribiendo<br/>según la campaña"]:::tarea
+        D5["Cobra, arma el convenio<br/>o abre el reclamo"]:::tarea --> D6["Avisa lo que pasó,<br/>firmado"]:::tarea
+    end
+
+    subgraph DEU["Deudor"]
+        U1["Recibe un correo<br/>con su código"]:::tarea --> U2["Entra y ve lo que debe,<br/>con la mora de hoy"]:::tarea --> U3{"¿Qué hace?"}:::decision
+    end
+
+    P2 -. "cartera" .-> A1
+    A2 -. "cartera + campaña" .-> D1
+    D2 -. "correo" .-> U1
+    D3 -. "correo" .-> U1
+    U3 -->|"paga, repacta<br/>o reclama"| D5
+    D6 -. "aviso" .-> A8
+    A8 -. "aviso" .-> P9
+```
+
+| Paso | Quién | Qué pasa |
+| --- | --- | --- |
+| 1 | Acreedor | A fin de mes genera los cargos y entrega la **cartera**: todos sus clientes con contrato, deban o no, con la tasa de interés de cada uno |
+| 2 | APOFYX | Revisa cada deuda (mora, al día, más de 120 días), la asigna a la **campaña** en curso y se la pasa a DataBridge |
+| 3 | DataBridge | Acepta las deudas con 30 días de mora o más y una tasa bajo el tope, y le manda al deudor una **invitación**: un código, sin monto ni enlace |
+| 4 | DataBridge | Si el deudor no entra ni paga, **le sigue escribiendo** los días de la campaña, dentro de lo que permite la ley |
+| 5 | Deudor | Entra con su RUT y el código, ve lo que debe con la mora del día y decide: **pagar**, **repactar** o **reclamar** |
+| 6 | DataBridge | Cobra con la pasarela, arma el convenio o abre el reclamo, y **avisa** lo que pasó, firmado |
+| 7 | APOFYX | Pone su cartera al día y le **reenvía el aviso** al acreedor, firmado por ella |
+| 8 | Acreedor | Deja los cargos pagados y anota el interés aparte, sin saber que detrás está DataBridge |
+
+#### Flujo: la cartera de cada mes
+
+Las decisiones que toma cada sistema cuando llega la cartera (el escenario E1):
+
+```mermaid
+flowchart TB
+    classDef inicio fill:#d4edda,stroke:#2e7d32,color:#1b5e20
+    classDef fin fill:#f8d7da,stroke:#c62828,color:#7f0000
+    classDef decision fill:#fff3cd,stroke:#b8860b,color:#5d4037
+    classDef tarea fill:#e8eef7,stroke:#3f5f8a,color:#1a2a40
+
+    subgraph PAT["Acreedor"]
+        P0(("Fin de mes")):::inicio --> P1["Genera los cargos del mes<br/>(nunca dos veces el mismo)"]:::tarea
+        P1 --> P2["Emite la cartera<br/>con todos sus clientes"]:::tarea
+        P2 --> P3["La envía a la agencia"]:::tarea
+        P4["Guarda la respuesta,<br/>deuda por deuda"]:::tarea --> P5((("Cartera<br/>entregada"))):::fin
+    end
+
+    subgraph APX["APOFYX"]
+        A0{"¿Esta cartera<br/>ya llegó antes?"}:::decision
+        A0 -->|sí| AR["Responde lo mismo<br/>que la primera vez"]:::tarea
+        A0 -->|no| A1{"¿El cliente debe algo?"}:::decision
+        A1 -->|"no (al día)"| A2["Si lo tenía en cobranza, la cierra:<br/>pagó directo al acreedor"]:::tarea
+        A1 -->|sí| A3{"¿Más de 120 días<br/>de mora?"}:::decision
+        A3 -->|sí| A4["Se la devuelve al acreedor:<br/>fuera de mandato"]:::tarea
+        A3 -->|no| A5["Calcula la mora y el tramo,<br/>y la acepta"]:::tarea
+        A5 --> A6{"¿Hay una sola campaña<br/>en curso?"}:::decision
+        A6 -->|no| A7["Queda esperando campaña:<br/>el personal la asigna"]:::tarea
+        A6 -->|sí| A8["La reenvía a DataBridge,<br/>con el mandato y la campaña"]:::tarea
+        A7 --> A8
+    end
+
+    subgraph DB["DataBridge"]
+        D0{"¿El mandato<br/>está vigente?"}:::decision
+        D0 -->|no| DX["Rechaza la cartera"]:::tarea
+        D0 -->|sí| D1{"¿30 días de mora<br/>o más?"}:::decision
+        D1 -->|no| D2["Rechaza esa deuda:<br/>bajo_umbral_mora"]:::tarea
+        D1 -->|sí| D3{"¿La tasa de interés<br/>está bajo el tope?"}:::decision
+        D3 -->|no| D4["Rechaza esa deuda:<br/>tasa_sobre_maxima"]:::tarea
+        D3 -->|sí| D5["Registra la deuda,<br/>sus cargos y su tasa"]:::tarea
+        D5 --> D6["Le manda la invitación<br/>al deudor"]:::tarea
+        D6 --> D7((("Deuda en<br/>cobranza"))):::fin
+    end
+
+    P3 -. "cartera" .-> A0
+    A8 -. "cartera + mandato + campaña" .-> D0
+    AR -. "respuesta" .-> P4
+    A2 -. "respuesta" .-> P4
+    A4 -. "respuesta" .-> P4
+    A5 -. "respuesta" .-> P4
+```
+
+#### Secuencia: el pago con Khipu, que es la funcionalidad principal
 
 ```mermaid
 sequenceDiagram
@@ -956,9 +1204,10 @@ transfiere y que Khipu lo confirma pasa un rato, y en ese rato la cuota todavía
 **Con Webpay es igual, con otra forma:** ms-payments abre la transacción en Transbank y lleva al
 deudor a Webpay con un formulario POST. Cuando Webpay lo devuelve, ms-payments confirma la
 transacción con Transbank (`PUT /transactions/{token}`) antes de mostrarle el resultado. Se aprueba
-solo con `AUTHORIZED`, código de respuesta 0, el monto cobrado y la orden de compra de ese pago. El aviso de vuelta tampoco pasa por el navegador.
+solo con `AUTHORIZED`, código de respuesta 0, el monto cobrado y la orden de compra de ese pago. El
+aviso de vuelta tampoco pasa por el navegador.
 
-### Actividad: cómo DataBridge ejecuta una campaña
+#### Actividad: cómo DataBridge ejecuta una campaña
 
 Cada 15 minutos, DataBridge recorre las campañas en curso y, para cada deuda, decide si le toca un
 correo:
@@ -985,31 +1234,155 @@ flowchart TD
 Un correo que esperó no se pierde: en la pasada siguiente se vuelve a preguntar, y sale en cuanto
 la ley lo deja.
 
-### Estados de una deuda
+#### Lo que corre solo
+
+Además de responder peticiones, cada servicio tiene tareas programadas. Ninguna depende de que
+haya alguien mirando, y las que avisan a otro sistema escriben primero en una bandeja de salida,
+así que un sistema caído no pierde nada:
 
 ```mermaid
-stateDiagram-v2
-    [*] --> open: llega con 30 días de mora o más
-    open --> repacted: el deudor acepta un convenio
-    open --> paid: paga el total
-    repacted --> paid: paga la última cuota
-    open --> disputed: el deudor reclama
-    repacted --> disputed: el deudor reclama
-    disputed --> open: la empresa reanuda el cobro
-    disputed --> repacted: reanuda, y tenía convenio
-    disputed --> withdrawn: la empresa la retira
-    open --> withdrawn: llega al día, o sale del mandato
-    repacted --> withdrawn: llega al día, o sale del mandato
-    paid --> open: la cartera siguiente trae cargos nuevos
+flowchart LR
+    subgraph DEBT["ms-debt"]
+        C1["Campañas<br/>cada 15 min"]
+        C2["Recordatorio de cuotas<br/>9:00"]
+        C3["Avance de campañas<br/>8:00"]
+        C4["Bandeja de eventos<br/>cada 15 s"]
+    end
+    subgraph PAY["ms-payments"]
+        P1["Cobros abiertos<br/>cada 10 s"]
+        P2["Cobros vencidos<br/>cada 5 min"]
+        P3["Aviso de pago<br/>cada 15 s"]
+        P4["UF del día<br/>9:30"]
+    end
+    AUTH["ms-auth"] --> MAIL["Correo del deudor"]
+    C1 -->|"código"| AUTH
+    C2 -->|"recordatorio"| AUTH
+    C3 -->|"campana.avance"| C4
+    C4 -->|"eventos firmados"| APX["APOFYX"]
+    P1 <-->|"¿en qué va?"| GW["Khipu y<br/>Mercado Pago"]
+    P2 <--> GW
+    P3 -->|"pago.confirmado"| MQ{{"RabbitMQ"}}
+    MQ --> DEBT
+    P4 --> BC["Banco Central"]
 ```
 
-Cada cambio sale como un evento hacia quien entregó la cartera: `repactacion.aceptada`,
-`pago.confirmado`, `deuda.saldada`, `deuda.disputada`, `deuda.reanudada` o `deuda.retirada`.
+| Tarea | Servicio | Cuándo | Qué hace |
+| --- | --- | --- | --- |
+| Campañas | ms-debt | Cada 15 minutos | Manda los correos que tocan según la cadencia, dentro del horario y el límite de la ley |
+| Recordatorio de cuotas | ms-debt | Todos los días, 9:00 | Avisa las cuotas que vencen en 3 días (`RECORDATORIO_DIAS_ANTES`) |
+| Avance de campañas | ms-debt | Todos los días, 8:00 | Publica `campana.avance`: cuántos correos salieron, cuántos entraron al portal, repactaron, pagaron o reclamaron, y cuánto se recuperó |
+| Bandeja de eventos | ms-debt | Cada 15 segundos | Entrega los eventos pendientes a cada suscriptor, firmados, con reintentos |
+| Cobros abiertos | ms-payments | Cada 10 segundos | Pregunta a Khipu y a Mercado Pago en qué van los cobros abiertos |
+| Cobros vencidos | ms-payments | Cada 5 minutos | Vence lo abandonado (también en Webpay) y revisa por 24 horas lo que venció |
+| Aviso de pago | ms-payments | Cada 15 segundos | Lleva `pago.confirmado` a ms-debt por RabbitMQ, o por HTTP si RabbitMQ no está |
+| UF del día | ms-payments | Todos los días, 9:30 | Trae la UF del Banco Central, para fijar los pesos de las deudas en UF |
 
-### Componentes
+### 8.4 Vista de desarrollo
 
-El diagrama de componentes es el de [§6](#6-arquitectura-de-la-solución): cada servicio es un
-componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
+Un solo repositorio con tres tecnologías. Los servicios de Java son módulos de un mismo proyecto
+de Maven y comparten `common`:
+
+```mermaid
+flowchart TB
+    subgraph REPO["Repositorio TB_web"]
+        subgraph MVN["Maven multimódulo: Java 25 y Spring Boot 3.5"]
+            COMMON["common<br/>JWT, errores, RUT y el aviso de pago"]
+            AUTH["ms-auth"]
+            DEBT["ms-debt"]
+            PAY["ms-payments"]
+            GWY["gateway"]
+        end
+        AI["ms-ai<br/>Python y FastAPI"]
+        FE["frontend<br/>React y Vite"]
+        DOCS["docs/integracion<br/>el contrato v1"]
+        DBD["db<br/>las bases y sus usuarios"]
+    end
+    AUTH --> COMMON
+    DEBT --> COMMON
+    PAY --> COMMON
+    FE -. "llama por HTTP" .-> GWY
+    AI -. "lee las deudas por HTTP" .-> DEBT
+    DOCS -. "lo implementa" .-> DEBT
+    DBD -. "crea las bases<br/>que migra cada servicio" .-> MVN
+```
+
+Dentro de cada servicio, las mismas capas, de afuera hacia adentro (el detalle de cada carpeta está
+en [§6](#cómo-está-organizado-cada-servicio)):
+
+```mermaid
+flowchart LR
+    HTTP(("HTTP")) --> CTRL["controller<br/>traduce HTTP"]
+    CTRL --> SRV["service<br/>las reglas de negocio"]
+    SRV --> REP["repository<br/>Spring Data JPA"]
+    REP --> BASE[("su base<br/>con Flyway")]
+    SRV --> CLI["client<br/>otros servicios<br/>y pasarelas"]
+    CTRL -.-> DTO["dto<br/>lo que entra y sale"]
+    CTRL -.-> ASM["assembler<br/>enlaces HATEOAS"]
+    SRV -.-> MOD["model<br/>las entidades"]
+```
+
+Una regla las ordena: **el controller traduce y delega, y las reglas viven en el service**. Por eso
+las reglas se prueban sin levantar el servidor web, con los repositorios simulados, y la capa web
+se prueba sin base de datos ([§11](#11-pruebas)).
+
+### 8.5 Vista física
+
+Todo corre en contenedores de Docker, en un solo equipo. Solo el portal se publica para el
+navegador; los servicios se hablan por la red interna de Docker:
+
+```mermaid
+flowchart LR
+    NAV(["Navegador"])
+    APX(["APOFYX<br/>otro sistema"])
+    subgraph HOST["Equipo con Docker"]
+        subgraph RED["Red interna de Docker"]
+            PORTAL["portal<br/>nginx :8080"]
+            GW["gateway :8082"]
+            AUTH["ms-auth :8081"]
+            DEBT["ms-debt :8083"]
+            PAY["ms-payments :8084"]
+            AI["ms-ai :8085"]
+            MYSQL[("MySQL 8.4<br/>tb_auth, tb_debt<br/>y tb_payments")]
+            MQ{{"RabbitMQ :5672"}}
+            MAIL["Mailpit<br/>SMTP :1025"]
+        end
+        VOL[("volumen<br/>tbridge_db_data")]
+    end
+    EXT(["Khipu, Mercado Pago,<br/>Transbank y Banco Central"])
+
+    NAV -->|"8080"| PORTAL
+    APX -->|"8080 /api/v1"| PORTAL
+    PORTAL -->|"/api"| GW
+    GW --> AUTH
+    GW --> DEBT
+    GW --> PAY
+    GW --> AI
+    AUTH --> MYSQL
+    DEBT --> MYSQL
+    PAY --> MYSQL
+    MYSQL --- VOL
+    PAY -->|"el monto"| DEBT
+    PAY --> MQ
+    MQ --> DEBT
+    DEBT --> AUTH
+    AUTH --> MAIL
+    AI --> DEBT
+    PAY <-->|"HTTPS"| EXT
+    DEBT -->|"eventos firmados"| APX
+```
+
+| Contenedor | Puerto interno | Publicado en el equipo | Para qué |
+| --- | --- | --- | --- |
+| `portal` | 8080 | **8080** | La única puerta: el portal y `/api` hacia el gateway |
+| `gateway` | 8082 | — | Enruta, limita peticiones y revisa CORS |
+| `ms-auth` · `ms-debt` · `ms-payments` · `ms-ai` | 8081 · 8083 · 8084 · 8085 | — | Solo los ve el gateway y entre ellos |
+| `mysql` | 3306 | 3308 | Para revisar la base desde el equipo |
+| `rabbitmq` | 5672 · 15672 | 5672 · 15672 | La cola y su consola |
+| `mailpit` | 1025 · 8025 | 1025 · 8025 | El buzón de prueba y su página |
+
+Los puertos publicados se cambian desde `.env` ([§3](#si-algo-falla-en-un-equipo-nuevo)). En un
+despliegue real, cada servicio puede ir en su propio nodo detrás del gateway, con las salvedades de
+[§9](#9-requisitos-no-funcionales).
 
 ---
 
