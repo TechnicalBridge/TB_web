@@ -93,7 +93,9 @@ public class DebtController {
 
     @GetMapping("/{id}/simulate")
     @Operation(summary = "Simular un plan de cuotas",
-            description = "Sin intereses: el total es el saldo de hoy, y la ultima cuota absorbe el redondeo. No compromete nada.")
+            description = "Se repacta el saldo de hoy mas su mora. Si el acreedor pacto una tasa, las cuotas llevan "
+                    + "interes (sistema frances); si no, el total es lo repactado. La ultima cuota absorbe el redondeo. "
+                    + "No compromete nada.")
     @ApiResponse(responseCode = "200", description = "El plan")
     @ApiResponse(responseCode = "400", description = "Plazo fuera de 3 a 24 meses, o sin saldo",
             content = @Content(schema = @Schema(implementation = ApiError.class)))

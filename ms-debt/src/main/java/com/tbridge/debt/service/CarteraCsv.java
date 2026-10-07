@@ -39,10 +39,13 @@ public final class CarteraCsv {
     private static final List<String> CARGO = List.of(
             "cargo_concepto", "cargo_periodo", "cargo_monto", "cargo_vencimiento");
 
-    /** Las columnas de la deuda: tienen que repetirse igual en cada fila de sus cargos. */
+    /**
+     * Las columnas de la deuda: tienen que repetirse igual en cada fila de sus
+     * cargos. La tasa es opcional: una planilla sin esa columna sigue sirviendo.
+     */
     private static final List<String> DE_LA_DEUDA = List.of(
             "accion", "deudor_rut", "deudor_tipo", "deudor_nombre", "deudor_correo",
-            "deudor_telefono", "moneda", "concepto", "referencias");
+            "deudor_telefono", "moneda", "concepto", "referencias", "tasa_interes_mensual");
 
     static final int MAX_FILAS = 50_000;
     private static final JsonNodeFactory NODOS = JsonNodeFactory.instance;
@@ -167,6 +170,15 @@ public final class CarteraCsv {
                 }
             }
         }
+        //  Si no es un numero va tal cual: la ingesta la rechaza con tasa_invalida.
+        String tasa = celda(fila, indice, "tasa_interes_mensual").replace(',', '.');
+        if (!tasa.isEmpty()) {
+            try {
+                deuda.put("tasa_interes_mensual", new BigDecimal(tasa));
+            } catch (NumberFormatException e) {
+                deuda.put("tasa_interes_mensual", tasa);
+            }
+        }
         deuda.putArray("cargos");
         return deuda;
     }
@@ -259,9 +271,10 @@ public final class CarteraCsv {
         return filas;
     }
 
+    /** La celda de esa columna. Una columna opcional que la planilla no trae, vacia. */
     private static String celda(List<String> fila, Map<String, Integer> indice, String columna) {
-        int i = indice.get(columna);
-        return i < fila.size() ? fila.get(i).trim() : "";
+        Integer i = indice.get(columna);
+        return i != null && i < fila.size() ? fila.get(i).trim() : "";
     }
 
     private static void ponerSiHay(ObjectNode nodo, String campo, String valor) {

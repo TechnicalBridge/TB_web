@@ -27,7 +27,7 @@ export default function Landing() {
           <h1 className="aparece" style={{ "--i": 1 }}>Revisa y paga tus deudas atrasadas</h1>
           <p className="aparece" style={{ "--i": 2 }}>
             Entras con tu RUT y el código que te llegó por correo. Ves cuánto debes y a quién, sea un arriendo,
-            un arancel o un tratamiento, y decides si pagas todo de una vez o en cuotas, sin intereses.
+            un arancel o un tratamiento, y decides si pagas todo de una vez o en cuotas.
           </p>
 
           <div className="muestra aparece" style={{ "--i": 3 }}>

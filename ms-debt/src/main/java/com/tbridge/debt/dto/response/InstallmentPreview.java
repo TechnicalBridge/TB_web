@@ -10,6 +10,8 @@ import java.time.LocalDate;
 public record InstallmentPreview(
         @Schema(example = "1") int number,
         @Schema(example = "2026-10-24") LocalDate dueDate,
-        @Schema(example = "19.25") BigDecimal amount
+        @Schema(example = "19.25") BigDecimal amount,
+        @Schema(description = "Lo que la cuota tiene de interes del convenio; el resto es capital", example = "0")
+        BigDecimal interest
 ) {
 }

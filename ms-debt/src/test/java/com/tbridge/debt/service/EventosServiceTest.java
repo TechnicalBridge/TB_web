@@ -85,7 +85,7 @@ class EventosServiceTest {
 
         eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, new PagoConfirmadoDatos("CTR-2026-031", "41",
                 EventosService.monto(new BigDecimal("410000.00"), Debt.Currency.CLP), "CLP", 410000L, null,
-                "webpay", EventosService.enChile(pagado)), pagado);
+                "webpay", EventosService.enChile(pagado), null, null), pagado);
 
         ArgumentCaptor<OutboxEvent> anotado = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(bandeja).save(anotado.capture());
@@ -105,7 +105,7 @@ class EventosServiceTest {
 
         eventos.publicar(deuda, EventosService.PAGO_CONFIRMADO, new PagoConfirmadoDatos("CTR-2024-007", "42",
                 EventosService.monto(new BigDecimal("38.50"), Debt.Currency.UF), "UF", 1535247L,
-                new BigDecimal("39876.54"), "khipu", "2026-09-20T14:03:11-03:00"), Instant.now());
+                new BigDecimal("39876.54"), "khipu", "2026-09-20T14:03:11-03:00", null, null), Instant.now());
 
         ArgumentCaptor<OutboxEvent> anotado = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(bandeja).save(anotado.capture());

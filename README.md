@@ -46,11 +46,12 @@ docker compose --profile app up -d --build --wait
 ### Qué hace
 
 **DataBridge es donde el deudor moroso paga.** Entra con su RUT y un código de seis caracteres que
-le llegó por correo, sin cuenta ni contraseña. Ve qué debe y a quién, y decide:
+le llegó por correo, sin cuenta ni contraseña. Ve qué debe y a quién, con los intereses por mora si
+su acreedor los pactó, y decide:
 
 - **pagar de una vez**, con Webpay, Mercado Pago o Khipu;
-- **repactar en 3 a 24 cuotas sin interés**, y pagar una o varias, siempre desde la que vence
-  primero;
+- **repactar en 3 a 24 cuotas**, y pagar una o varias, siempre desde la que vence primero. Las
+  cuotas llevan interés solo si el acreedor lo pactó;
 - **reclamar** si la deuda no corresponde (no la reconoce, ya la pagó, o el monto está mal).
   Mientras la empresa lo revisa, la deuda no se cobra ni le llegan recordatorios.
 
@@ -69,11 +70,15 @@ Adentro tiene además:
 día desde el mismo portal:
 
 - carga deudas por API o arrastrando un CSV;
-- ve cuándo se invitó a cada deudor y le **reenvía el código** si lo perdió;
+- ve cuándo se le escribió por última vez a cada deudor y le **reenvía el código** si lo perdió,
+  dentro de lo que permite la ley;
 - **resuelve los reclamos**, reanudando el cobro o retirando la deuda;
 - revisa los pagos que entraron y sigue los **convenios en riesgo** (con una cuota vencida);
 - mira en un panel cuánto se ha recuperado y exporta la cartera a Excel;
 - emite y revoca sus propias claves de API.
+
+**La campaña de la agencia se cumple sola:** DataBridge le escribe a cada deudor los días que fijó
+la agencia, dentro de lo que permite la ley.
 
 **El acreedor no entra nunca:** cada pago, convenio o reclamo le llega como un aviso firmado a su
 propio sistema.
@@ -108,6 +113,129 @@ código por correo, sin monto ni enlace. Si el envío falla, la cartera entra ig
 portal se reenvía.
 
 El detalle está en las [reglas del contrato](docs/integracion/README.md#64-reglas-de-validación).
+
+### Los intereses
+
+**Solo generan interés las deudas en que el acreedor lo pactó.** El acreedor manda la tasa en cada
+deuda (`tasa_interes_mensual`, en porcentaje mensual), por ejemplo porque su contrato de arriendo
+comercial la incluye. Ni la agencia ni DataBridge ponen una tasa: cobran la que el acreedor pactó.
+Sin tasa, la deuda vale lo que mandó el acreedor y el convenio es sin interés, como siempre.
+
+**Hay un tope legal.** Ningún interés puede superar la tasa máxima convencional, que publica la CMF
+cada mes (`INTERES_TASA_MAXIMA_MENSUAL`, hoy 3% mensual). Una deuda con una tasa mayor se rechaza al
+entrar, con `tasa_sobre_maxima`.
+
+**La mora: cada cargo atrasado crece todos los días**, desde el día siguiente a su vencimiento:
+
+> interés de un día = monto atrasado × tasa mensual ÷ 30
+
+Es interés simple: el interés no genera más interés, porque la ley (Ley 18.010) no lo permite. Un
+ejemplo, probado en vivo: tres arriendos de $300.000 al 2% mensual, pagados el 6 de octubre. Cada
+uno crece $300.000 × 2% ÷ 30 = **$200 por día**:
+
+| Arriendo | Venció el | Días de atraso | Interés |
+| --- | --- | --- | --- |
+| Agosto | 5 de agosto | 62 | $12.400 |
+| Septiembre | 5 de septiembre | 31 | $6.200 |
+| Octubre | 5 de octubre | 1 | $200 |
+| **Total** | | | **$18.800** |
+
+El deudor ve **$918.800**, con la línea *Incluye $18.800 de intereses por mora (2% mensual)*, y al
+pagar, el desglose: *$900.000 de capital y $18.800 de intereses por mora*.
+
+**El pago fija el interés y lo devuelve aparte.** El monto se fija al abrir el cobro: si la pasarela
+confirma días después, no se cobra la diferencia. El aviso del pago (`pago.confirmado`) dice cuánto
+fue capital y cuánto interés, y el acreedor abona el capital a sus cargos y anota el interés por
+separado: Patrimonio deja los tres arriendos pagados y *$18.800 de intereses cobrados*. El recorrido
+completo está en la [secuencia del pago](#secuencia-el-pago-con-khipu-que-es-la-funcionalidad-principal).
+
+**El convenio: se repacta lo que debe más la mora de ese día**, en cuotas iguales (sistema francés):
+cada cuota paga el interés del mes sobre lo que falta y el resto baja la deuda. Por eso al principio
+se paga más interés y al final menos. Otro contrato, al 1,5% mensual, con tres arriendos de $300.000
+y $14.100 de mora (94 días × $150), repactó **$914.100** en 6 cuotas:
+
+| Cuota | Deuda al empezar el mes | Interés del mes | Baja la deuda en | Cuota |
+| --- | --- | --- | --- | --- |
+| 1 | $914.100 | $13.712 | $146.736 | $160.448 |
+| 2 | $767.364 | $11.510 | $148.938 | $160.448 |
+| 3 | $618.426 | $9.276 | $151.172 | $160.448 |
+| 4 | $467.254 | $7.009 | $153.439 | $160.448 |
+| 5 | $313.815 | $4.707 | $155.741 | $160.448 |
+| 6 | $158.074 | $2.371 | $158.074 | $160.445 |
+| **Total** | | **$48.585** | **$914.100** | **$962.685** |
+
+La última cuota absorbe el redondeo de los pesos. Antes de aceptar, el portal muestra la tasa, la
+cuota y el total a pagar. Si una cuota del convenio se atrasa, genera mora solo sobre la parte que
+baja la deuda, no sobre su interés.
+
+| Otros casos | Qué pasa con el interés |
+| --- | --- |
+| La deuda no trae tasa | Nada cambia: se cobra lo que mandó el acreedor, y el convenio es sin interés |
+| El deudor reclama | La mora **sigue corriendo**. Si la empresa le da la razón, la deuda se retira y no se cobra nada; si no, se cobra con los días que pasaron |
+| La deuda está en UF | Igual, con dos decimales |
+
+### Las campañas
+
+**APOFYX decide la estrategia y DataBridge la cumple.** Una campaña es el plan para recordarles a
+los deudores de una cartera que deben: por qué medio, cuántas veces y cada cuántos días. APOFYX la
+define en su panel y DataBridge manda cada recordatorio, que es el mismo correo de la invitación: un
+código para entrar, sin el monto ni un enlace. Si alguien reenvía o roba el correo, no le sirve de
+nada, y no hay un enlace que se pueda imitar.
+
+| Dato de la campaña | Qué hace DataBridge |
+| --- | --- |
+| **Cadencia** (por ejemplo, días 1, 4, 11, 25, 45) | El recordatorio *n* sale ese día, contado desde que la deuda entró a la campaña |
+| **Intentos** | Cuántos recordatorios recibe cada deudor como máximo |
+| **Inicio y fin** | Fuera de esas fechas no se contacta |
+| **Estado** | Solo una campaña en curso contacta. Si APOFYX la pausa o la termina, DataBridge se entera al instante |
+| **Canales** | Hoy solo correo. WhatsApp y SMS se suman cuando estén conectados |
+
+Una deuda que se paga, se repacta, se reclama o se retira deja de recibir recordatorios de la
+campaña. La repactada sigue con el recordatorio de cada cuota.
+
+**La ley manda sobre la cadencia** (Ley 19.496, art. 37, con los cambios de la Ley 21.320):
+
+| Regla | Qué exige |
+| --- | --- |
+| Días | De lunes a sábado. Nunca un domingo ni un feriado (`CONTACTO_FERIADOS`) |
+| Horario | De 8:00 a 20:00 |
+| Cantidad | Como máximo **dos correos por semana** a una misma persona: los últimos siete días, hoy incluido |
+| Separación | Al menos **dos días** entre un correo y el siguiente |
+| Registro | Cada correo queda en la historia de la deuda |
+
+Cuentan todos los correos: la invitación, los de la campaña, el recordatorio de una cuota y el
+código que reenvía la empresa, que ve el aviso *Ya se le escribió lo que permite la ley* si intenta
+uno de más. Un correo que cae en un momento prohibido no se pierde: sale en la primera oportunidad
+permitida. Cómo decide DataBridge si escribe está en el
+[diagrama de actividad](#actividad-cómo-databridge-ejecuta-una-campaña).
+
+**Un ejemplo, día por día**, probado con una campaña de cadencia 1, 4, 11 y 3 intentos, para una
+deuda que entró el martes 6 de octubre:
+
+| Día | Qué pasó | Por qué |
+| --- | --- | --- |
+| Martes 6 | **Sale la invitación** | La deuda entró |
+| Miércoles 7 | Nada | Tocaba el correo 1 (día 1), pero la invitación salió ayer: no hay dos días entre uno y otro |
+| Jueves 8 | **Sale el correo 1** | Ya pasaron dos días |
+| Sábado 10 | Nada | Tocaba el correo 2 (día 4), pero ya van dos correos en la semana |
+| Domingo 11 | Nada | Domingo |
+| Lunes 12 | Nada | Feriado |
+| Martes 13, 7:30 | Nada | Antes de las 8:00 |
+| Martes 13, 10:00 | **Sale el correo 2** | La invitación del 6 ya quedó fuera de los últimos siete días |
+| Martes 20 | Nada | El correo 3 tocaba el sábado 17 (día 11), pero la agencia pausó la campaña en APOFYX |
+
+Tres correos en total, todos dentro de la ley, aunque la cadencia pedía más seguido. Si la agencia
+reanuda la campaña, sigue donde quedó, sin repetir los correos que ya salieron.
+
+DataBridge revisa las campañas cada 15 minutos. Para probar una cadencia sin esperar semanas:
+
+```powershell
+docker compose exec -T ms-debt curl -s -X POST "http://127.0.0.1:8083/internal/campanas/contactos?ahora=2026-10-08T10:00:00&campana=APX-CMP-8" `
+  -H "X-Internal-Key: tbridge-internal-dev"
+```
+
+`ahora` es la hora de Chile que se simula y `campana` limita la pasada a una sola campaña. Cada
+correo queda fechado a esa hora.
 
 ### A quién va dirigido
 
@@ -202,6 +330,7 @@ Para apagar: `docker compose --profile app down`. Con `-v` borra además los dat
 | Todos los deudores reciben *Demasiadas solicitudes* a la vez | El gateway no reconoce al nginx del portal como proxy y ve a todos como una sola IP. Ya confía en las tres redes privadas que usa Docker; si tu red es otra, ajústala en `TRUSTED_PROXIES` |
 | Webpay no abre | Necesita internet. Sin internet, `TRANSBANK_ENVIRONMENT=SIMULADA` |
 | Cambiaste el `.env` y no se nota | Las variables se leen al crear el contenedor: `docker compose --profile app up -d` lo vuelve a crear |
+| Reconstruiste un solo servicio (por ejemplo `ms-debt`) y el portal responde *error 500* | El gateway se quedó con la dirección vieja del contenedor. Reinícialo también: `docker compose --profile app restart gateway` |
 
 > Se probó así el 4 de octubre de 2026: un clon nuevo de GitHub con los finales de línea de
 > Windows, sin imágenes ni caché de Docker. Los nueve contenedores quedaron sanos al primer intento
@@ -422,7 +551,7 @@ flowchart TD
 | **portal** | React con Zustand y CSS propio. Se compila y lo sirve nginx, que además hace de proxy hacia el gateway: el navegador ve un solo origen y no hay CORS que resolver |
 | **gateway** | La única puerta: CORS, límite de peticiones con Bucket4j y enrutamiento. Al retorno de Webpay le quita el `Origin`, porque es la página de Transbank la que devuelve al navegador con un formulario; CORS no se abre a nadie más |
 | **ms-auth** | Código de acceso (RUT + 6 caracteres, un solo uso, 24 h) y enlace de respaldo por correo, que es también como entra el personal de las empresas. Emite el JWT, maneja las sesiones y manda los correos, incluido el recordatorio de cuota |
-| **ms-debt** | Deudas, cargos y cuotas; convenios de 3 a 24 cuotas sin interés; reclamos y su resolución; ingesta de la cartera v1 por API o CSV; eventos de vuelta a quien entregó la cartera; resumen para el panel; certificado y comprobantes en PDF; recordatorio de las cuotas por vencer; claves de API de cada empresa |
+| **ms-debt** | Deudas, cargos y cuotas; convenios de 3 a 24 cuotas; los intereses por mora y del convenio, si el acreedor los pactó; la ejecución de las campañas; reclamos y su resolución; ingesta de la cartera v1 por API o CSV; eventos de vuelta a quien entregó la cartera; resumen para el panel; certificado y comprobantes en PDF; recordatorio de las cuotas por vencer; claves de API de cada empresa |
 | **ms-payments** | Los cobros. Webpay contra Transbank, Mercado Pago con Checkout Pro y Khipu (si tiene llave) de verdad; sin credenciales, simulados. El monto lo decide ms-debt, nunca el navegador. En UF fija los pesos al abrir el cobro. Un cobro abandonado se vence: a los 15 minutos en Webpay, a los 30 en Khipu |
 | **ms-ai** | Asistente de solo lectura (Python/FastAPI). Lee las deudas con la sesión del deudor, sin acceso propio a la base, y detecta frustración o desconfianza para ajustar el tono. Usa un LLM si hay `XAI_API_KEY`; si no, reglas |
 | **MySQL 8.4** | Una base por servicio, con el esquema versionado en Flyway ([`db/README.md`](db/README.md)) |
@@ -549,6 +678,10 @@ Trece tablas y dos vistas (`v_debt_balance`, `v_creditor_portfolio`). Lo que con
   rechaza.
 - **El saldo no se guarda, se calcula.** `debts` tiene sus `debt_charges`, los pagos se anotan
   aparte y el saldo sale de la vista. Así no hay dos números que puedan discrepar.
+- **La mora tampoco se guarda.** `debts.interest_rate` es la tasa que pactó el acreedor (vacía, sin
+  interés) y la mora se calcula al día. Lo que sí queda escrito es lo que ya se fijó: el interés del
+  convenio dentro de cada cuota (`installments.interest_amount`), lo repactado y su tasa
+  (`repactations`), y el interés que se cobró en cada pago (`tb_payments.payments.interest_amount`).
 - **`debts.status`** es uno de `open`, `repacted`, `disputed`, `paid` o `withdrawn`
   ([§8](#estados-de-una-deuda)). Un reclamo queda en `debt_events` con su motivo y el texto del
   deudor, que no sale de DataBridge.
@@ -631,9 +764,10 @@ flowchart LR
     SIS(("APOFYX<br/>otro sistema"))
     KHP(("Khipu"))
     TBK(("Transbank"))
+    REL(("Reloj<br/>cada 15 min"))
 
     DEU --> U1["Entrar con RUT y código"]
-    DEU --> U2["Ver qué debe y a quién"]
+    DEU --> U2["Ver qué debe, a quién y su mora"]
     DEU --> U3["Simular un plan de cuotas"]
     DEU --> U4["Aceptar el plan"]
     DEU --> U5["Pagar"]
@@ -657,8 +791,10 @@ flowchart LR
     EMP --> U21["Emitir y revocar claves de API"]
 
     SIS --> U12["Entregar cartera por API"]
-    SIS --> U13["Registrar mandato y campaña"]
+    SIS --> U13["Registrar mandato y campaña,<br/>con su cadencia y su estado"]
     SIS --> U14["Suscribirse a los eventos"]
+
+    REL --> U24["Escribirle al deudor<br/>según la campaña"]
 ```
 
 El certificado (`U7`) solo se emite si la deuda está **pagada**: una deuda retirada también queda
@@ -682,8 +818,8 @@ sequenceDiagram
     D->>P: "Pagar" (el saldo, o las cuotas marcadas)
     P->>Y: POST /api/payments/checkout
     Y->>M: GET /internal/debts/{id}?installmentIds=...
-    M-->>Y: monto y RUT del dueño
-    Note over M: Las cuotas tienen que ser<br/>las que vencen primero.
+    M-->>Y: monto (capital + mora de hoy) y RUT del dueño
+    Note over M: Las cuotas tienen que ser<br/>las que vencen primero.<br/>La mora se calcula con la tasa<br/>que pactó el acreedor.
     Note over Y: El monto lo decide ms-debt.<br/>Si es UF, fija los pesos<br/>con la UF del día en Chile.
     Y->>K: POST /v3/payments (monto, transacción, retorno)
     K-->>Y: payment_id y la página de pago
@@ -700,8 +836,8 @@ sequenceDiagram
     Y->>R: pago.confirmado
     R->>M: la cola entrega
     M->>M: abona, y si queda en cero: deuda.saldada
-    M->>X: evento firmado con HMAC
-    X-->>X: lo reenvía al acreedor, que deja el contrato en $0
+    M->>X: evento firmado con HMAC, con el capital y el interés aparte
+    X-->>X: lo reenvía al acreedor, que abona el capital<br/>y anota el interés por separado
 ```
 
 **El navegador nunca dice cuánto hay que pagar ni si el pago salió bien.** El monto lo pregunta
@@ -733,6 +869,33 @@ transfiere y que Khipu lo confirma pasa un rato, y en ese rato la cuota todavía
 deudor a Webpay con un formulario POST. Cuando Webpay lo devuelve, ms-payments confirma la
 transacción con Transbank (`PUT /transactions/{token}`) antes de mostrarle el resultado. Se aprueba
 solo con `AUTHORIZED`, código de respuesta 0, el monto cobrado y la orden de compra de ese pago. El aviso de vuelta tampoco pasa por el navegador.
+
+### Actividad: cómo DataBridge ejecuta una campaña
+
+Cada 15 minutos, DataBridge recorre las campañas en curso y, para cada deuda, decide si le toca un
+correo:
+
+```mermaid
+flowchart TD
+    I(("Cada 15 minutos")) --> H{"¿Es lunes a sábado,<br/>de 8:00 a 20:00,<br/>y no es feriado?"}
+    H -->|no| F((("Espera la<br/>próxima pasada")))
+    H -->|sí| C{"¿La campaña está en curso<br/>y hoy está entre<br/>su inicio y su fin?"}
+    C -->|no| F
+    C -->|sí| D{"¿La deuda sigue abierta?<br/>(no está pagada, repactada,<br/>en reclamo ni retirada)"}
+    D -->|no| F
+    D -->|sí| N{"¿Le quedan intentos?"}
+    N -->|no| F
+    N -->|sí| T{"¿Ya llegó el día del<br/>próximo correo según<br/>la cadencia?"}
+    T -->|no| F
+    T -->|sí| L{"¿La ley lo deja?<br/>menos de 2 correos en 7 días<br/>y 2 días desde el último"}
+    L -->|no| F
+    L -->|sí| E["Le manda el correo con su código<br/>(sin monto ni enlace)"]
+    E --> R["Lo anota en la historia de la deuda:<br/>campaña y número de correo"]
+    R --> F
+```
+
+Un correo que esperó no se pierde: en la pasada siguiente se vuelve a preguntar, y sale en cuanto
+la ley lo deja.
 
 ### Estados de una deuda
 
@@ -853,6 +1016,8 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `XAI_BASE_URL`, `XAI_MODEL` | `https://api.x.ai/v1`, `grok-4.5` | El proveedor y el modelo del LLM |
 | `MIN_DIAS_MORA` | `30` | Desde cuántos días de mora del cargo impago más antiguo entra una deuda a cobranza |
 | `RECORDATORIO_DIAS_ANTES` | `3` | Cuántos días antes de cada cuota llega el recordatorio. Nunca se repite para la misma cuota |
+| `INTERES_TASA_MAXIMA_MENSUAL` | `3.0` | El tope de la tasa que pacta el acreedor, en % mensual: la tasa máxima convencional vigente. Una deuda con una tasa mayor se rechaza (`tasa_sobre_maxima`) |
+| `CONTACTO_FERIADOS` | vacía | Feriados que se suman a los de 2026, que ya vienen: las campañas no contactan esos días. Hay que agregar los de 2027 |
 | `DEMO_DATOS` | `true` | Carga al arrancar la cartera de ejemplo. Solo agrega lo que falte: una base con datos propios no pierde nada |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
 | `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP. En Docker está fijo en `true` |
@@ -884,19 +1049,21 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De Mercado Pago** | El cliente contra un Mercado Pago falso: la preferencia con el token, la vuelta (con `auto_return` solo si es https) y el `init_point`, y sus errores; la preferencia vence a la hora pedida. La conciliación por las órdenes de la preferencia, también la periódica que vence lo abandonado: sin pagos, con un pago aprobado (también después de una tarjeta rechazada), con una tarjeta rechazada que deja el cobro abierto para reintentar, con Mercado Pago caído o con una preferencia que no existe; la vuelta y el aviso, sin sesión |
 | **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido (con el cobro anulado en Khipu, o pagado justo antes de anularlo); que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
 | **Del doble pago** | Un segundo pago mientras otro se verifica se rechaza; el abierto sin pagar se anula (Khipu lo borra, la preferencia de Mercado Pago vence en el acto) y queda vencido; una cuota pagada que ms-debt todavía no abona no se cobra de nuevo; el cobro guarda las cuotas que cubre, y ms-debt las informa en orden. Si igual se paga dos veces, el segundo queda `duplicated`, sin abonar y con la referencia y el RUT para devolverlo; pagar otras cuotas de la misma deuda no es duplicado. La consulta periódica no vence lo que Khipu o Mercado Pago están verificando y anula en Khipu lo que vence; un vencido que se paga después se registra, por la revisión de vencidos o por el aviso de Khipu |
+| **De los intereses** | La mora de cada cargo atrasado desde el día siguiente a su vencimiento, con lo pagado imputado a lo más antiguo; la cuota del convenio que crece solo sobre su capital; el redondeo en pesos y en UF; el convenio en sistema francés, con la última cuota que absorbe el redondeo; que sin tasa todo quede como antes; que el cobro fije el capital y el interés y el aviso los lleve separados; la tasa que no es un número o que supera el tope |
+| **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
 | **De rendimiento** (k6) | Cómo lo siente una persona y dónde está el techo. Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**333 pruebas en Java y 12 en Python**, sin fallos:
+**373 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
 | `common` | 18 |
 | `gateway` | 13 |
 | `ms-auth` | 40 |
-| `ms-debt` | 144 |
-| `ms-payments` | 118 |
+| `ms-debt` | 182 |
+| `ms-payments` | 120 |
 | `ms-ai` (Python) | 12 |
 
 Además, la cadena completa con los tres sistemas se prueba de punta a punta con un script que
@@ -926,7 +1093,7 @@ que la deuda, y el deudor que quiere pagar se topa con un horario de oficina.
 
 **¿Qué valor agrega?** Al acreedor, cobranza de montos bajos que antes no era rentable, y certeza
 de que su cartera está al día. Al deudor, pagar a cualquier hora, ver el detalle de lo que debe,
-repactar sin interés y reclamar sin llamar a nadie. A la agencia, una cartera que se actualiza
+repactar en cuotas y reclamar sin llamar a nadie. A la agencia, una cartera que se actualiza
 sola.
 
 ---
@@ -973,7 +1140,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **333**, sin fallos |
+| Pruebas Java (`mvnw clean test`, JDK 25) | **373**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
@@ -982,6 +1149,10 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 | Mercado Pago | Contra el Mercado Pago real con credenciales de prueba, con ms-payments reconstruido y en Edge: la preferencia se crea con vencimiento a 30 minutos; el deudor paga con la tarjeta de prueba y no vuelve al portal, y la consulta periódica registra el pago en unos 10 s: queda `paid` y la deuda del contrato en Patrimonio baja a $0 |
 | Doble pago | Contra las pasarelas reales, con la migración `V2` aplicada sobre la base con datos: mientras Khipu verifica, otro pago por la misma cuota se rechaza (*Tienes un pago en verificación*); recién pagada la cuota, antes de que ms-debt la abone, también; un cobro de Khipu abierto sin pagar queda `deleted` en Khipu y vencido aquí al abrir otro, y la preferencia de Mercado Pago vence en el acto. Pagados a la vez un cobro de Webpay y uno de Khipu por la misma cuota, el primero se abona y el segundo queda `duplicated`: la deuda baja una sola vez, el deudor ve *Estas cuotas ya estaban pagadas* y la empresa lo ve en *Pagos para devolver* con la referencia de Khipu |
 | Reclamo en pantalla | Recorrido en Edge: el deudor reclama, la empresa lo ve con su detalle y lo retira, y el acreedor ve *Disputa aceptada* |
+| Interés por mora | Con los tres sistemas reconstruidos y Khipu real: un contrato de Patrimonio al 2% mensual, con tres arriendos de $300.000 atrasados 62, 31 y 1 día, llegó por APOFYX con su tasa. El portal mostró $18.800 de mora, se pagaron $918.800 con Khipu, y Patrimonio dejó los cargos en $0 y anotó $18.800 de intereses |
+| Convenio con interés | Otro contrato, al 1,5%, repactó $914.100 (capital más mora) en 6 cuotas de $160.448, la última de $160.445: $962.685 en total, $48.585 de intereses del convenio |
+| Campaña | Creada en APOFYX con la cadencia 1, 4, 11 y 3 intentos, y avanzada día por día con la pasada de prueba. Salieron la invitación el martes 6 de octubre, el primer recordatorio el 8 y el segundo el 13. No salió nada el 7 ni el 10 (el límite de la ley), el domingo 11, el feriado del 12 ni el 13 a las 7:30. Pausada en APOFYX, el 20 no salió nada. Tres correos en total, en Mailpit |
+| Pantallas de intereses y campañas | En Edge: el formulario de campaña de APOFYX pide la cadencia y ofrece solo correo, y pausar o reanudar llega a DataBridge; el deudor ve su mora y a qué tasa, el convenio con su interés y el pago desglosado; Patrimonio muestra la tasa del contrato, el interés cobrado y el campo al firmar |
 | Migraciones sobre una base con datos | `V3` aplicada y el secreto existente cifrado al arrancar |
 
 **Lo que no está:**
@@ -989,7 +1160,12 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 - **Mercado Pago, la vuelta al portal:** Mercado Pago descarta las direcciones de vuelta que no
   son https, así que en local el deudor no vuelve solo al portal. El pago se registra igual, por la
   consulta periódica. La vuelta automática con un túnel https no se probó.
-- **WhatsApp:** el contrato admite el canal, pero los códigos salen solo por correo.
+- **WhatsApp y SMS:** el contrato admite los canales, pero los códigos y las campañas salen solo
+  por correo, y APOFYX ya no los ofrece al crear una campaña.
+- **La tasa máxima convencional se pone a mano** (`INTERES_TASA_MAXIMA_MENSUAL`): la CMF la publica
+  cada mes y no se trae sola. Los **feriados de 2027** tampoco están cargados (`CONTACTO_FERIADOS`).
+- **Que el deudor pida que no lo contacten más**, y los gastos de cobranza que permite el art. 37,
+  no están.
 - **Varias réplicas:** ver *Escalabilidad* en [§9](#9-requisitos-no-funcionales).
 - **Retención de datos** (decisión I12 del contrato): cuánto se guarda una deuda saldada antes de
   anonimizarla.

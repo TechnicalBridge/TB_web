@@ -25,6 +25,7 @@ import java.util.List;
  * @param de       cuantas cuotas tenia la deuda en ese momento
  * @param fuera    cuantas cuotas aparte, fuera del convenio, cubrio el pago: los meses que el acreedor informo
  *                 despues de que el deudor acepto su convenio. Null si ninguna
+ * @param interes  cuanto del pago fue mora, en la moneda de la deuda. Null si la deuda no genera intereses
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record DetallePago(
@@ -34,6 +35,7 @@ public record DetallePago(
         String pasarela,
         List<Integer> cuotas,
         Integer de,
-        Integer fuera
+        Integer fuera,
+        BigDecimal interes
 ) {
 }

@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -41,11 +42,14 @@ public class InvitacionService {
     private final DebtRepository debts;
     private final DebtEventRepository events;
     private final AuthClient auth;
+    private final LimiteDeContacto limite;
 
-    public InvitacionService(DebtRepository debts, DebtEventRepository events, AuthClient auth) {
+    public InvitacionService(DebtRepository debts, DebtEventRepository events, AuthClient auth,
+                             LimiteDeContacto limite) {
         this.debts = debts;
         this.events = events;
         this.auth = auth;
+        this.limite = limite;
     }
 
     @Async
@@ -60,6 +64,13 @@ public class InvitacionService {
         if (deudor.getEmail() == null || deudor.getEmail().isBlank()) {
             //  Sin correo no hay por donde: el aviso por WhatsApp aun no esta
             //  conectado. La deuda queda sin invitar, y el portal lo muestra.
+            return;
+        }
+        if (!limite.permite(deudor, Instant.now())) {
+            //  Esta semana ya se le escribio lo que deja la ley: la campana lo
+            //  invita en cuanto se pueda.
+            log.info("La deuda {} se invita despues: el deudor ya recibio lo que deja la ley esta semana",
+                    deuda.getId());
             return;
         }
         try {

@@ -2,6 +2,7 @@ package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tbridge.debt.dto.response.CarteraResponse;
 import com.tbridge.debt.dto.response.CarteraResponse.ResultadoDeuda;
 import com.tbridge.debt.model.Batch;
@@ -76,7 +77,7 @@ class CarteraIntakeServiceTest {
     @BeforeEach
     void preparar() {
         servicio = new CarteraIntakeService(organizations, mandates, campaigns, batches, debtors, debts,
-                charges, installments, events, json, eventos, avisos, 30);
+                charges, installments, events, json, eventos, avisos, 30, new BigDecimal("3.0"));
 
         //  Patrimonio entrega lo suyo: sin agencia, no hace falta mandato.
         patrimonio = new Organization();
@@ -365,7 +366,8 @@ class CarteraIntakeServiceTest {
     @Test
     void un_umbral_menor_que_uno_no_deja_arrancar_el_servicio() {
         assertThrows(IllegalStateException.class, () -> new CarteraIntakeService(organizations, mandates,
-                campaigns, batches, debtors, debts, charges, installments, events, json, eventos, avisos, 0));
+                campaigns, batches, debtors, debts, charges, installments, events, json, eventos, avisos, 0,
+                new BigDecimal("3.0")));
     }
 
     // ------------------------------------------------------------------
@@ -444,5 +446,54 @@ class CarteraIntakeServiceTest {
 
         assertEquals("actualizada", resultado.resultado());
         verify(avisos).publishEvent(any(InvitacionService.DeudaEnCobranza.class));
+    }
+
+    // ------------------------------------------------------------------
+    //  La tasa de interes del acreedor
+    // ------------------------------------------------------------------
+
+    private JsonNode conTasa(String tasa) throws Exception {
+        JsonNode payload = cartera(cargo("Arriendo agosto", "2026-08", "2026-08-05"));
+        ((ObjectNode) payload.get("deudas").get(0)).set("tasa_interes_mensual", json.readTree(tasa));
+        return payload;
+    }
+
+    @Test
+    void la_tasa_que_pacto_el_acreedor_queda_en_la_deuda() throws Exception {
+        ResultadoDeuda resultado = recibir(conTasa("1.5"));
+
+        assertEquals("registrada", resultado.resultado());
+        ArgumentCaptor<Debt> guardada = ArgumentCaptor.forClass(Debt.class);
+        verify(debts, org.mockito.Mockito.atLeastOnce()).save(guardada.capture());
+        assertEquals(new BigDecimal("1.5"), guardada.getValue().getInterestRate());
+    }
+
+    @Test
+    void sin_tasa_la_deuda_no_genera_intereses() throws Exception {
+        recibir(cartera(cargo("Arriendo agosto", "2026-08", "2026-08-05")));
+
+        ArgumentCaptor<Debt> guardada = ArgumentCaptor.forClass(Debt.class);
+        verify(debts, org.mockito.Mockito.atLeastOnce()).save(guardada.capture());
+        assertNull(guardada.getValue().getInterestRate());
+    }
+
+    @Test
+    void una_tasa_sobre_la_maxima_se_rechaza() throws Exception {
+        ResultadoDeuda resultado = recibir(conTasa("3.5"));
+
+        assertEquals("rechazada", resultado.resultado());
+        assertEquals("tasa_sobre_maxima", resultado.errores().getFirst().codigo());
+        assertEquals("La tasa de 3.5% mensual supera la maxima permitida, 3.0%",
+                resultado.errores().getFirst().mensaje());
+        verify(debts, never()).save(any());
+    }
+
+    @Test
+    void una_tasa_que_no_es_un_porcentaje_valido_se_rechaza() throws Exception {
+        for (String tasa : List.of("0", "-1", "\"uno y medio\"", "1.555")) {
+            ResultadoDeuda resultado = recibir(conTasa(tasa));
+            assertEquals("tasa_invalida", resultado.errores().getFirst().codigo(), tasa);
+        }
+        verify(debts, never()).save(any());
     }
 }

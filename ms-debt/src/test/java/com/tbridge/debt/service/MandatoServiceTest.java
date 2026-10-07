@@ -3,6 +3,7 @@ package com.tbridge.debt.service;
 import com.tbridge.debt.dto.request.CampanaRequest;
 import com.tbridge.debt.dto.request.MandatoRequest;
 import com.tbridge.debt.exception.CarteraInvalida;
+import com.tbridge.debt.model.Campaign;
 import com.tbridge.debt.model.Mandate;
 import com.tbridge.debt.model.Organization;
 import com.tbridge.debt.repository.CampaignRepository;
@@ -112,12 +113,67 @@ class MandatoServiceTest {
     @Test
     void una_campana_sin_mandato_previo_sigue_sin_acreedor() {
         CampanaRequest campana = new CampanaRequest("APX-CMP-9", "76418902-7", "Arriendos", "2026-09-19",
-                null, null, null, null);
+                null, null, null, null, null);
 
         CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
                 () -> servicio.registrarCampana(apofyx, campana));
 
         assertEquals("acreedor_desconocido", fallo.getCodigo());
         assertEquals(404, fallo.getStatus());
+    }
+
+    // ------------------------------------------------------------------
+    //  El estado de la campana, que decide la agencia
+    // ------------------------------------------------------------------
+
+    private Campaign campanaRegistrada() {
+        Organization patrimonio = new Organization();
+        patrimonio.setId(2L);
+        patrimonio.setRut("76418902-7");
+        when(organizations.findByRut("76418902-7")).thenReturn(Optional.of(patrimonio));
+        when(mandates.findByAgencyAndCreditorAndStatus(apofyx, patrimonio, Mandate.Status.active))
+                .thenReturn(java.util.List.of(new Mandate()));
+        Campaign existente = new Campaign();
+        when(campaigns.findByAgencyAndExternalId(apofyx, "APX-CMP-9")).thenReturn(Optional.of(existente));
+        return existente;
+    }
+
+    private static CampanaRequest conEstado(String estado) {
+        return new CampanaRequest("APX-CMP-9", "76418902-7", "Arriendos", "2026-09-19", null, null, null, null,
+                estado);
+    }
+
+    @Test
+    void la_agencia_pausa_y_termina_su_campana() {
+        Campaign campana = campanaRegistrada();
+
+        servicio.registrarCampana(apofyx, conEstado("pausada"));
+        assertEquals(Campaign.Status.paused, campana.getStatus());
+
+        servicio.registrarCampana(apofyx, conEstado("terminada"));
+        assertEquals(Campaign.Status.finished, campana.getStatus());
+
+        servicio.registrarCampana(apofyx, conEstado("en_curso"));
+        assertEquals(Campaign.Status.running, campana.getStatus());
+    }
+
+    @Test
+    void sin_estado_la_campana_no_cambia() {
+        Campaign campana = campanaRegistrada();
+        campana.setStatus(Campaign.Status.paused);
+
+        servicio.registrarCampana(apofyx, conEstado(null));
+
+        assertEquals(Campaign.Status.paused, campana.getStatus());
+    }
+
+    @Test
+    void un_estado_que_no_existe_se_rechaza() {
+        campanaRegistrada();
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.registrarCampana(apofyx, conEstado("borrador")));
+
+        assertEquals("estado_invalido", fallo.getCodigo());
     }
 }

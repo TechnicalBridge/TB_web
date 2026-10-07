@@ -22,6 +22,9 @@ public record DebtSnapshotResponse(
                 + "de la mas antigua a la mas nueva", nullable = true, example = "12") Long installmentId,
         @Schema(description = "Las cuotas que cubre el monto, de la que vence primero en adelante. Con esto "
                 + "ms-payments sabe si dos pagos cubren la misma cuota", example = "[12, 13]")
-        List<Long> installmentIds
+        List<Long> installmentIds,
+        @Schema(description = "Lo que el monto tiene de capital: las cuotas", example = "92.50") BigDecimal capital,
+        @Schema(description = "Lo que el monto tiene de mora, si la deuda genera intereses. Cero sin tasa",
+                example = "3.75") BigDecimal interes
 ) {
 }

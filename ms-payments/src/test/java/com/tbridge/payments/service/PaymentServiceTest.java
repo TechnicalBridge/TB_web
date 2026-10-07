@@ -87,7 +87,8 @@ class PaymentServiceTest {
     }
 
     private static DebtClient.DebtSnapshot deudaDe(String rut, String moneda, String monto) {
-        return new DebtClient.DebtSnapshot(3L, "76418902-7", rut, moneda, new BigDecimal(monto), 12L, List.of(12L));
+        return new DebtClient.DebtSnapshot(3L, "76418902-7", rut, moneda, new BigDecimal(monto), 12L, List.of(12L),
+                new BigDecimal(monto), BigDecimal.ZERO);
     }
 
     @Test
@@ -100,6 +101,19 @@ class PaymentServiceTest {
         assertEquals(410000L, pago.amountClp());
         assertEquals(Payment.Status.created, pago.status());
         assertTrue(pago.checkoutUrl().startsWith("http://localhost:8080/pasarela/41?sig="));
+    }
+
+    @Test
+    void la_mora_que_informa_ms_debt_queda_fija_en_el_cobro() {
+        when(deudas.obtener(3L, null)).thenReturn(new DebtClient.DebtSnapshot(3L, "76418902-7", FELIPE, "CLP",
+                new BigDecimal("416150"), 12L, List.of(12L), new BigDecimal("410000"), new BigDecimal("6150")));
+        ArgumentCaptor<Payment> guardado = ArgumentCaptor.forClass(Payment.class);
+
+        PaymentResponse pago = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        assertEquals(new BigDecimal("416150"), pago.amount(), "se cobra el capital mas la mora");
+        verify(payments, org.mockito.Mockito.atLeastOnce()).save(guardado.capture());
+        assertEquals(new BigDecimal("6150"), guardado.getValue().getInterestAmount());
     }
 
     @Test
@@ -580,7 +594,7 @@ class PaymentServiceTest {
     void el_cobro_guarda_las_cuotas_que_cubre() {
         when(deudas.obtener(3L, List.of(12L, 13L))).thenReturn(
                 new DebtClient.DebtSnapshot(3L, "76418902-7", FELIPE, "CLP", new BigDecimal("280000"), null,
-                        List.of(12L, 13L)));
+                        List.of(12L, 13L), new BigDecimal("280000"), BigDecimal.ZERO));
         ArgumentCaptor<Payment> guardado = ArgumentCaptor.forClass(Payment.class);
 
         servicio.checkout(DEUDOR, new CheckoutRequest(3L, List.of(12L, 13L), "webpay"));

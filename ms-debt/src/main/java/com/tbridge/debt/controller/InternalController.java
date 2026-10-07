@@ -7,12 +7,14 @@ import com.tbridge.debt.config.OpenApiConfig;
 import com.tbridge.debt.dto.request.EmitirClaveRequest;
 import com.tbridge.debt.dto.response.AvanceResponse;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
+import com.tbridge.debt.dto.response.ContactosResponse;
 import com.tbridge.debt.dto.response.DebtSnapshotResponse;
 import com.tbridge.debt.dto.response.OkResponse;
 import com.tbridge.debt.dto.response.RecordatoriosResponse;
 import com.tbridge.debt.service.ApiKeyService;
 import com.tbridge.debt.service.CampanaAvanceService;
 import com.tbridge.debt.service.DebtService;
+import com.tbridge.debt.service.ContactoService;
 import com.tbridge.debt.service.RecordatorioService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -54,15 +57,17 @@ public class InternalController {
     private final CampanaAvanceService avances;
     private final ApiKeyService claves;
     private final RecordatorioService recordatorios;
+    private final ContactoService contactos;
     private final String internalKey;
 
     public InternalController(DebtService debts, CampanaAvanceService avances, ApiKeyService claves,
-                              RecordatorioService recordatorios,
+                              RecordatorioService recordatorios, ContactoService contactos,
                               @Value("${app.internal-key}") String internalKey) {
         this.debts = debts;
         this.avances = avances;
         this.claves = claves;
         this.recordatorios = recordatorios;
+        this.contactos = contactos;
         this.internalKey = internalKey;
     }
 
@@ -122,6 +127,27 @@ public class InternalController {
             @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave) {
         exigirClave(clave);
         return avances.publicarTodas();
+    }
+
+    @PostMapping("/campanas/contactos")
+    @Operation(summary = "Mandar ahora los toques de las campanas",
+            description = """
+                    Sin esperar la pasada de cada 15 minutos. Con `ahora`, como si fuera ese momento en Chile: \
+                    sirve para la demo y las pruebas, porque una cadencia de 45 dias no se puede esperar. Los \
+                    toques quedan fechados a esa hora, y se respetan igual el horario, los feriados y el limite \
+                    de dos por semana.""")
+    @ApiResponse(responseCode = "200", description = "Cuantos salieron, cuantos quedaron para despues, y si era horario")
+    public ContactosResponse contactar(
+            @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave,
+            @Parameter(description = "El momento, hora de Chile, si no es ahora", example = "2026-10-08T10:00:00")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime ahora,
+            @Parameter(description = "Solo esta campana, por su id externo: las demas no se tocan",
+                    example = "APX-CMP-8")
+            @RequestParam(required = false) String campana
+    ) {
+        exigirClave(clave);
+        return contactos.contactar(ahora == null ? LocalDateTime.now(ZoneId.of("America/Santiago")) : ahora,
+                campana == null || campana.isBlank() ? null : campana.trim());
     }
 
     @PostMapping("/recordatorios")

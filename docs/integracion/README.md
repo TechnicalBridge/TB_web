@@ -231,6 +231,7 @@ En el tramo APOFYX → DataBridge, el lote lleva además:
 | `moneda` | Sí | Una deuda tiene una sola moneda; todos sus cargos van en ella |
 | `concepto` | Sí | Lo que el deudor lee primero en el portal |
 | `referencias` | No | Pares clave–valor que **se le muestran al deudor** para que reconozca la deuda. Máximo 10 |
+| `tasa_interes_mensual` | No | El interés que **pactó el acreedor**, en porcentaje mensual (`1.5` es 1,5%), con hasta dos decimales. Corre por la mora y en el convenio (§6.7). Sin ella, la deuda no genera intereses |
 | `cargos` | Sí, al registrar | Lo que se debe, desglosado. El `monto` de cada cargo es **lo que se debe hoy** de ese cargo, no el original |
 
 **`referencias` está pensado para la confianza del deudor.** Ver su contrato y la dirección de su
@@ -281,6 +282,8 @@ Las que no caben en JSON Schema las aplica cada receptor al recibir:
 | `deuda_no_encontrada` | Se pide `retirar` una deuda que el receptor no tiene |
 | `deuda_saldada` | Se pide retirar una deuda que ya se pagó, o actualizarla con algún cargo que ya se pagó. Con cargos posteriores a los pagados no es un error: el deudor se volvió a atrasar, y la deuda vuelve a cobranza |
 | `campana_desconocida` | El `mandato` apunta a una campaña que esa agencia no registró para ese acreedor |
+| `tasa_invalida` | `tasa_interes_mensual` no es un número mayor que cero, o trae más de dos decimales |
+| `tasa_sobre_maxima` | **Solo DataBridge.** La tasa supera su tope (`INTERES_TASA_MAXIMA_MENSUAL`), que es la tasa máxima convencional vigente: por ley ningún interés la supera (Ley 18.010). El acreedor la corrige y vuelve a mandar la deuda |
 | `bajo_umbral_mora` | **Solo DataBridge.** Una deuda nueva —o una pagada que vuelve— cuyo cargo impago más antiguo lleva menos días vencido que su umbral (30, por omisión, `MIN_DIAS_MORA`): DataBridge cobra a deudores morosos. Se mide en días y no en meses impagos para que sirva en cualquier rubro, también para una deuda de un solo cargo. Una deuda que ya está en gestión puede volver con menos: el deudor pagó una parte directo |
 
 **Todos los clientes, y el receptor detecta al moroso.** El acreedor no decide quién es moroso ni
@@ -375,6 +378,8 @@ POST /api/v1/carteras   (multipart/form-data)
 - `referencias` va en una sola columna como `clave=valor|clave=valor`.
 - Una fila de retiro lleva solo `deuda_id`, `accion` y `motivo_retiro`.
 - Un cliente al día va en una sola fila, con las columnas de cargo vacías: es `cargos: []`.
+- `tasa_interes_mensual` es opcional: una planilla sin esa columna sirve igual. Como las otras
+  columnas de la deuda, se repite en cada fila de sus cargos; acepta `1,5` o `1.5`.
 
 Desde el portal de empresas de DataBridge la misma planilla se carga arrastrándola
 (`POST /api/debts/cartera`, con la sesión del personal en vez de la clave de API). No es otra
@@ -382,6 +387,26 @@ ingesta: el archivo se convierte a Cartera v1 y entra por el mismo camino.
 
 Reemplaza al CSV antiguo de ms-debt (`email,nombre,acreedor,monto,...`), que no traía RUT, ni id
 externo, ni forma de reenviar sin duplicar.
+
+### 6.7 Intereses
+
+Algunas deudas generan interés: las que el acreedor pactó así, y solo esas. El acreedor manda la
+tasa en cada deuda (`tasa_interes_mensual`) y es **una sola**, mensual, para la mora y para el
+convenio. Sin tasa, la deuda vale lo que mandó el acreedor y el convenio es sin interés.
+
+| Qué | Cómo se calcula |
+| --- | --- |
+| **La mora** | Interés simple sobre el capital vencido, por día (la tasa mensual entre 30), desde el día siguiente a cada vencimiento. Cada cargo crece desde su propio vencimiento. Simple porque la Ley 18.010 no deja capitalizar la mora |
+| **El convenio** | Lo que se repacta es el capital pendiente **más la mora de ese día**. Las cuotas son de sistema francés: todas iguales, cada una con el interés del mes sobre lo que queda por pagar, y la última absorbe el redondeo. Una cuota de convenio vencida tiene mora solo sobre su capital |
+| **El pago** | Se cobra el capital de las cuotas elegidas más su mora del día en que se abre el cobro. Si la pasarela lo confirma días después, la diferencia no se cobra |
+| **En reclamo** | La mora sigue corriendo. Si la empresa acepta el reclamo, la deuda se retira completa |
+| **El tope** | Cada receptor rechaza una tasa sobre su máximo (`tasa_sobre_maxima`, §6.4) |
+
+La tasa es de la deuda, no del lote: el acreedor la manda cada vez. Una cartera que ya no trae tasa
+la quita, y desde ese día la deuda deja de generar intereses.
+
+`pago.confirmado` separa lo que es capital de lo que es interés (§8.2): el acreedor imputa el
+capital a sus cargos y registra el interés aparte.
 
 ---
 
@@ -418,15 +443,40 @@ POST /api/v1/campanas
   "acreedor_rut": "76418902-7",
   "nombre": "Arriendos septiembre 2026",
   "inicio": "2026-09-19", "fin": "2026-11-03",
-  "canales": ["whatsapp", "correo"],
+  "canales": ["correo"],
   "intentos": 5,
-  "cadencia_dias": [1, 4, 11, 25, 45]
+  "cadencia_dias": [1, 4, 11, 25, 45],
+  "estado": "en_curso"
 }
 ```
 
-`canales`, `intentos`, `inicio` y `fin` son los mismos campos de `crm_campaign`. La cadencia es la
-de §8 de su documento. APOFYX conserva la estrategia y DataBridge la ejecuta, que es el reparto
-de §13.6.
+`canales`, `intentos`, `inicio`, `fin`, `cadencia_dias` y `estado` son los mismos campos de
+`crm_campaign`. APOFYX conserva la estrategia y **DataBridge la ejecuta**, que es el reparto de
+§13.6:
+
+| Campo | Qué hace DataBridge con él |
+| --- | --- |
+| `cadencia_dias` | El toque *k* de una deuda sale el día `entrada + cadencia_dias[k]`, contando desde que la deuda llega a DataBridge, o desde `inicio` si la campaña empezó después. Sin cadencia, la de APOFYX: 1, 4, 11, 25, 45 |
+| `intentos` | Cuántos toques recibe cada deuda como máximo |
+| `inicio`, `fin` | Fuera de esas fechas la campaña no contacta |
+| `canales` | Hoy DataBridge contacta solo por `correo`. Una campaña sin `correo` no contacta: WhatsApp todavía no está conectado |
+| `estado` | `en_curso`, `pausada` o `terminada`. Solo una campaña en curso contacta. Sin `estado` no cambia; una nueva parte en curso. APOFYX lo vuelve a mandar cuando su personal pausa o termina la campaña |
+
+Cada toque es el mismo correo de la invitación: un código para entrar al portal, sin el monto ni un
+enlace. Una deuda que se paga, se repacta, se reclama o se retira deja la campaña; la repactada
+sigue con los recordatorios de su convenio.
+
+**La ley manda sobre la cadencia** (Ley 19.496, art. 37, con los cambios de la Ley 21.320):
+
+- **Horario:** de lunes a sábado, de 8:00 a 20:00 (hora de Chile), nunca un feriado
+  (`CONTACTO_FERIADOS`).
+- **Frecuencia:** como máximo dos gestiones por semana a un mismo deudor, con al menos dos días
+  entre una y otra. Cuentan todas: la invitación, los toques, el recordatorio de una cuota y el
+  código que reenvía la empresa.
+- **Registro:** cada gestión queda como `code_sent` en la historia de la deuda.
+
+Un toque que la ley no deja hoy sale en cuanto se puede. Por eso una cadencia con toques muy
+seguidos (1 y 4 está bien; 1 y 2, no) se cumple más tarde de lo que dice.
 
 ---
 
@@ -498,8 +548,8 @@ ahora en sentido contrario.
 | --- | --- | --- |
 | `lote.procesado` | Termina la ingesta de un lote | `periodo`, `fecha_corte`, `recibidas`, `aceptadas`, `rechazadas`, `tramos: [{tramo, deudas, promedio_clp}]` |
 | `campana.avance` | Una vez al día por campaña | `campana_id_externo`, `fecha_corte`, `deudas`, `enviados`, `ingresos_portal`, `repactaciones`, `pagos`, `saldadas`, `disputas`, `retiradas`, `recuperado_clp`, `recuperado_uf` |
-| `repactacion.aceptada` | El deudor acepta un plan | `deuda_id_externo`, `cuotas`, `monto_cuota`, `moneda`, `primera_cuota` |
-| `pago.confirmado` | La pasarela confirma un pago | `deuda_id_externo`, `pago_id`, `monto`, `moneda`, `monto_clp`, `valor_uf`, `medio`, `pagado_en` |
+| `repactacion.aceptada` | El deudor acepta un plan | `deuda_id_externo`, `cuotas`, `monto_cuota`, `moneda`, `primera_cuota`; con tasa, además `tasa_interes_mensual`, `a_repactar` (el capital más la mora de ese día) y `total_a_pagar` |
+| `pago.confirmado` | La pasarela confirma un pago | `deuda_id_externo`, `pago_id`, `monto`, `moneda`, `monto_clp`, `valor_uf`, `medio`, `pagado_en`; si el pago trae mora, además `capital` e `interes` (`monto` es la suma) |
 | `deuda.saldada` | El saldo llega a cero | `deuda_id_externo`, `saldada_en` |
 | `deuda.disputada` | El deudor dice que la deuda no es suya o no corresponde | `deuda_id_externo`, `motivo` |
 | `deuda.reanudada` | Revisada la disputa, la deuda sí corresponde y se vuelve a cobrar | `deuda_id_externo`, `motivo`, `con_convenio` |
@@ -539,13 +589,18 @@ empresa que cobra la revisa y la resuelve de una de dos formas:
 retiro, no reabre nada.
 
 **`pago.confirmado` dice con qué se pagó** en `medio`: `webpay`, `mercadopago` o `khipu`. Webpay
-cobra de verdad contra Transbank (ambiente de integración por omisión) y Khipu cuando DataBridge
-tiene la llave de una cuenta de cobro; Mercado Pago es simulada. Un pago de Webpay se confirma solo
+cobra de verdad contra Transbank (ambiente de integración por omisión), Khipu cuando DataBridge
+tiene la llave de una cuenta de cobro, y Mercado Pago cuando tiene el access token de una cuenta. Un pago de Webpay se confirma solo
 cuando Transbank lo autoriza y el monto y la orden calzan; uno de Khipu, cuando Khipu dice que la
 transferencia está conciliada, con el monto y la transacción del cobro.
 
 **En UF, `pago.confirmado` trae el valor de la UF usado.** La UF cambia todos los días; el acreedor
 tiene que poder reconstruir por qué un pago de `UF 38,5` fueron esos pesos.
+
+**Con mora, `pago.confirmado` separa `capital` de `interes`.** El acreedor reparte el `capital`
+sobre sus cargos, del más antiguo al más nuevo, y registra el `interes` aparte: si repartiera el
+`monto`, la mora terminaría abonando cargos que no se pagaron. Sin mora, los dos campos no viajan
+y `monto` es todo capital.
 
 ### 8.3 Qué hace cada uno con los eventos
 

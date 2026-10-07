@@ -23,8 +23,13 @@ public record CampanaRequest(
                 example = "[\"whatsapp\",\"correo\"]")
         JsonNode canales,
         @Schema(description = "Cuantas veces se contacta. Sin indicar, 3", example = "3", nullable = true) Integer intentos,
-        @Schema(implementation = Integer[].class, nullable = true, description = "Dias entre contactos",
-                example = "[0,3,7]")
-        JsonNode cadenciaDias
+        @Schema(implementation = Integer[].class, nullable = true,
+                description = "El dia en que sale cada contacto, contado desde que la deuda entra a la campana. "
+                        + "Sin indicar, 1, 4, 11, 25 y 45", example = "[1,4,11,25,45]")
+        JsonNode cadenciaDias,
+        @Schema(allowableValues = {"en_curso", "pausada", "terminada"}, nullable = true,
+                description = "Solo una campana en curso contacta. Sin indicar, la campana no cambia de estado "
+                        + "(una nueva parte en curso)", example = "en_curso")
+        String estado
 ) {
 }

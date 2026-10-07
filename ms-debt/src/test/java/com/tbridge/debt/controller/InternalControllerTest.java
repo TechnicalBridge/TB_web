@@ -8,6 +8,7 @@ import com.tbridge.debt.dto.response.RecordatoriosResponse;
 import com.tbridge.debt.service.ApiKeyService;
 import com.tbridge.debt.service.CampanaAvanceService;
 import com.tbridge.debt.service.DebtService;
+import com.tbridge.debt.service.ContactoService;
 import com.tbridge.debt.service.RecordatorioService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -46,6 +47,7 @@ class InternalControllerTest {
     @MockitoBean private CampanaAvanceService avances;
     @MockitoBean private ApiKeyService claves;
     @MockitoBean private RecordatorioService recordatorios;
+    @MockitoBean private ContactoService contactos;
 
     @Test
     void sin_la_clave_interna_no_se_revela_ninguna_deuda() throws Exception {
@@ -57,7 +59,8 @@ class InternalControllerTest {
     @Test
     void con_la_clave_ms_payments_sabe_cuanto_cobrar() throws Exception {
         when(debts.snapshotInterno(3L, null)).thenReturn(new DebtSnapshotResponse(
-                3L, "76418902-7", "18905214-6", "CLP", new BigDecimal("410000"), 12L, List.of(12L)));
+                3L, "76418902-7", "18905214-6", "CLP", new BigDecimal("410000"), 12L, List.of(12L),
+                new BigDecimal("410000"), BigDecimal.ZERO));
 
         mvc.perform(get("/internal/debts/3").header("X-Internal-Key", CLAVE))
                 .andExpect(status().isOk())
@@ -69,7 +72,8 @@ class InternalControllerTest {
     @Test
     void las_cuotas_pedidas_llegan_como_lista() throws Exception {
         when(debts.snapshotInterno(3L, List.of(12L, 13L))).thenReturn(new DebtSnapshotResponse(
-                3L, "76418902-7", "16482337-7", "CLP", new BigDecimal("280000"), null, List.of(12L, 13L)));
+                3L, "76418902-7", "16482337-7", "CLP", new BigDecimal("280000"), null, List.of(12L, 13L),
+                new BigDecimal("280000"), BigDecimal.ZERO));
 
         mvc.perform(get("/internal/debts/3").param("installmentIds", "12", "13").header("X-Internal-Key", CLAVE))
                 .andExpect(status().isOk())

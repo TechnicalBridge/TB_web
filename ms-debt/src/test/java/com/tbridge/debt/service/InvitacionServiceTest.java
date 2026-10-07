@@ -37,6 +37,7 @@ class InvitacionServiceTest {
     @Mock private DebtRepository debts;
     @Mock private DebtEventRepository events;
     @Mock private AuthClient auth;
+    @Mock private LimiteDeContacto limite;
 
     private InvitacionService servicio;
     private Debt deuda;
@@ -44,7 +45,8 @@ class InvitacionServiceTest {
 
     @BeforeEach
     void preparar() {
-        servicio = new InvitacionService(debts, events, auth);
+        servicio = new InvitacionService(debts, events, auth, limite);
+        when(limite.permite(any(), any())).thenReturn(true);
 
         Organization patrimonio = new Organization();
         patrimonio.setTradeName("Patrimonio Inmuebles");
@@ -62,6 +64,16 @@ class InvitacionServiceTest {
 
     private void invitar() {
         servicio.invitar(new InvitacionService.DeudaEnCobranza(7L));
+    }
+
+    @Test
+    void si_esta_semana_ya_se_le_escribio_lo_que_deja_la_ley_la_invitacion_espera() {
+        when(limite.permite(any(), any())).thenReturn(false);
+
+        invitar();
+
+        verify(auth, never()).emitirCodigo(any());
+        verify(events, never()).save(any());
     }
 
     @Test

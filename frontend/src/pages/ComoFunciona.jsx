@@ -55,7 +55,7 @@ function ParaDeudores() {
             ["Te llega un código", "La empresa a la que le debes, o la agencia que cobra por ella, te manda un código de seis caracteres por correo. Nunca un enlace."],
             ["Entras con tu RUT y el código", "Escribes tú la dirección del portal. El código sirve una vez y dura 24 horas; si se te vence, pides otro."],
             ["Ves lo que debes", "Cada deuda con su monto, a quién se la debes y los meses que incluye."],
-            ["Pagas como te acomode", "Todo de una vez, o en un convenio de 3 a 24 cuotas sin intereses. En convenio puedes pagar una cuota o varias juntas, siempre desde la que vence primero."],
+            ["Pagas como te acomode", "Todo de una vez, o en un convenio de 3 a 24 cuotas. En convenio puedes pagar una cuota o varias juntas, siempre desde la que vence primero."],
             ["Queda conciliado", "Cuando la pasarela confirma el pago, se abona a tu deuda y la empresa recibe el aviso. Cada pago tiene su comprobante y, al terminar, descargas el certificado de deuda pagada."],
           ]} />
         </div>
@@ -73,7 +73,7 @@ function ParaDeudores() {
             <h3>Preguntas frecuentes</h3>
             <Preguntas preguntas={[
               ["¿Por qué no me mandan un enlace para entrar?", "Porque un enlace en un correo es justo lo que usan las estafas para llevarte a una página falsa. Como nosotros nunca mandamos uno, cualquier mensaje con enlace que diga venir de aquí es falso."],
-              ["¿Cobran intereses por pagar en cuotas?", "No. El total del convenio es lo que debes hoy, dividido en las cuotas que elijas. La última cuota absorbe el redondeo."],
+              ["¿Cobran intereses?", "Depende de lo que pactaste con la empresa. Si tu contrato tiene una tasa de interés, una deuda atrasada crece por cada día de atraso y el convenio lleva interés; el portal te muestra cuánto es capital y cuánto interés antes de pagar. Si no tiene tasa, no se cobra nada extra: el total del convenio es lo que debes hoy."],
               ["¿Puedo pagar varias cuotas a la vez?", "Sí, siempre desde la que vence primero. Así nunca queda una cuota antigua impaga mientras pagas una nueva."],
               ["Mi deuda está en UF: ¿cuánto pago en pesos?", "Pagas en pesos, al valor de la UF del día en que pagas. El comprobante dice qué UF se usó."],
               ["¿Cómo sé que esto es legítimo?", "En Mis datos ves qué empresa te registró y el correo que tiene de ti. Si no reconoces la deuda, no pagues y comunícate directo con esa empresa."],

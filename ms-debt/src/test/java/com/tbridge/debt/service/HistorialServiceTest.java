@@ -145,7 +145,7 @@ class HistorialServiceTest {
 
     private static PagoResponse pago(List<Integer> cuotas, Integer de, Integer fuera) {
         return new PagoResponse(1L, 3L, "X", "A", "D", "1-9", "C", Debt.Currency.CLP, BigDecimal.ONE,
-                1L, null, "webpay", "r", cuotas, de, fuera, Instant.now());
+                1L, null, "webpay", "r", cuotas, de, fuera, Instant.now(), null);
     }
 
     @Test

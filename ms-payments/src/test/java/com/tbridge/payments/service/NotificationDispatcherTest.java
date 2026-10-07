@@ -70,6 +70,22 @@ class NotificationDispatcherTest {
     }
 
     @Test
+    void el_aviso_lleva_las_cuotas_que_cobro_y_cuanto_fue_mora() {
+        pendiente();
+        Payment pago = payments.findById(41L).orElseThrow();
+        pago.setCuotas(List.of(13L, 12L));
+        pago.setAmount(new BigDecimal("416150"));
+        pago.setInterestAmount(new BigDecimal("6150"));
+
+        despachador.despachar();
+
+        ArgumentCaptor<PagoConfirmado> enviado = ArgumentCaptor.forClass(PagoConfirmado.class);
+        verify(publicador).publicar(enviado.capture());
+        assertEquals(List.of(12L, 13L), enviado.getValue().installmentIds(), "en orden");
+        assertEquals(new BigDecimal("6150"), enviado.getValue().interest());
+    }
+
+    @Test
     void si_ms_debt_esta_caido_se_reintenta_despues() {
         DebtNotification aviso = pendiente();
         doThrow(new IllegalStateException("Connection refused")).when(publicador).publicar(any());

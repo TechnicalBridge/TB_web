@@ -51,6 +51,11 @@ public class ComprobanteService {
                 + DocumentoPdf.rut(deuda.getCreditor().getRut())});
         filas.add(new String[]{"Deuda", deuda.getConcept() + ", contrato " + deuda.getExternalId()});
         filas.add(new String[]{"Qué se pagó", queSePago(pago)});
+        if (pago.interes() != null && pago.interes().signum() > 0) {
+            filas.add(new String[]{"Intereses por mora", DocumentoPdf.dinero(pago.interes(), pago.moneda())
+                    + ", incluidos en el monto. El resto es capital: "
+                    + DocumentoPdf.dinero(pago.monto().subtract(pago.interes()), pago.moneda())});
+        }
         filas.add(new String[]{"Fecha", DocumentoPdf.fechaYHora(pago.pagadoEn())});
         if (pago.pasarela() != null) {
             filas.add(new String[]{"Medio de pago", PASARELAS.getOrDefault(pago.pasarela(), pago.pasarela())

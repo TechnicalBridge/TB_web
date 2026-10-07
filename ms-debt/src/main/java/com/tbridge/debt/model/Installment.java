@@ -43,6 +43,13 @@ public class Installment {
     private BigDecimal amount;
 
     /**
+     * El interes del convenio que va dentro de la cuota (sistema frances). Cero
+     * en una cuota sin convenio, o en un convenio sin interes.
+     */
+    @Column(name = "interest_amount", nullable = false, precision = 18, scale = 2)
+    private BigDecimal interestAmount = BigDecimal.ZERO;
+
+    /**
      * 'void' es palabra reservada en Java, asi que la constante se llama
      * void_ y se guarda con su nombre real mediante el conversor de abajo.
      */
@@ -85,6 +92,12 @@ public class Installment {
     public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public BigDecimal getInterestAmount() { return interestAmount; }
+    public void setInterestAmount(BigDecimal interestAmount) { this.interestAmount = interestAmount; }
+    /** Lo que la cuota tiene de capital: la mora de una cuota vencida corre solo sobre esto. */
+    public BigDecimal capital() {
+        return interestAmount == null ? amount : amount.subtract(interestAmount);
+    }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
     public Instant getPaidAt() { return paidAt; }

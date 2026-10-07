@@ -7,8 +7,10 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RepactationServiceTest {
@@ -51,5 +53,35 @@ class RepactationServiceTest {
         RepactPlan plan = service.simulate(new BigDecimal("100.00"), Debt.Currency.UF, 3, LocalDate.of(2026, 10, 20));
         assertEquals(new BigDecimal("33.33"), plan.monthlyAmount());
         assertEquals(new BigDecimal("33.34"), plan.lastAmount());
+    }
+
+    @Test
+    void con_tasa_las_cuotas_son_de_sistema_frances() {
+        //  100.000 al 1% mensual en 3 cuotas: 100.000 x 0,01 / (1 - 1,01^-3) = 34.002,21
+        RepactPlan plan = service.simulate(new BigDecimal("100000"), BigDecimal.ZERO, new BigDecimal("1"),
+                Debt.Currency.CLP, 3, LocalDate.of(2026, 11, 6));
+
+        assertEquals(new BigDecimal("34002"), plan.monthlyAmount());
+        assertEquals(List.of("1000", "670", "337"),
+                plan.cuotas().stream().map(c -> c.interest().toPlainString()).toList(),
+                "el interes de cada mes, sobre lo que queda por pagar");
+        BigDecimal capital = plan.cuotas().stream().map(c -> c.amount().subtract(c.interest()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertEquals(new BigDecimal("100000"), capital, "las cuotas pagan justo lo repactado");
+        assertEquals(new BigDecimal("34003"), plan.lastAmount(), "la ultima absorbe el redondeo");
+        assertEquals(new BigDecimal("2007"), plan.interesConvenio());
+        assertEquals(new BigDecimal("102007"), plan.total());
+        assertEquals(new BigDecimal("1"), plan.tasaInteresMensual());
+    }
+
+    @Test
+    void la_mora_se_suma_a_lo_que_se_repacta() {
+        RepactPlan plan = service.simulate(new BigDecimal("100000"), new BigDecimal("4100"), null,
+                Debt.Currency.CLP, 3, LocalDate.of(2026, 11, 6));
+
+        assertEquals(new BigDecimal("104100"), plan.aRepactar());
+        assertEquals(new BigDecimal("104100"), plan.total(), "sin tasa el convenio no suma intereses");
+        assertEquals(new BigDecimal("4100"), plan.interesMora());
+        assertNull(plan.tasaInteresMensual());
     }
 }

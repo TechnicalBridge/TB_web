@@ -118,6 +118,15 @@ public class MandatoService {
         if (presente(pedido.cadenciaDias())) {
             campana.setCadenceDays(pedido.cadenciaDias().toString());
         }
+        if (pedido.estado() != null && !pedido.estado().isBlank()) {
+            campana.setStatus(switch (pedido.estado().trim()) {
+                case "en_curso" -> Campaign.Status.running;
+                case "pausada" -> Campaign.Status.paused;
+                case "terminada" -> Campaign.Status.finished;
+                default -> throw new CarteraInvalida("estado_invalido",
+                        "El estado de la campana va como en_curso, pausada o terminada");
+            });
+        }
         campaigns.save(campana);
         return CampanaResponse.from(campana);
     }
