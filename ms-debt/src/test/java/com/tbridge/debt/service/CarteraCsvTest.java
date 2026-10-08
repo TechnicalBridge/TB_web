@@ -105,4 +105,27 @@ class CarteraCsvTest {
         assertTrue(fallo.getMessage().startsWith("Fila 3: la deuda CTR-1 esta al dia en la fila 2"),
                 fallo.getMessage());
     }
+
+    @Test
+    void sinAgenciaLaCampanaVaEnElLote() throws IOException {
+        byte[] csv = Files.readAllBytes(EJEMPLOS.resolve("cartera-v1.plantilla.csv"));
+        CarteraCsv.Lote propio = new CarteraCsv.Lote("AND-2026-10-01", "2026-10-01", "76418902-7", null, "AND-CMP-1");
+
+        JsonNode leido = CarteraCsv.leer(csv, propio);
+
+        assertEquals("AND-CMP-1", leido.at("/lote/campana_id_externo").asText());
+        assertTrue(leido.at("/lote/mandato").isMissingNode(), "sin agencia no hay mandato");
+    }
+
+    @Test
+    void conAgenciaLaCampanaVaEnSuMandato() throws IOException {
+        byte[] csv = Files.readAllBytes(EJEMPLOS.resolve("cartera-v1.plantilla.csv"));
+        CarteraCsv.Lote deAgencia = new CarteraCsv.Lote("APX-1", "2026-09-18", "76418902-7", "77305118-6", "APX-CMP-8");
+
+        JsonNode leido = CarteraCsv.leer(csv, deAgencia);
+
+        assertEquals("77305118-6", leido.at("/lote/mandato/agencia_rut").asText());
+        assertEquals("APX-CMP-8", leido.at("/lote/mandato/campana_id_externo").asText());
+        assertTrue(leido.at("/lote/campana_id_externo").isMissingNode());
+    }
 }

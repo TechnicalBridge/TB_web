@@ -117,6 +117,7 @@ public class Debt {
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
     public void setMandate(Mandate mandate) { this.mandate = mandate; }
+    public Campaign getCampaign() { return campaign; }
     public void setCampaign(Campaign campaign) { this.campaign = campaign; }
     public void setFirstBatch(Batch firstBatch) { this.firstBatch = firstBatch; }
     public Batch getLastBatch() { return lastBatch; }

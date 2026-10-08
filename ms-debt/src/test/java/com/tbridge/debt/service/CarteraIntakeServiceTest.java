@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tbridge.debt.dto.response.CarteraResponse;
 import com.tbridge.debt.dto.response.CarteraResponse.ResultadoDeuda;
+import com.tbridge.debt.exception.CarteraInvalida;
 import com.tbridge.debt.model.Batch;
+import com.tbridge.debt.model.Campaign;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.DebtCharge;
 import com.tbridge.debt.model.Debtor;
@@ -495,5 +497,57 @@ class CarteraIntakeServiceTest {
             assertEquals("tasa_invalida", resultado.errores().getFirst().codigo(), tasa);
         }
         verify(debts, never()).save(any());
+    }
+
+    // ------------------------------------------------------------------
+    //  La campana de un acreedor que cobra sin agencia
+    // ------------------------------------------------------------------
+
+    private JsonNode conCampana(String campana) throws Exception {
+        JsonNode payload = cartera(cargo("Arriendo agosto", "2026-08", "2026-08-05"));
+        ((ObjectNode) payload.get("lote")).put("campana_id_externo", campana);
+        return payload;
+    }
+
+    @Test
+    void sin_agencia_el_lote_nombra_la_campana_del_mismo_acreedor() throws Exception {
+        Campaign suya = new Campaign();
+        suya.setAgency(patrimonio);
+        suya.setCreditor(patrimonio);
+        when(campaigns.findByAgencyAndExternalId(patrimonio, "PAT-CMP-1")).thenReturn(Optional.of(suya));
+
+        CarteraResponse respuesta = servicio.recibir(patrimonio, conCampana("PAT-CMP-1"), Batch.Source.api);
+
+        assertEquals("registrada", respuesta.resultados().getFirst().resultado());
+        assertEquals(List.of(), respuesta.camposIgnorados(), "lote.campana_id_externo es parte del contrato");
+        ArgumentCaptor<Debt> guardada = ArgumentCaptor.forClass(Debt.class);
+        verify(debts, org.mockito.Mockito.atLeastOnce()).save(guardada.capture());
+        assertEquals(suya, guardada.getValue().getCampaign());
+    }
+
+    @Test
+    void la_campana_de_otro_acreedor_no_sirve() throws Exception {
+        Organization otro = new Organization();
+        otro.setId(9L);
+        Campaign ajena = new Campaign();
+        ajena.setAgency(patrimonio);
+        ajena.setCreditor(otro);
+        when(campaigns.findByAgencyAndExternalId(patrimonio, "AJENA-1")).thenReturn(Optional.of(ajena));
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.recibir(patrimonio, conCampana("AJENA-1"), Batch.Source.api));
+
+        assertEquals("campana_desconocida", fallo.getCodigo());
+    }
+
+    @Test
+    void una_campana_que_no_registro_no_sirve() throws Exception {
+        when(campaigns.findByAgencyAndExternalId(patrimonio, "NO-EXISTE")).thenReturn(Optional.empty());
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.recibir(patrimonio, conCampana("NO-EXISTE"), Batch.Source.api));
+
+        assertEquals("campana_desconocida", fallo.getCodigo());
+        assertEquals(404, fallo.getStatus());
     }
 }

@@ -22,6 +22,11 @@ public class Campaign {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * Quien gestiona la campana: la agencia con mandato sobre el acreedor, o el
+     * mismo acreedor cuando cobra sin agencia. Es a quien le llega su avance
+     * (campana.avance), y con quien se busca su id externo.
+     */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "agency_id", nullable = false)
     private Organization agency;

@@ -250,12 +250,16 @@ public class CarteraIntakeService {
                         403));
     }
 
+    /**
+     * La campana del lote. Una agencia la manda en su mandato; un acreedor que
+     * cobra sin agencia, en el mismo lote (lote.campana_id_externo). En los dos
+     * casos se busca entre las campanas que registro quien envia el lote.
+     */
     private Campaign resolverCampana(JsonNode lote, Organization emisor, Organization acreedor) {
         JsonNode mandato = lote.get("mandato");
-        if (mandato == null || mandato.isNull()) {
-            return null;
-        }
-        String idCampana = texto(mandato.get("campana_id_externo"));
+        String idCampana = mandato != null && !mandato.isNull()
+                ? texto(mandato.get("campana_id_externo"))
+                : texto(lote.get("campana_id_externo"));
         if (idCampana == null || idCampana.isBlank()) {
             return null;
         }
@@ -799,7 +803,7 @@ public class CarteraIntakeService {
         JsonNode lote = payload.get("lote");
         if (lote != null) {
             lote.fieldNames().forEachRemaining(campo -> {
-                if (!Set.of("id_externo", "fecha_corte", "emitido_en", "acreedor", "mandato")
+                if (!Set.of("id_externo", "fecha_corte", "emitido_en", "acreedor", "mandato", "campana_id_externo")
                         .contains(campo)) {
                     sobras.add("lote." + campo);
                 }

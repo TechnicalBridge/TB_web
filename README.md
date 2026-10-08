@@ -77,8 +77,8 @@ día desde el mismo portal:
 - mira en un panel cuánto se ha recuperado y exporta la cartera a Excel;
 - emite y revoca sus propias claves de API.
 
-**La campaña de la agencia se cumple sola:** DataBridge le escribe a cada deudor los días que fijó
-la agencia, dentro de lo que permite la ley.
+**La campaña se cumple sola:** DataBridge le escribe a cada deudor los días que fijó quien cobra
+(la agencia o, si cobra sin agencia, el mismo acreedor), dentro de lo que permite la ley.
 
 **El acreedor no entra nunca:** cada pago, convenio o reclamo le llega como un aviso firmado a su
 propio sistema.
@@ -176,9 +176,11 @@ baja la deuda, no sobre su interés.
 
 ### Las campañas
 
-**APOFYX decide la estrategia y DataBridge la cumple.** Una campaña es el plan para recordarles a
-los deudores de una cartera que deben: por qué medio, cuántas veces y cada cuántos días. APOFYX la
-define en su panel y DataBridge manda cada recordatorio, que es el mismo correo de la invitación: un
+**Quien cobra decide la estrategia y DataBridge la cumple.** Una campaña es el plan para
+recordarles a los deudores de una cartera que deben: por qué medio, cuántas veces y cada cuántos
+días. La registra quien cobra: una empresa de cobranza con mandato sobre el acreedor (en la demo,
+APOFYX, desde su panel) o **el mismo acreedor cuando cobra sin agencia**, con su clave de API y sin
+mandato; sus carteras la nombran en `lote.campana_id_externo`. DataBridge manda cada recordatorio, que es el mismo correo de la invitación: un
 código para entrar, sin el monto ni un enlace. Si alguien reenvía o roba el correo, no le sirve de
 nada, y no hay un enlace que se pueda imitar.
 
@@ -1122,19 +1124,19 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido (con el cobro anulado en Khipu, o pagado justo antes de anularlo); que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
 | **Del doble pago** | Un segundo pago mientras otro se verifica se rechaza; el abierto sin pagar se anula (Khipu lo borra, la preferencia de Mercado Pago vence en el acto) y queda vencido; una cuota pagada que ms-debt todavía no abona no se cobra de nuevo; el cobro guarda las cuotas que cubre, y ms-debt las informa en orden. Si igual se paga dos veces, el segundo queda `duplicated`, sin abonar y con la referencia y el RUT para devolverlo; pagar otras cuotas de la misma deuda no es duplicado. La consulta periódica no vence lo que Khipu o Mercado Pago están verificando y anula en Khipu lo que vence; un vencido que se paga después se registra, por la revisión de vencidos o por el aviso de Khipu |
 | **De los intereses** | La mora de cada cargo atrasado desde el día siguiente a su vencimiento, con lo pagado imputado a lo más antiguo; la cuota del convenio que crece solo sobre su capital; el redondeo en pesos y en UF; el convenio en sistema francés, con la última cuota que absorbe el redondeo; que sin tasa todo quede como antes; que el cobro fije el capital y el interés y el aviso los lleve separados; la tasa que no es un número o que supera el tope |
-| **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; los feriados calculados contra los publicados (2023, 2026 y 2027 completos, y cada regla contra un año real: el 2 de enero, el 17 y el 20 de septiembre, los que se corren al lunes, el 31 de octubre y el solsticio al minuto); el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
+| **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; los feriados calculados contra los publicados (2023, 2026 y 2027 completos, y cada regla contra un año real: el 2 de enero, el 17 y el 20 de septiembre, los que se corren al lunes, el 31 de octubre y el solsticio al minuto); el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX; el acreedor que cobra sin agencia: registra, pausa y termina su campaña sin mandato, no puede registrar la de otro, sus carteras (JSON y planilla) la nombran en el lote, y el avance le llega a él |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **Del contrato del aviso de pago** | ms-payments manda exactamente el ejemplo de [`docs/eventos/pago-confirmado.json`](docs/eventos/pago-confirmado.json), por el exchange y la clave que dice; ms-debt escucha en esa cola y entiende cada campo; un mensaje no puede elegir qué clase se crea al leerlo |
 | **De seguridad** | **CodeQL** (Java, JavaScript y Python) en cada pull request y cada semana; la auditoría de dependencias del portal y del asistente, que rompe su workflow ante una vulnerabilidad alta; Dependabot por módulo, también para las acciones de GitHub; y el escaneo de secretos de GitHub con protección de push, que rechaza un push que traiga un token conocido |
 | **De rendimiento** (k6) | Cómo lo siente una persona, dónde está el techo y cuánto aguanta abrir cobros (`pagos.js`, solo con las pasarelas simuladas). Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**454 pruebas en Java y 12 en Python**, sin fallos:
+**463 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
 | `gateway` | 13 |
 | `ms-auth` | 58 |
-| `ms-debt` | 214 |
+| `ms-debt` | 223 |
 | `ms-payments` | 169 |
 | `ms-ai` (Python) | 12 |
 
@@ -1211,7 +1213,7 @@ $cuerpo | docker compose --profile app exec -T ms-payments sh -c 'curl -s -X POS
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (cada servicio con su `mvnw -f <servicio>\pom.xml clean test`, JDK 25) | **454**, sin fallos |
+| Pruebas Java (cada servicio con su `mvnw -f <servicio>\pom.xml clean test`, JDK 25) | **463**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |

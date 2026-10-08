@@ -137,12 +137,16 @@ public final class CarteraCsv {
         cabecera.put("id_externo", lote.idExterno());
         cabecera.put("fecha_corte", lote.fechaCorte());
         cabecera.putObject("acreedor").put("rut", lote.acreedorRut());
+        boolean conCampana = lote.campanaIdExterno() != null && !lote.campanaIdExterno().isBlank();
         if (lote.agenciaRut() != null && !lote.agenciaRut().isBlank()) {
             ObjectNode mandato = cabecera.putObject("mandato");
             mandato.put("agencia_rut", lote.agenciaRut());
-            if (lote.campanaIdExterno() != null && !lote.campanaIdExterno().isBlank()) {
+            if (conCampana) {
                 mandato.put("campana_id_externo", lote.campanaIdExterno());
             }
+        } else if (conCampana) {
+            //  Sin agencia: el acreedor cobra solo, con su propia campana.
+            cabecera.put("campana_id_externo", lote.campanaIdExterno());
         }
         ArrayNode lista = cartera.putArray("deudas");
         deudas.values().forEach(lista::add);

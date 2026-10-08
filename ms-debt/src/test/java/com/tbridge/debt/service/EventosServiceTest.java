@@ -2,10 +2,12 @@ package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tbridge.debt.dto.evento.CampanaAvanceDatos;
 import com.tbridge.debt.dto.evento.PagoConfirmadoDatos;
 import com.tbridge.debt.dto.request.SuscripcionRequest;
 import com.tbridge.debt.exception.CarteraInvalida;
 import com.tbridge.debt.model.Batch;
+import com.tbridge.debt.model.Campaign;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.Organization;
 import com.tbridge.debt.model.OutboxEvent;
@@ -148,5 +150,23 @@ class EventosServiceTest {
         CarteraInvalida error = assertThrows(CarteraInvalida.class, () -> eventos.suscribir(apofyx,
                 new SuscripcionRequest("http://apofyx/api/v1/eventos", List.of("deuda.inventada"))));
         assertEquals("evento_desconocido", error.getCodigo());
+    }
+
+    @Test
+    void el_avance_de_la_campana_de_un_acreedor_sin_agencia_le_llega_a_el_mismo() {
+        Organization andes = new Organization();
+        andes.setRut("76543210-3");
+        Campaign suya = new Campaign();
+        suya.setAgency(andes);
+        suya.setCreditor(andes);
+        Subscription deAndes = suscripcion("[\"campana.avance\"]");
+        deAndes.setOrganization(andes);
+        when(suscripciones.findByOrganizationAndActiveTrue(andes)).thenReturn(List.of(deAndes));
+
+        int anotados = eventos.publicarDeCampana(suya,
+                new CampanaAvanceDatos("AND-CMP-1", "2026-10-08", 3, 2, 1, 0, 1, 1, 0, 0, 410000L, null), Instant.now());
+
+        assertEquals(1, anotados);
+        verify(suscripciones, never()).findByOrganizationAndActiveTrue(apofyx);
     }
 }

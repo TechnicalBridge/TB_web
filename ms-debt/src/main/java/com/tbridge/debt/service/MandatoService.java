@@ -89,19 +89,26 @@ public class MandatoService {
         return MandatoResponse.from(mandato);
     }
 
+    /**
+     * Registra o actualiza la campana de quien cobra: una agencia con mandato
+     * vigente sobre el acreedor, o el mismo acreedor cuando cobra sin agencia.
+     * En ese caso la campana queda a su nombre como quien la gestiona.
+     */
     @Transactional
-    public CampanaResponse registrarCampana(Organization agencia, CampanaRequest pedido) {
+    public CampanaResponse registrarCampana(Organization quien, CampanaRequest pedido) {
         Organization acreedor = buscarAcreedor(pedido.acreedorRut());
         String idExterno = pedido.idExterno();
         if (idExterno == null || idExterno.isBlank()) {
             throw new CarteraInvalida("campana_incompleta", "La campana necesita id_externo");
         }
-        if (mandates.findByAgencyAndCreditorAndStatus(agencia, acreedor, Mandate.Status.active).isEmpty()) {
+        boolean esElAcreedor = quien.getId().equals(acreedor.getId());
+        if (!esElAcreedor
+                && mandates.findByAgencyAndCreditorAndStatus(quien, acreedor, Mandate.Status.active).isEmpty()) {
             throw new CarteraInvalida("sin_mandato", "No hay mandato vigente sobre ese acreedor", 403);
         }
 
-        Campaign campana = campaigns.findByAgencyAndExternalId(agencia, idExterno).orElseGet(Campaign::new);
-        campana.setAgency(agencia);
+        Campaign campana = campaigns.findByAgencyAndExternalId(quien, idExterno).orElseGet(Campaign::new);
+        campana.setAgency(quien);
         campana.setCreditor(acreedor);
         campana.setExternalId(idExterno);
         campana.setName(pedido.nombre() == null ? idExterno : pedido.nombre());
