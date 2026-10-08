@@ -16,7 +16,8 @@ import java.math.BigDecimal;
  *
  * <p>{@code monto} es todo lo que se cobro. {@code capital} es lo que se imputa
  * a los cargos, y {@code interes} la mora de esas cuotas, si la deuda genera
- * intereses: el acreedor la registra aparte.
+ * intereses: el acreedor la registra aparte. {@code descuento} es la mora que se
+ * condono por pronto pago (contrato §7.1); {@code interes} ya viene sin ella.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record PagoConfirmadoDatos(
@@ -29,6 +30,7 @@ public record PagoConfirmadoDatos(
         String medio,
         String pagadoEn,
         Number capital,
-        Number interes
+        Number interes,
+        Number descuento
 ) {
 }

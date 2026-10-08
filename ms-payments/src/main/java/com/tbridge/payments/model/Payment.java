@@ -81,6 +81,13 @@ public class Payment {
     @Column(name = "interest_amount", precision = 18, scale = 2)
     private BigDecimal interestAmount;
 
+    /**
+     * La mora que se condono por pronto pago. Tambien la fija ms-debt al abrir
+     * el cobro: si la pasarela confirma despues, no cambia. Null sin descuento.
+     */
+    @Column(name = "discount_amount", precision = 18, scale = 2)
+    private BigDecimal discountAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 3)
     private Currency currency;
@@ -152,6 +159,14 @@ public class Payment {
 
     public void setInterestAmount(BigDecimal interestAmount) {
         this.interestAmount = interestAmount;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
     }
 
     public Set<Long> cuotas() {

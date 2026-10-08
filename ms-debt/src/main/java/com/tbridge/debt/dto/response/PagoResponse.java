@@ -38,6 +38,17 @@ public record PagoResponse(
                 nullable = true, example = "1") Integer fueraDelConvenio,
         Instant pagadoEn,
         @Schema(description = "Cuanto del monto fue mora, si la deuda genera intereses", nullable = true,
-                example = "4200") BigDecimal interes
+                example = "4200") BigDecimal interes,
+        @Schema(description = "La mora que se condono por pronto pago. Vacio sin descuento", nullable = true,
+                example = "9400") BigDecimal descuento
 ) {
+
+    /** Un pago sin descuento. */
+    public PagoResponse(Long id, Long deudaId, String externalId, String acreedor, String deudor, String deudorRut,
+                        String concepto, Debt.Currency moneda, BigDecimal monto, Long montoClp, BigDecimal valorUf,
+                        String pasarela, String referencia, List<Integer> cuotas, Integer deCuotas,
+                        Integer fueraDelConvenio, Instant pagadoEn, BigDecimal interes) {
+        this(id, deudaId, externalId, acreedor, deudor, deudorRut, concepto, moneda, monto, montoClp, valorUf,
+                pasarela, referencia, cuotas, deCuotas, fueraDelConvenio, pagadoEn, interes, null);
+    }
 }

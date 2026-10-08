@@ -192,6 +192,7 @@ public class PaymentService {
         pago.setCreditorRut(deuda.creditorRut());
         pago.setAmount(deuda.amount());
         pago.setInterestAmount(deuda.interes() == null || deuda.interes().signum() == 0 ? null : deuda.interes());
+        pago.setDiscountAmount(deuda.descuento() == null || deuda.descuento().signum() == 0 ? null : deuda.descuento());
         pago.setCurrency(Payment.Currency.valueOf(deuda.currency()));
         pago.setGateway(gateway);
         pago.setStatus(Payment.Status.created);

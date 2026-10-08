@@ -33,7 +33,10 @@ public record PagoConfirmado(
         //  Las cuotas que cubre el pago, tal como las cobro ms-debt, y cuanto de
         //  amount es interes de mora. Un aviso de antes no los trae.
         List<Long> installmentIds,
-        BigDecimal interest
+        BigDecimal interest,
+        //  La mora que se condono por pronto pago (contrato §7.1). interest ya
+        //  viene descontado: amount es el capital mas interest. Sin descuento, no viaja.
+        BigDecimal discount
 ) {
 
     /** Un aviso sin el detalle de cuotas ni de intereses. */
@@ -41,7 +44,16 @@ public record PagoConfirmado(
                           String creditorRut, BigDecimal amount, String currency, Long amountClp, BigDecimal ufValue,
                           String gateway, String gatewayTxnId, Instant paidAt) {
         this(tipo, paymentId, debtId, installmentId, debtorRut, creditorRut, amount, currency, amountClp, ufValue,
-                gateway, gatewayTxnId, paidAt, null, null);
+                gateway, gatewayTxnId, paidAt, null, null, null);
+    }
+
+    /** Un aviso con sus cuotas y su interes, sin descuento. */
+    public PagoConfirmado(String tipo, Long paymentId, Long debtId, Long installmentId, String debtorRut,
+                          String creditorRut, BigDecimal amount, String currency, Long amountClp, BigDecimal ufValue,
+                          String gateway, String gatewayTxnId, Instant paidAt, List<Long> installmentIds,
+                          BigDecimal interest) {
+        this(tipo, paymentId, debtId, installmentId, debtorRut, creditorRut, amount, currency, amountClp, ufValue,
+                gateway, gatewayTxnId, paidAt, installmentIds, interest, null);
     }
 
     public static final String TIPO = "pago.confirmado";

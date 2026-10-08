@@ -48,8 +48,9 @@ class PagoConfirmadoContratoTest {
                 .fromMessage(new Message(cuerpo, propiedades));
 
         assertEquals(new PagoConfirmado(PagoConfirmado.TIPO, 41L, 3L, 7L, "16482337-7", "76418902-7",
-                new BigDecimal("318800"), "CLP", 318800L, new BigDecimal("39485.65"), "khipu", "kh-ejemplo-0001",
-                Instant.parse("2026-10-06T15:30:00Z"), List.of(7L, 8L), new BigDecimal("18800")), aviso);
+                new BigDecimal("309400"), "CLP", 309400L, new BigDecimal("39485.65"), "khipu", "kh-ejemplo-0001",
+                Instant.parse("2026-10-06T15:30:00Z"), List.of(7L, 8L), new BigDecimal("9400"),
+                new BigDecimal("9400")), aviso);
     }
 
     @Test

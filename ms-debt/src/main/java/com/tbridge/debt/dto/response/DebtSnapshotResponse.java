@@ -24,7 +24,10 @@ public record DebtSnapshotResponse(
                 + "ms-payments sabe si dos pagos cubren la misma cuota", example = "[12, 13]")
         List<Long> installmentIds,
         @Schema(description = "Lo que el monto tiene de capital: las cuotas", example = "92.50") BigDecimal capital,
-        @Schema(description = "Lo que el monto tiene de mora, si la deuda genera intereses. Cero sin tasa",
-                example = "3.75") BigDecimal interes
+        @Schema(description = "Lo que el monto tiene de mora, si la deuda genera intereses, ya sin el descuento. "
+                + "Cero sin tasa", example = "3.75") BigDecimal interes,
+        @Schema(description = "La mora que se condona por pronto pago: solo si se paga toda la deuda durante una "
+                + "campana con descuento. El monto ya viene sin ella. Cero sin descuento", example = "0")
+        BigDecimal descuento
 ) {
 }

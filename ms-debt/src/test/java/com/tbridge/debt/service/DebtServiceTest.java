@@ -12,10 +12,12 @@ import com.tbridge.debt.dto.response.DebtSnapshotResponse;
 import com.tbridge.debt.dto.response.RepactPlan;
 import com.tbridge.debt.dto.response.DebtSummaryResponse;
 import com.tbridge.debt.model.Batch;
+import com.tbridge.debt.model.Campaign;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.DebtCharge;
 import com.tbridge.debt.model.DebtEvent;
 import com.tbridge.debt.model.Debtor;
+import com.tbridge.debt.model.DetallePago;
 import com.tbridge.debt.model.Installment;
 import com.tbridge.debt.model.Organization;
 import com.tbridge.debt.model.Repactation;
@@ -49,6 +51,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -70,6 +73,7 @@ class DebtServiceTest {
     @Mock private RepactationRepository repactations;
     @Mock private DebtEventRepository events;
     @Mock private EventosService eventos;
+    @Mock private DescuentoService descuentos;
     @Spy private RepactationService repactation = new RepactationService();
     @Spy private ObjectMapper json = new ObjectMapper();
 
@@ -441,6 +445,118 @@ class DebtServiceTest {
         assertEquals(new BigDecimal("410000"), snapshot.amount());
         assertEquals(BigDecimal.ZERO, snapshot.interes());
         verify(charges, never()).findByDebtOrderByDueDateAsc(any());
+    }
+
+    // ------------------------------------------------------------------
+    //  Descuento por pronto pago (contrato §7.1)
+    // ------------------------------------------------------------------
+
+    /**
+     * El ejemplo del contrato: tres arriendos de $300.000 al 2%, atrasados 62,
+     * 31 y 1 dia ($18.800 de mora), en una campana que condona el 50% del
+     * tramo 31-90 hasta el 3 de noviembre.
+     */
+    private void tresArriendosEnCampana() {
+        deuda.setInterestRate(new BigDecimal("2"));
+        deuda.setStatus(Debt.Status.open);
+        cuotas.getFirst().setAmount(new BigDecimal("900000"));
+        cuotas.getFirst().setDueDate(HOY.minusDays(1));
+        List<DebtCharge> cargos = new ArrayList<>();
+        for (int dias : new int[]{62, 31, 1}) {
+            DebtCharge cargo = new DebtCharge();
+            cargo.setDebt(deuda);
+            cargo.setAmount(new BigDecimal("300000"));
+            cargo.setDueDate(HOY.minusDays(dias));
+            cargos.add(cargo);
+        }
+        when(charges.findByDebtOrderByDueDateAsc(deuda)).thenReturn(cargos);
+        Campaign campana = new Campaign();
+        campana.setMoraDiscount("{\"1-30\":0,\"31-90\":50,\"91-120\":100}");
+        campana.setEndsOn(LocalDate.of(2026, 11, 3));
+        deuda.setCampaign(campana);
+        when(descuentos.porcentaje(eq(deuda), eq(62L), any())).thenReturn(new BigDecimal("50"));
+    }
+
+    @Test
+    void pagando_toda_la_deuda_durante_la_campana_se_condona_la_mitad_de_la_mora() {
+        tresArriendosEnCampana();
+
+        DebtSnapshotResponse snapshot = servicio.snapshotInterno(3L, null);
+
+        assertEquals(new BigDecimal("900000"), snapshot.capital());
+        assertEquals(new BigDecimal("9400"), snapshot.descuento());
+        assertEquals(new BigDecimal("9400"), snapshot.interes(), "la mora que se cobra, ya sin el descuento");
+        assertEquals(new BigDecimal("909400"), snapshot.amount());
+    }
+
+    @Test
+    void la_deuda_muestra_el_descuento_y_hasta_cuando_vale() {
+        tresArriendosEnCampana();
+
+        DebtDetailResponse detalle = servicio.getFor(deudor("18905214-6"), 3L);
+
+        assertEquals(new BigDecimal("18800"), detalle.resumen().interesMora());
+        assertEquals(new BigDecimal("9400"), detalle.resumen().descuentoDisponible());
+        assertEquals(LocalDate.of(2026, 11, 3), detalle.resumen().descuentoHasta());
+        assertEquals(new BigDecimal("918800"), detalle.resumen().totalHoy(), "el total no resta el descuento");
+    }
+
+    @Test
+    void un_pago_de_parte_de_la_deuda_no_tiene_descuento() {
+        tresArriendosEnCampana();
+        Installment siguiente = new Installment();
+        siguiente.setId(13L);
+        siguiente.setDebt(deuda);
+        siguiente.setNumber((short) 2);
+        siguiente.setDueDate(HOY.plusDays(20));
+        siguiente.setAmount(new BigDecimal("300000"));
+        cuotas.add(siguiente);
+
+        DebtSnapshotResponse snapshot = servicio.snapshotInterno(3L, List.of(12L));
+
+        assertEquals(0, snapshot.descuento().signum());
+        assertEquals(new BigDecimal("918800"), snapshot.amount());
+    }
+
+    @Test
+    void en_convenio_no_hay_descuento() {
+        tresArriendosEnCampana();
+        deuda.setStatus(Debt.Status.repacted);
+
+        assertEquals(0, servicio.snapshotInterno(3L, null).descuento().signum());
+        verify(descuentos, never()).porcentaje(any(), anyLong(), any());
+    }
+
+    @Test
+    void el_aviso_lleva_el_descuento_hasta_el_acreedor() throws Exception {
+        servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 45L, 3L, null, "18905214-6",
+                "76418902-7", new BigDecimal("909400"), "CLP", 909400L, null, "khipu", "k-descuento",
+                Instant.now(), List.of(12L), new BigDecimal("9400"), new BigDecimal("9400")));
+
+        ArgumentCaptor<Object> datos = ArgumentCaptor.forClass(Object.class);
+        verify(eventos).publicar(eq(deuda), eq(EventosService.PAGO_CONFIRMADO), datos.capture(), any());
+        PagoConfirmadoDatos pago = (PagoConfirmadoDatos) datos.getValue();
+        assertEquals(909400L, pago.monto());
+        assertEquals(900000L, pago.capital());
+        assertEquals(9400L, pago.interes());
+        assertEquals(9400L, pago.descuento());
+        DebtEvent aplicado = historia.stream().filter(e -> e.getType() == DebtEvent.Type.payment_applied)
+                .findFirst().orElseThrow();
+        assertEquals(new BigDecimal("9400"), json.readValue(aplicado.getDetail(), DetallePago.class).descuento());
+    }
+
+    @Test
+    void con_toda_la_mora_condonada_el_aviso_igual_separa_el_capital() {
+        servicio.onPagoConfirmado(new PagoConfirmado(PagoConfirmado.TIPO, 46L, 3L, null, "18905214-6",
+                "76418902-7", new BigDecimal("410000"), "CLP", 410000L, null, "khipu", "k-todo",
+                Instant.now(), List.of(12L), BigDecimal.ZERO, new BigDecimal("6150")));
+
+        ArgumentCaptor<Object> datos = ArgumentCaptor.forClass(Object.class);
+        verify(eventos).publicar(eq(deuda), eq(EventosService.PAGO_CONFIRMADO), datos.capture(), any());
+        PagoConfirmadoDatos pago = (PagoConfirmadoDatos) datos.getValue();
+        assertEquals(410000L, pago.capital());
+        assertEquals(0L, pago.interes());
+        assertEquals(6150L, pago.descuento());
     }
 
     @Test

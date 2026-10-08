@@ -55,9 +55,19 @@ public record DebtSummaryResponse(
         BigDecimal tasaInteresMensual,
         @Schema(description = "La mora de hoy: lo que crecieron las cuotas vencidas. Cero sin tasa", example = "4.20")
         BigDecimal interesMora,
-        @Schema(description = "Lo que se paga hoy para saldar la deuda: el saldo mas la mora", example = "100.45")
-        BigDecimal totalHoy
+        @Schema(description = "Lo que se paga hoy para saldar la deuda: el saldo mas la mora. No resta el descuento "
+                + "por pronto pago, que va aparte", example = "100.45")
+        BigDecimal totalHoy,
+        @Schema(description = "La mora que se condona si se paga toda la deuda hoy, durante su campana (contrato "
+                + "§7.1). Vacio sin descuento", nullable = true, example = "9400")
+        BigDecimal descuentoDisponible,
+        @Schema(description = "Hasta cuando vale el descuento: el fin de la campana. Vacio si no tiene fin o no hay "
+                + "descuento", nullable = true, example = "2026-11-03")
+        LocalDate descuentoHasta
 ) {
+
+    /** El descuento por pronto pago que tiene hoy la deuda, y hasta cuando vale. */
+    public record Oferta(BigDecimal monto, LocalDate hasta) {}
 
     /** Por que el deudor no reconoce la deuda. */
     @Schema(name = "DisputaDeDeuda", description = "La disputa abierta de una deuda")
@@ -93,6 +103,12 @@ public record DebtSummaryResponse(
     /** Con la mora de hoy, que calcula {@code Intereses}. */
     public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas, Instant codigoEnviado,
                                            Disputa disputa, BigDecimal interesMora) {
+        return from(deuda, cuotas, codigoEnviado, disputa, interesMora, null);
+    }
+
+    /** Con la mora de hoy y el descuento por pronto pago, si la deuda lo tiene. */
+    public static DebtSummaryResponse from(Debt deuda, List<Installment> cuotas, Instant codigoEnviado,
+                                           Disputa disputa, BigDecimal interesMora, Oferta oferta) {
         BigDecimal saldo = suma(cuotas, Installment.Status.pending);
         BigDecimal mora = interesMora == null ? BigDecimal.ZERO : interesMora;
         //  Lo pagado es lo que se pago por DataBridge. No sale de restar el saldo
@@ -134,6 +150,8 @@ public record DebtSummaryResponse(
                 deuda.getStatus() == Debt.Status.disputed ? disputa : null,
                 deuda.getInterestRate(),
                 mora,
-                saldo.add(mora));
+                saldo.add(mora),
+                oferta == null ? null : oferta.monto(),
+                oferta == null ? null : oferta.hasta());
     }
 }

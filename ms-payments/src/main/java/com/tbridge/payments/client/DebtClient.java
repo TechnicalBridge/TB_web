@@ -25,7 +25,8 @@ import java.util.List;
  * <pre>
  *   GET /internal/debts/{id}?installmentIds=12&installmentIds=13   (opcional)
  *   X-Internal-Key: ...
- *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds, capital, interes }
+ *   -> { debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds, capital, interes,
+ *        descuento }
  * </pre>
  */
 @Component
@@ -43,8 +44,17 @@ public class DebtClient {
             List<Long> installmentIds,
             //  Lo que el monto tiene de capital y de mora, si la deuda genera intereses.
             BigDecimal capital,
-            BigDecimal interes
-    ) {}
+            BigDecimal interes,
+            //  La mora condonada por pronto pago: el monto ya viene sin ella.
+            BigDecimal descuento
+    ) {
+        /** Una deuda sin descuento. */
+        public DebtSnapshot(Long debtId, String creditorRut, String debtorRut, String currency, BigDecimal amount,
+                            Long installmentId, List<Long> installmentIds, BigDecimal capital, BigDecimal interes) {
+            this(debtId, creditorRut, debtorRut, currency, amount, installmentId, installmentIds, capital, interes,
+                    null);
+        }
+    }
 
     private final RestClient rest;
     private final String internalKey;

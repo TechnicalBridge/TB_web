@@ -38,8 +38,9 @@ class PagoConfirmadoContratoTest {
     @Test
     void lo_que_manda_es_el_ejemplo_del_contrato() throws IOException {
         PagoConfirmado aviso = new PagoConfirmado(PagoConfirmado.TIPO, 41L, 3L, 7L, "16482337-7", "76418902-7",
-                new BigDecimal("318800"), "CLP", 318800L, new BigDecimal("39485.65"), "khipu", "kh-ejemplo-0001",
-                Instant.parse("2026-10-06T15:30:00Z"), List.of(7L, 8L), new BigDecimal("18800"));
+                new BigDecimal("309400"), "CLP", 309400L, new BigDecimal("39485.65"), "khipu", "kh-ejemplo-0001",
+                Instant.parse("2026-10-06T15:30:00Z"), List.of(7L, 8L), new BigDecimal("9400"),
+                new BigDecimal("9400"));
 
         //  Con el convertidor de verdad, el que usa para publicar en RabbitMQ.
         byte[] enviado = new RabbitConfig().jackson2JsonMessageConverter()
