@@ -201,9 +201,8 @@ class ContactoServiceTest {
     // ------------------------------------------------------------------
 
     /**
-     * Con los feriados tal como los lee Spring Boot de application.properties
-     * (con el mismo cargador, que une las lineas que terminan en \), mas lo
-     * que sume CONTACTO_FERIADOS.
+     * Con la configuracion tal como la lee Spring Boot de application.properties
+     * (con el mismo cargador), mas lo que sume CONTACTO_FERIADOS.
      */
     private ContactoService conLaConfiguracion(String contactoFeriados) throws IOException {
         Object feriados = new PropertiesPropertySourceLoader()
@@ -215,11 +214,13 @@ class ContactoServiceTest {
     }
 
     @Test
-    void en_los_feriados_de_2027_no_se_contacta() throws IOException {
+    void los_feriados_se_calculan_para_cualquier_ano() throws IOException {
         ContactoService conFeriados = conLaConfiguracion("");
+        //  Los de 2027, con el viernes 17 de septiembre (Ley 20.983) que faltaba en la lista a mano.
         List<LocalDate> feriados = Stream.of("2027-01-01", "2027-03-26", "2027-03-27", "2027-05-01",
-                        "2027-05-21", "2027-06-21", "2027-06-28", "2027-07-16", "2027-08-15", "2027-09-18",
-                        "2027-09-19", "2027-10-11", "2027-10-31", "2027-11-01", "2027-12-08", "2027-12-25")
+                        "2027-05-21", "2027-06-21", "2027-06-28", "2027-07-16", "2027-08-15", "2027-09-17",
+                        "2027-09-18", "2027-09-19", "2027-10-11", "2027-10-31", "2027-11-01", "2027-12-08",
+                        "2027-12-25")
                 .map(LocalDate::parse)
                 .toList();
 
@@ -231,25 +232,16 @@ class ContactoServiceTest {
         assertTrue(conFeriados.horaDeContacto(LocalDateTime.of(2027, 10, 12, 10, 0)),
                 "el Encuentro de Dos Mundos cae martes y se corre al lunes 11");
         assertTrue(conFeriados.horaDeContacto(LocalDateTime.of(2027, 1, 4, 10, 0)), "un lunes cualquiera");
+        assertFalse(conFeriados.horaDeContacto(LocalDateTime.of(2031, 1, 1, 10, 0)),
+                "y un ano que nadie cargo: el miercoles 1 de enero de 2031");
     }
 
     @Test
-    void un_feriado_decretado_se_suma_sin_borrar_los_de_la_lista() throws IOException {
+    void un_feriado_decretado_se_suma_a_los_calculados() throws IOException {
         ContactoService conFeriados = conLaConfiguracion("2027-11-22");
 
         assertFalse(conFeriados.horaDeContacto(LocalDateTime.of(2027, 11, 22, 10, 0)), "el decretado");
-        assertFalse(conFeriados.horaDeContacto(LocalDateTime.of(2026, 10, 12, 10, 0)), "los de 2026 siguen");
-        assertFalse(conFeriados.horaDeContacto(LocalDateTime.of(2027, 1, 1, 10, 0)), "y los de 2027");
-    }
-
-    @Test
-    void avisa_cuando_faltan_los_feriados_de_un_ano() throws IOException {
-        ContactoService conFeriados = conLaConfiguracion("");
-
-        assertEquals(List.of(), conFeriados.anosSinFeriados(LocalDate.of(2026, 12, 15)), "2026 y 2027 estan");
-        assertEquals(List.of(), conFeriados.anosSinFeriados(LocalDate.of(2027, 11, 30)));
-        assertEquals(List.of(2028), conFeriados.anosSinFeriados(LocalDate.of(2027, 12, 1)),
-                "desde diciembre, tambien el ano que viene");
-        assertEquals(List.of(2028), conFeriados.anosSinFeriados(LocalDate.of(2028, 3, 2)));
+        assertFalse(conFeriados.horaDeContacto(LocalDateTime.of(2026, 10, 12, 10, 0)), "los calculados siguen");
+        assertTrue(conFeriados.horaDeContacto(LocalDateTime.of(2027, 11, 23, 10, 0)), "el dia siguiente, no");
     }
 }

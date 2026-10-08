@@ -468,8 +468,9 @@ sigue con los recordatorios de su convenio.
 
 **La ley manda sobre la cadencia** (Ley 19.496, art. 37, con los cambios de la Ley 21.320):
 
-- **Horario:** de lunes a sábado, de 8:00 a 20:00 (hora de Chile), nunca un feriado
-  (`CONTACTO_FERIADOS`).
+- **Horario:** de lunes a sábado, de 8:00 a 20:00 (hora de Chile), nunca un feriado. Los
+  nacionales se calculan para cualquier año; los que se decretan se suman con
+  `CONTACTO_FERIADOS`.
 - **Frecuencia:** como máximo dos gestiones por semana a un mismo deudor, con al menos dos días
   entre una y otra. Cuentan todas: la invitación, los toques, el recordatorio de una cuota y el
   código que reenvía la empresa.
