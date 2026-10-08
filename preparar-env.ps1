@@ -19,11 +19,16 @@
 #        secretos de las suscripciones guardadas; despues de cambiarla, cada
 #        sistema conectado (APOFYX, Patrimonio) tiene que volver a conectarse.
 #
+#    .\preparar-env.ps1 -Cambiar JWT_SECRET[,OTRO]
+#        Cambia esos secretos aunque ya tengan un valor propio: para cuando uno
+#        se filtro (quedo en una captura, en un registro, en un chat).
+#
 #  Nunca muestra un valor. Despues: docker compose --profile app up -d.
 # =============================================================================
 param(
     [switch]$Renovar,
     [switch]$TambienCifrado,
+    [string[]]$Cambiar = @(),
     #  El contenedor de MySQL de DataBridge. Solo cambia en una prueba.
     [string]$Contenedor = 'tbridge-db'
 )
@@ -101,7 +106,7 @@ $lineas = New-Object System.Collections.Generic.List[string]
 foreach ($linea in [System.IO.File]::ReadAllLines($archivo, $sinBom)) { $lineas.Add($linea) }
 
 $baseArriba = $false
-if ($Renovar) {
+if ($Renovar -or $Cambiar.Count -gt 0) {
     $ErrorActionPreference = 'Continue'
     $estado = docker inspect -f '{{.State.Running}}' $Contenedor 2>$null
     $baseArriba = ($LASTEXITCODE -eq 0 -and $estado -eq 'true')
@@ -119,15 +124,16 @@ foreach ($nombre in $secretos.Keys) {
         Write-Host "$nombre`: generado."
         continue
     }
-    if ((Huella $actual) -ne $secretos[$nombre]) {
+    $forzado = $Cambiar -contains $nombre
+    if ((Huella $actual) -ne $secretos[$nombre] -and -not $forzado) {
         Write-Host "$nombre`: ya tiene un valor propio, no se toca."
         continue
     }
-    if (-not $Renovar) {
+    if (-not $Renovar -and -not $forzado) {
         Write-Host "$nombre`: tiene el valor publico de antes. Cambialo con -Renovar." -ForegroundColor Yellow
         continue
     }
-    if ($nombre -eq 'CIFRADO_LLAVE' -and -not $TambienCifrado) {
+    if ($nombre -eq 'CIFRADO_LLAVE' -and -not $TambienCifrado -and -not $forzado) {
         Write-Host "CIFRADO_LLAVE: tiene el valor publico de antes. No la cambio sin -TambienCifrado (los sistemas conectados tendrian que volver a conectarse)." -ForegroundColor Yellow
         continue
     }
