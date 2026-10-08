@@ -1,7 +1,7 @@
 # =============================================================================
 #  ms-ai — el asistente (FastAPI)
 # =============================================================================
-#  Corre solo si cambio su carpeta. Las pruebas usan el motor local, que solo
+#  Prueba solo si cambio su carpeta. Las pruebas usan el motor local, que solo
 #  necesita la biblioteca estandar; aparte se revisan sus dependencias.
 # =============================================================================
 name: ms-ai
@@ -10,8 +10,10 @@ on:
   push:
     branches: [main]
     paths: ['ms-ai/**', '.github/workflows/ms-ai.yml']
+  #  En un PR corre siempre: main exige el check "CI de ms-ai", y un check que
+  #  no corre dejaria el PR esperando para siempre. Si su carpeta no cambio, se
+  #  salta las pruebas y el check pasa en segundos.
   pull_request:
-    paths: ['ms-ai/**', '.github/workflows/ms-ai.yml']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +23,33 @@ permissions:
   contents: read
 
 jobs:
+  cambios:
+    name: Que cambio
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      toca: ${{ steps.revisar.outputs.toca }}
+    steps:
+      - id: revisar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUTAS: '^(ms-ai/|\.github/workflows/ms-ai\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "toca=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          archivos=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+          if grep -Eq "$RUTAS" <<< "$archivos"; then toca=true; else toca=false; fi
+          echo "toca=$toca" >> "$GITHUB_OUTPUT"
+          echo "Cambio ms-ai: $toca"
+
   probar:
+    needs: cambios
+    if: needs.cambios.outputs.toca == 'true'
     name: Pruebas y dependencias
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -41,3 +69,18 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r requirements.txt
+
+  #  El check que exige main: pasa si las pruebas pasaron o si no tocaban.
+  resultado:
+    name: CI de ms-ai
+    needs: [cambios, probar]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          CAMBIOS: ${{ needs.cambios.result }}
+          PRUEBAS: ${{ needs.probar.result }}
+        run: |
+          echo "Que cambio: $CAMBIOS · pruebas: $PRUEBAS"
+          [ "$CAMBIOS" = success ] && { [ "$PRUEBAS" = success ] || [ "$PRUEBAS" = skipped ]; }

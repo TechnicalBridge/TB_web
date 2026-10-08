@@ -1126,9 +1126,14 @@ cd ms-ai ; .venv\Scripts\python.exe -m unittest discover tests  # el asistente
 ```
 
 En GitHub cada módulo tiene su propio workflow (`gateway`, `ms-auth`, `ms-debt`, `ms-payments`,
-`frontend`, `ms-ai`), que corre solo si cambió su carpeta y deja en el resumen cuántas pruebas
+`frontend`, `ms-ai`), que prueba solo si cambió su carpeta y deja en el resumen cuántas pruebas
 pasaron, clase por clase. Los de Java comparten [`java.yml`](.github/workflows/java.yml). Todos
 con permisos de solo lectura y con cada acción externa fijada a un commit exacto.
+
+**`main` está protegida.** Nadie sube directo: todo entra por un PR, se mergea con squash y solo si
+pasan los seis checks `CI de <módulo>`. En un PR cada workflow corre siempre, pero si su carpeta no
+cambió se salta las pruebas y su check pasa en segundos. Así un PR que solo cambia el README no
+espera pruebas que nunca van a correr.
 
 Cada servicio tiene sus pruebas en `src/test/java`, con la misma estructura de paquetes que el
 código. **Ninguna necesita base de datos ni internet**, así que corren en segundos en cualquier

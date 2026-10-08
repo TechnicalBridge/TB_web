@@ -1,7 +1,7 @@
 # =============================================================================
 #  frontend — el portal del deudor y de la empresa (React)
 # =============================================================================
-#  Corre solo si cambio su carpeta. Compila el portal y revisa sus
+#  Prueba solo si cambio su carpeta. Compila el portal y revisa sus
 #  dependencias: rompe ante algo de severidad alta o critica. Lo moderado lo
 #  revisa Dependabot con un pull request, sin bloquear a todo el equipo.
 # =============================================================================
@@ -11,8 +11,10 @@ on:
   push:
     branches: [main]
     paths: ['frontend/**', '.github/workflows/frontend.yml']
+  #  En un PR corre siempre: main exige el check "CI de frontend", y un check que
+  #  no corre dejaria el PR esperando para siempre. Si su carpeta no cambio, se
+  #  salta las pruebas y el check pasa en segundos.
   pull_request:
-    paths: ['frontend/**', '.github/workflows/frontend.yml']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,7 +24,33 @@ permissions:
   contents: read
 
 jobs:
+  cambios:
+    name: Que cambio
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      toca: ${{ steps.revisar.outputs.toca }}
+    steps:
+      - id: revisar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUTAS: '^(frontend/|\.github/workflows/frontend\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "toca=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          archivos=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+          if grep -Eq "$RUTAS" <<< "$archivos"; then toca=true; else toca=false; fi
+          echo "toca=$toca" >> "$GITHUB_OUTPUT"
+          echo "Cambio frontend: $toca"
+
   construir:
+    needs: cambios
+    if: needs.cambios.outputs.toca == 'true'
     name: Build y dependencias
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -42,3 +70,18 @@ jobs:
       - run: npm run build
       - name: Dependencias vulnerables
         run: npm audit --audit-level=high
+
+  #  El check que exige main: pasa si las pruebas pasaron o si no tocaban.
+  resultado:
+    name: CI de frontend
+    needs: [cambios, construir]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          CAMBIOS: ${{ needs.cambios.result }}
+          PRUEBAS: ${{ needs.construir.result }}
+        run: |
+          echo "Que cambio: $CAMBIOS · pruebas: $PRUEBAS"
+          [ "$CAMBIOS" = success ] && { [ "$PRUEBAS" = success ] || [ "$PRUEBAS" = skipped ]; }
