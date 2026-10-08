@@ -210,7 +210,7 @@ public class PaymentService {
             //  deudor se lo lleva a una pagina propia que manda el token a
             //  Webpay por POST, como pide Transbank.
             WebpayCreateResponse transaccion = webpay.createTransaction(ordenDeCompra(pago),
-                    "deuda-" + pago.getDebtId(), pago.getAmountClp(), publicUrl + RETORNO_WEBPAY);
+                    sesionWebpay(pago), pago.getAmountClp(), publicUrl + RETORNO_WEBPAY);
             pago.setGatewayTxnId(transaccion.token());
             payments.save(pago);
             return respuesta(pago).conEnlaceDePago(
@@ -259,9 +259,10 @@ public class PaymentService {
      *       pago nuevo si cubre esas cuotas.</li>
      * </ul>
      *
-     * <p>Webpay no cobra si DataBridge no confirma la transaccion al volver el
-     * deudor, y la simulada no cobra: esos se dejan. Si igual se pagaran los
-     * dos, el segundo queda como duplicado ({@link #confirmar}).
+     * <p>Uno de Webpay se mira en Transbank: si ya se pago, se registra; si no,
+     * queda vencido, y si igual se pagara despues no se confirma. La simulada no
+     * cobra: esos se dejan. Si igual se pagaran los dos, el segundo queda como
+     * duplicado ({@link #confirmar}).
      */
     private void antesDeAbrirOtro(Long debtId) {
         for (Payment otro : payments.findByDebtIdAndStatus(debtId, Payment.Status.created)) {
@@ -279,6 +280,23 @@ public class PaymentService {
                     mercadopago.vencerPreferencia(otro.getGatewayTxnId());
                     enVerificacion = conciliarMercadoPago(otro);
                 }
+            } else if (cobraWebpay(otro)) {
+                //  Puede que el deudor ya haya pagado en la ventana anterior (la
+                //  que quedo detras): se le pregunta a Transbank y, si pago, se
+                //  registra y noPagadasYa frena el cobro nuevo. Si no pago, ese
+                //  cobro se vence: si igual pagara ahi, no se confirmaria y
+                //  Transbank lo reversa, en vez de cobrarle dos veces.
+                try {
+                    segunTransbank(otro, true);
+                } catch (ApiException transbankNoResponde) {
+                    //  Sin respuesta no se sabe: se deja, y si pagara los dos, el
+                    //  segundo queda duplicado (confirmar).
+                    continue;
+                }
+                if (otro.getStatus() == Payment.Status.created) {
+                    vencer(otro);
+                }
+                continue;
             } else {
                 continue;
             }
@@ -346,7 +364,32 @@ public class PaymentService {
     }
 
     private PaymentResponse respuesta(Payment pago) {
-        return PaymentResponse.from(pago, !cobraDeVerdad(pago));
+        return PaymentResponse.from(pago, !cobraDeVerdad(pago)).conVence(venceA(pago));
+    }
+
+    /**
+     * Hasta cuando se puede pagar un cobro abierto: lo que da cada pasarela.
+     * Null si ya se cerro o si es la simulacion, que no vence.
+     */
+    private Instant venceA(Payment pago) {
+        if (pago.getStatus() != Payment.Status.created || pago.getCreatedAt() == null || !cobraDeVerdad(pago)) {
+            return null;
+        }
+        Duration plazo = cobraWebpay(pago) ? webpay.plazoDePago()
+                : cobraKhipu(pago) ? venceEn : venceEnMercadoPago;
+        return plazo == null ? null : pago.getCreatedAt().plus(plazo);
+    }
+
+    /**
+     * La sesion del cobro en Transbank: una firma del pago, que solo puede
+     * calcular ms-payments. Cuando al deudor se le acaba el tiempo, Webpay lo
+     * devuelve sin token, solo con la orden de compra y esta sesion: la orden
+     * lleva el numero del pago, que se adivina, y sin la sesion cualquiera
+     * podria hacer fallar el cobro abierto de otro deudor.
+     */
+    private String sesionWebpay(Payment pago) {
+        return "DB" + verifier.sign("sesion-" + pago.getId(), pago.getAmount().toPlainString(),
+                String.valueOf(pago.getDebtId())).substring(0, 40);
     }
 
     /** El id de la transaccion en Khipu: corto, y con el id del pago adentro. */
@@ -646,16 +689,28 @@ public class PaymentService {
      * La pagina que lleva al deudor a Webpay: un formulario POST con el token,
      * que se envia solo. Asi lo pide Transbank, y asi el enlace del cobro se
      * abre igual que el de las otras pasarelas, en una ventana aparte.
+     *
+     * <p><b>El token se manda una sola vez.</b> En Webpay cada token sirve una
+     * vez: mandarlo de nuevo (recargar, volver atras, abrir otra vez el enlace)
+     * termina en el Error 21 de Transbank. La segunda vez la pagina explica que
+     * Webpay ya se abrio y como seguir.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public String paginaWebpay(Long id, String sig) {
-        Payment pago = conFirmaValida(id, sig);
+        Payment pago = payments.paraCerrar(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago no encontrado"));
+        exigirFirma(pago, sig);
         if (!cobraWebpay(pago) || pago.getGatewayTxnId() == null) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Ese pago no se hace en Webpay");
         }
         if (pago.getStatus() != Payment.Status.created) {
             return redireccion(enlaceDePago(pago));
         }
+        if (pago.getRedirectedAt() != null) {
+            return yaSeAbrioWebpay(pago);
+        }
+        pago.setRedirectedAt(Instant.now());
+        payments.save(pago);
         return """
                 <!doctype html>
                 <html lang="es"><head><meta charset="utf-8"><title>Webpay</title></head>
@@ -668,6 +723,26 @@ public class PaymentService {
                 """.formatted(html(webpay.paginaDePago()), html(pago.getGatewayTxnId()));
     }
 
+    /** La segunda vez que se abre la pagina de un cobro: el token ya se uso. */
+    private String yaSeAbrioWebpay(Payment pago) {
+        String portal = enlaceDePago(pago);
+        return """
+                <!doctype html>
+                <html lang="es"><head><meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Webpay ya se abrió</title>
+                <style>body{font-family:system-ui,sans-serif;max-width:30rem;margin:3rem auto;padding:0 1rem;
+                color:#1f2328;line-height:1.5}a{color:#3E7B4F;font-weight:600}</style></head>
+                <body>
+                <h1>Webpay ya se abrió para este pago</h1>
+                <p>Por seguridad, Webpay deja usar cada pago una sola vez. Si su ventana sigue abierta,
+                termina el pago ahí.</p>
+                <p>Si la cerraste, vuelve al portal y toca <b>Pagar</b> otra vez: se abre un pago nuevo.</p>
+                <p><a href="%s">Volver al portal</a></p>
+                </body></html>
+                """.formatted(html(portal));
+    }
+
     /**
      * Donde vuelve el deudor desde Webpay. Devuelve a donde mandarlo: la
      * pagina del resultado, en el portal.
@@ -678,14 +753,16 @@ public class PaymentService {
      *       el cobrado y la orden es la de este pago.</li>
      *   <li>{@code TBK_TOKEN} (con o sin {@code token_ws}): anulo, o hubo un
      *       error en el formulario de Webpay. No se confirma nada.</li>
-     *   <li>Solo {@code TBK_ORDEN_COMPRA}: se le acabo el tiempo.</li>
+     *   <li>Solo {@code TBK_ORDEN_COMPRA} y {@code TBK_ID_SESION}: se le acabo
+     *       el tiempo. La sesion tiene que ser la de ese cobro: la orden se
+     *       adivina, la sesion no.</li>
      * </ul>
      *
      * <p>Volver dos veces con el mismo token no vuelve a confirmar: Transbank
      * lo rechazaria, y el pago ya quedo cerrado la primera vez.
      */
     @Transactional
-    public String retornoWebpay(String tokenWs, String tbkToken, String ordenDeCompra) {
+    public String retornoWebpay(String tokenWs, String tbkToken, String ordenDeCompra, String sesion) {
         boolean anulado = tbkToken != null && !tbkToken.isBlank();
         if (!anulado && tokenWs != null && !tokenWs.isBlank()) {
             Payment pago = porToken(tokenWs);
@@ -695,6 +772,11 @@ public class PaymentService {
             return enlaceDePago(pago);
         }
         Payment pago = anulado ? porToken(tbkToken) : porOrden(ordenDeCompra);
+        if (!anulado && !mismo(sesion, sesionWebpay(pago))) {
+            log.warn("Vuelta de Webpay por tiempo para el pago {} con una sesion que no es la suya: no se aplica",
+                    pago.getId());
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Webpay no dijo que pago era");
+        }
         if (pago.getStatus() == Payment.Status.created) {
             fallido(pago, null);
         }
@@ -711,38 +793,112 @@ public class PaymentService {
             //  vuelta del mismo deudor si alcanzo a confirmar.
             return;
         }
+        aplicarWebpay(pago, token, respuesta);
+    }
+
+    /**
+     * Lo que respondio Transbank, aplicado al pago. Pagado solo si esta
+     * AUTHORIZED con codigo 0, el monto es el cobrado y la orden es la de este
+     * pago; si no, fallido. Un pago ya vencido no pasa a fallido: sigue vencido.
+     */
+    private void aplicarWebpay(Payment pago, String token, WebpayCommitResponse respuesta) {
         String crudo = comoJson(respuesta);
         boolean montoCalza = respuesta.amount() != null && respuesta.amount().equals(pago.getAmountClp());
         boolean ordenCalza = pago.getId().equals(idDeLaOrden(respuesta.buyOrder()));
         if (respuesta.isAuthorized() && montoCalza && ordenCalza) {
             confirmar(pago, PaymentEvent.Source.webhook, token, null, crudo);
-        } else {
+        } else if (pago.getStatus() == Payment.Status.created) {
             fallido(pago, crudo);
         }
     }
 
     /**
-     * Los cobros de Webpay que nadie cerro: el deudor cerro la ventana sin
-     * pagar ni anular, y Webpay nunca lo devolvio. Transbank anula el token a
-     * los pocos minutos, asi que pasado el plazo no hay nada que confirmar:
-     * quedan vencidos, y no como cobros abiertos para siempre.
+     * Le pregunta a Transbank en que quedo el cobro, y lo aplica.
+     *
+     * <ul>
+     *   <li>Pagado y sin confirmar ({@code INITIALIZED} con {@code vci}): el
+     *       deudor pago y cerro la ventana antes de volver. Si el cobro sigue
+     *       abierto se confirma desde aca, como habria hecho su vuelta.</li>
+     *   <li>Sin pagar ({@code INITIALIZED} sin {@code vci}): nada todavia.</li>
+     *   <li>Confirmado, fallido, reversado o anulado: se aplica.</li>
+     * </ul>
+     *
+     * <p>Un cobro vencido no se confirma aunque se haya pagado: se vencio
+     * porque el deudor abrio otro, y confirmarlo seria cobrarle dos veces. Sin
+     * confirmar, Transbank lo reversa.
+     *
+     * @throws ApiException si Transbank no responde.
+     */
+    private void segunTransbank(Payment pago, boolean puedeConfirmar) {
+        String token = pago.getGatewayTxnId();
+        WebpayCommitResponse estado = webpay.estado(token);
+        if ("INITIALIZED".equals(estado.status())) {
+            boolean pagado = estado.vci() != null && !estado.vci().isBlank();
+            if (pagado && puedeConfirmar && pago.getStatus() == Payment.Status.created) {
+                confirmarEnWebpay(pago, token);
+            }
+            return;
+        }
+        aplicarWebpay(pago, token, estado);
+    }
+
+    /**
+     * Los cobros de Webpay que hay que revisar: los abiertos o, con
+     * {@code vencidos}, los que se vencieron en el ultimo dia. Cada uno se
+     * revisa despues por separado, con {@link #conciliarWebpay}.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> webpayPorRevisar(boolean vencidos) {
+        if (!webpay.real()) {
+            return List.of();
+        }
+        List<Payment> lista = vencidos
+                ? payments.findByGatewayAndStatusAndCreatedAtAfter(Payment.Gateway.webpay, Payment.Status.expired,
+                        Instant.now().minus(webpay.plazoDePago()).minus(REVISAR_VENCIDOS))
+                : payments.findByGatewayAndStatus(Payment.Gateway.webpay, Payment.Status.created);
+        return lista.stream().map(Payment::getId).toList();
+    }
+
+    /**
+     * Un cobro de Webpay, segun Transbank. Lo que registra el pago del deudor
+     * que cerro la ventana sin volver, y lo que cierra un cobro abandonado:
+     * pasado el plazo de Transbank sin pagarse, queda vencido.
+     *
+     * <p>Va en su propia transaccion y lo primero es bloquear la fila del pago:
+     * si el deudor vuelve justo ahora, su vuelta espera y encuentra el pago ya
+     * cerrado, en vez de confirmarlo dos veces.
+     *
+     * @return si el cobro quedo cerrado: pagado, fallido o vencido.
      */
     @Transactional
-    public int vencerWebpayAbandonados(Duration despuesDe) {
-        if (!webpay.real()) {
-            return 0;
+    public boolean conciliarWebpay(Long id) {
+        Payment pago = payments.paraCerrar(id).orElse(null);
+        if (pago == null || !cobraWebpay(pago) || pago.getGatewayTxnId() == null
+                || (pago.getStatus() != Payment.Status.created && pago.getStatus() != Payment.Status.expired)) {
+            return false;
         }
-        Instant limite = Instant.now().minus(despuesDe);
-        int vencidos = 0;
-        for (Payment pago : payments.findByGatewayAndStatus(Payment.Gateway.webpay, Payment.Status.created)) {
-            if (pago.getCreatedAt() != null && pago.getCreatedAt().isBefore(limite)) {
-                pago.setStatus(Payment.Status.expired);
-                payments.save(pago);
-                eventos.save(PaymentEvent.de(pago.getId(), PaymentEvent.Type.expired, PaymentEvent.Source.webhook));
-                vencidos++;
+        Payment.Status antes = pago.getStatus();
+        try {
+            segunTransbank(pago, true);
+        } catch (ApiException transbankNoResponde) {
+            //  Se pregunta de nuevo en la proxima pasada. Si en un dia entero no
+            //  contesta, el cobro no puede quedar abierto para siempre.
+            if (antes == Payment.Status.created && vencio(pago, webpay.plazoDePago().plus(REVISAR_VENCIDOS))) {
+                vencer(pago);
             }
+            return pago.getStatus() != antes;
         }
-        return vencidos;
+        if (pago.getStatus() == Payment.Status.created && vencio(pago, webpay.plazoDePago())) {
+            vencer(pago);
+        }
+        if (antes == Payment.Status.expired && pago.getStatus() != antes) {
+            log.warn("El pago {} se pago en Webpay despues de vencido: quedo {}", pago.getId(), pago.getStatus());
+        }
+        return pago.getStatus() != antes;
+    }
+
+    private static boolean vencio(Payment pago, Duration plazo) {
+        return pago.getCreatedAt() != null && pago.getCreatedAt().isBefore(Instant.now().minus(plazo));
     }
 
     // ------------------------------------------------------------------
@@ -894,8 +1050,9 @@ public class PaymentService {
         }
     }
 
+    /** El pago de Webpay de ese token, con su fila bloqueada: la vuelta y la consulta no se cruzan. */
     private Payment porToken(String token) {
-        return payments.findByGatewayAndGatewayTxnId(Payment.Gateway.webpay, token.trim())
+        return payments.paraCerrarPorToken(Payment.Gateway.webpay, token.trim())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Webpay devolvio un pago que no existe"));
     }
 
@@ -904,7 +1061,8 @@ public class PaymentService {
         if (id == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Webpay no dijo que pago era");
         }
-        Payment pago = buscar(id);
+        Payment pago = payments.paraCerrar(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Webpay devolvio un pago que no existe"));
         if (pago.getGateway() != Payment.Gateway.webpay) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Webpay devolvio un pago que no existe");
         }
@@ -1057,11 +1215,15 @@ public class PaymentService {
 
     private Payment conFirmaValida(Long id, String sig) {
         Payment pago = buscar(id);
+        exigirFirma(pago, sig);
+        return pago;
+    }
+
+    private void exigirFirma(Payment pago, String sig) {
         if (!verifier.matches(sig, String.valueOf(pago.getId()),
                 pago.getAmount().toPlainString(), String.valueOf(pago.getDebtId()))) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Firma de checkout invalida");
         }
-        return pago;
     }
 
     private static boolean mismo(String a, String b) {

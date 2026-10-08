@@ -164,14 +164,15 @@ public class PaymentController {
     @RequestMapping(value = "/public/webpay/retorno", method = {RequestMethod.GET, RequestMethod.POST})
     @Operation(summary = "La vuelta desde Webpay",
             description = """
-                    Webpay devuelve aca al deudor. Con `token_ws` (pago) se confirma la transaccion con Transbank;                     con `TBK_TOKEN` (anulo) o solo `TBK_ORDEN_COMPRA` (se le acabo el tiempo) el pago queda                     fallido. Responde con una redireccion a la pagina del resultado.""")
+                    Webpay devuelve aca al deudor. Con `token_ws` (pago) se confirma la transaccion con Transbank;                     con `TBK_TOKEN` (anulo) o solo `TBK_ORDEN_COMPRA` y `TBK_ID_SESION` (se le acabo el tiempo) el pago queda                     fallido. Responde con una redireccion a la pagina del resultado.""")
     @ApiResponse(responseCode = "302", description = "A la pagina del resultado del pago")
     public ResponseEntity<Void> retornoWebpay(
             @RequestParam(name = "token_ws", required = false) String tokenWs,
             @RequestParam(name = "TBK_TOKEN", required = false) String tbkToken,
-            @RequestParam(name = "TBK_ORDEN_COMPRA", required = false) String ordenDeCompra) {
+            @RequestParam(name = "TBK_ORDEN_COMPRA", required = false) String ordenDeCompra,
+            @RequestParam(name = "TBK_ID_SESION", required = false) String sesion) {
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(payments.retornoWebpay(tokenWs, tbkToken, ordenDeCompra)))
+                .location(URI.create(payments.retornoWebpay(tokenWs, tbkToken, ordenDeCompra, sesion)))
                 .build();
     }
 

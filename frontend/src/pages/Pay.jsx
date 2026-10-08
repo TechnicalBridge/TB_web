@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { obtenerDeuda } from "../api/deudas";
 import { abrirCobro, obtenerPago } from "../api/pagos";
-import { dinero, fecha, hoyEnChile, porcentaje } from "../utils/formato";
+import { dinero, fecha, hora, hoyEnChile, porcentaje } from "../utils/formato";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
 import LogoPasarela, { PASARELAS, nombreDePasarela } from "../components/LogoPasarela";
@@ -28,6 +28,8 @@ export default function Pay() {
   const [pasarela, setPasarela] = useState("webpay");
   const [cuantas, setCuantas] = useState(1);
   const [pago, setPago] = useState(null);
+  // La ventana de la pasarela, para traerla al frente en vez de abrirla de nuevo.
+  const ventana = useRef(null);
   const [acreditado, setAcreditado] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -110,6 +112,7 @@ export default function Pay() {
     // mientras el portal se iba a la pasarela. El opener se corta a mano.
     const popup = window.open("", "_blank", "width=480,height=720");
     if (popup) popup.opener = null;
+    ventana.current = popup;
     try {
       const cuotas = enConvenio ? elegidas.map((c) => c.id) : null;
       const data = await abrirCobro(Number(id), cuotas, pasarela);
@@ -125,6 +128,26 @@ export default function Pay() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Volver a la pasarela. Si su ventana sigue abierta, se trae al frente. Si se
+   * cerro: Khipu y Mercado Pago dejan abrir su pagina de nuevo, pero en Webpay
+   * cada pago sirve una sola vez (si no, Transbank responde con el Error 21),
+   * asi que se abre un pago nuevo.
+   */
+  function abrirDeNuevo() {
+    const abierta = ventana.current;
+    if (abierta && !abierta.closed) {
+      abierta.focus();
+      return;
+    }
+    if (pago?.gateway === "webpay") {
+      pagar();
+      return;
+    }
+    ventana.current = window.open(pago.checkoutUrl, "_blank", "width=480,height=720");
+    if (ventana.current) ventana.current.opener = null;
   }
 
   return (
@@ -302,10 +325,12 @@ export default function Pay() {
                 <div className="esperando">
                   <span className="girando" />
                   Esperando la confirmación de la pasarela…{" "}
-                  <button type="button" className="link-btn"
-                          onClick={() => window.open(pago.checkoutUrl, "_blank", "noopener,width=480,height=720")}>
+                  <button type="button" className="link-btn" onClick={abrirDeNuevo} disabled={busy}>
                     Abrirla de nuevo
                   </button>
+                  {pago.venceA && (
+                    <span className="hint"> Puedes pagar hasta las {hora(pago.venceA)}.</span>
+                  )}
                 </div>
               ) : (
                 <p className="hint centro" style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>

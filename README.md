@@ -388,17 +388,60 @@ Responde con el `codigo`. Con él se entra al portal en **Tengo un código de ac
 
 ### Para pagar con Webpay
 
-Webpay abre la página real de Transbank, en su ambiente de prueba: no se mueve plata. Necesita
-internet, y no hay que configurar nada.
+Webpay abre la página real de Transbank, en su ambiente de **integración**: no se mueve plata.
+Necesita internet, y no hay que configurar nada: DataBridge trae las credenciales públicas de
+integración que publica Transbank.
 
-| Paso | Qué poner |
-| --- | --- |
-| Tarjeta | `4051 8856 0044 6623` (VISA), vencimiento cualquier fecha futura, CVV `123` |
-| Autenticación del banco | RUT `11.111.111-1`, clave `123` |
+**Las tarjetas de prueba** son las de Transbank (las de Mercado Pago no sirven aquí):
 
-Al aceptar, Transbank devuelve al portal con **Pago aprobado**. **Anular compra** devuelve con
-*El pago no se completó*, y la deuda sigue igual. Un cobro que nadie termina se vence a los 15
-minutos.
+| Tarjeta | Número | CVV | Resultado |
+| --- | --- | --- | --- |
+| VISA crédito | `4051 8856 0044 6623` | `123` | Aprobada |
+| AMEX crédito | `3700 0000 0002 032` | `1234` | Aprobada |
+| Mastercard crédito | `5186 0595 5959 0568` | `123` | **Rechazada** |
+| Redcompra débito | `4051 8842 3993 7763` | — | Aprobada |
+| Redcompra débito | `5186 0085 4123 3829` | — | **Rechazada** |
+| Prepago VISA | `4051 8860 0005 6590` | `123` | Aprobada |
+| Prepago Mastercard | `5186 1741 1062 9480` | `123` | **Rechazada** |
+
+El vencimiento es cualquier fecha futura, y la autenticación del banco, RUT `11.111.111-1` y clave
+`123`. Al aceptar, Transbank devuelve al portal con **Pago aprobado**. **Anular compra** devuelve con
+*El pago no se completó*, y la deuda sigue igual.
+
+**Cómo trabaja DataBridge con Webpay**, según la
+[documentación de Transbank](https://www.transbankdevelopers.cl/documentacion/webpay-plus):
+
+- **El token sirve una sola vez.** La página que lleva a Webpay lo manda una vez. Si se vuelve a
+  abrir (recargar, volver atrás), dice *Webpay ya se abrió para este pago* en vez del *Error 21*
+  de Transbank. En el portal, *Abrirla de nuevo* trae al frente la ventana de Webpay, y si se
+  cerró, abre un pago nuevo.
+- **Si el deudor paga y cierra la ventana antes de volver, el pago se registra igual.** Cada 10
+  segundos ms-payments le pregunta a Transbank por los cobros abiertos
+  (`GET /transactions/{token}`): pagado y sin confirmar, lo confirma; ya confirmado, lo registra;
+  rechazado o anulado, queda fallido.
+- **Los plazos son los de Transbank.** El token dura 5 minutos y el formulario 10 en integración
+  (4 en producción): el cobro vence a los 15 minutos (9 en producción), y el portal dice hasta qué
+  hora se puede pagar. Ningún cobro se da por vencido sin preguntarle antes a Transbank.
+- **Al abrir otro cobro de la misma deuda,** el anterior se mira en Transbank. Si ya se pagó, se
+  registra y no se cobra de nuevo; si no, queda vencido, y aunque se pagara después no se confirma
+  (sin confirmar, Transbank lo reversa).
+- **La vuelta por tiempo agotado se comprueba.** Webpay devuelve solo la orden de compra y la
+  sesión: la orden lleva el número del pago, que se adivina, pero la sesión es una firma del pago
+  que solo conoce ms-payments. Sin ella, nadie puede hacer fallar el cobro de otro deudor.
+
+**Para pasar a producción:**
+
+1. **HTTPS obligatorio.** Transbank no acepta comercios sin https, ni una vuelta a `http://`.
+2. **Registrarse como comercio** en [publico.transbank.cl](https://publico.transbank.cl) y recibir
+   el código de comercio.
+3. **Validar la integración:** enviar las evidencias en el formulario de Transbank. Transbank
+   revisa las transacciones de prueba y entrega la llave secreta productiva.
+4. **Configurar** `TRANSBANK_API_URL=https://webpay3g.transbank.cl`, `TRANSBANK_COMMERCE_CODE` y
+   `TRANSBANK_API_KEY` con los valores productivos. El plazo de los cobros pasa solo a 9 minutos.
+5. **Hacer una compra de $50** para comprobar que todo funciona, antes de abrir al público.
+
+Transbank pide además escaneos de vulnerabilidades cada tres meses, los componentes al día y un WAF
+o IPS delante del sitio.
 
 ### Para pagar con Mercado Pago de verdad
 
@@ -1004,7 +1047,7 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `WEBHOOK_SECRET` | `tbridge-webhook-dev` | Firma los enlaces de pago y verifica los avisos de las pasarelas simuladas |
 | `TRANSBANK_ENVIRONMENT` | `TEST` | `TEST` cobra contra el ambiente de integración de Transbank; `SIMULADA`, sin internet, vuelve a la pasarela simulada |
 | `TRANSBANK_API_URL`, `TRANSBANK_COMMERCE_CODE`, `TRANSBANK_API_KEY` | los públicos de integración | En producción, los del comercio |
-| `TRANSBANK_VENCE_EN` | `15m` | Cuándo se vence un cobro de Webpay que nadie terminó |
+| `TRANSBANK_VENCE_EN` | según el ambiente | Cuánto vale un cobro de Webpay. Vacía, lo que da Transbank: 15 minutos en integración (5 de token y 10 de formulario) y 9 en producción |
 | `KHIPU_LLAVE` | vacía | La llave de API de una cuenta de cobro de Khipu. Con ella, Khipu cobra de verdad; vacía, es simulada. **Es un secreto: solo en el `.env`** |
 | `KHIPU_URL_AVISOS`, `KHIPU_SECRETO` | vacías | Con una dirección pública de DataBridge: dónde avisa Khipu, y el secreto con que se verifica su firma |
 | `KHIPU_VENCE_EN` | `30m` | Cuándo se vence un cobro de Khipu que nadie pagó |
@@ -1045,7 +1088,9 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | Tipo | Qué cubre |
 | --- | --- |
 | **Unitarias** (JUnit 5 + Mockito) | Las reglas de cada servicio con los repositorios simulados. Que cada quien vea solo lo suyo; que el monto salga de ms-debt y no del navegador; que un pago avisado dos veces se abone una; que las cuotas se paguen en orden; que solo entren deudores morosos; que un cliente al día cierre lo que estaba en cobranza; que el mandato registre al acreedor nuevo; que un convenio sobreviva al mes siguiente; el reclamo y sus dos resoluciones; el cifrado y que un secreto viejo se cifre al arrancar; la sesión revocable, el código de acceso, la UF, la firma de los eventos y el recordatorio |
-| **De Webpay** | El cliente contra un Transbank falso: crear, confirmar y sus errores, sin que el detalle de Transbank llegue a la persona. El retorno aprobado; rechazado, sin código, con otro monto o con otra orden; anulado, con error de formulario y por tiempo; repetido; con Transbank caído; con un token ajeno; los abandonados que vencen, y el modo simulado |
+| **De Webpay** | El cliente contra un Transbank falso: crear, confirmar, consultar y sus errores, sin que el detalle de Transbank ni la llave lleguen a la persona; el plazo según el ambiente. El retorno aprobado; rechazado, sin código, con otro monto o con otra orden; anulado, con error de formulario y por tiempo; repetido; con Transbank caído; con un token ajeno. La página que manda el token una sola vez. La consulta periódica: el pago sin confirmar que se confirma, el confirmado que se registra, el fallido, reversado o anulado, el que sigue abierto, el que vence pasado el plazo y el que vence si Transbank no contesta en un día. Al abrir otro cobro, el anterior pagado se registra y frena el nuevo, y el anterior sin pagar se vence |
+| **De seguridad de las pasarelas** | La página de Webpay escapa lo que muestra; con la firma de otro pago no se abre ni se gasta el token; una vuelta por tiempo con una sesión inventada no hace fallar el cobro de otro; la respuesta del cobro no muestra el token; un cobro vencido que se pagó no se confirma (para no cobrar dos veces); la consulta no acepta otro monto ni otra orden; la vuelta, la página y la consulta bloquean la fila del pago, y entre la consulta y la vuelta se confirma una sola vez |
+| **De las pasarelas lentas o caídas** | Webpay, Khipu, Mercado Pago y ms-debt, contra un servidor que tarda más que el tiempo máximo y contra un puerto donde no escucha nadie: cada cliente corta en menos de dos segundos, sin mostrar el detalle técnico |
 | **De Mercado Pago** | El cliente contra un Mercado Pago falso: la preferencia con el token, la vuelta (con `auto_return` solo si es https) y el `init_point`, y sus errores; la preferencia vence a la hora pedida. La conciliación por las órdenes de la preferencia, también la periódica que vence lo abandonado: sin pagos, con un pago aprobado (también después de una tarjeta rechazada), con una tarjeta rechazada que deja el cobro abierto para reintentar, con Mercado Pago caído o con una preferencia que no existe; la vuelta y el aviso, sin sesión |
 | **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido (con el cobro anulado en Khipu, o pagado justo antes de anularlo); que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
 | **Del doble pago** | Un segundo pago mientras otro se verifica se rechaza; el abierto sin pagar se anula (Khipu lo borra, la preferencia de Mercado Pago vence en el acto) y queda vencido; una cuota pagada que ms-debt todavía no abona no se cobra de nuevo; el cobro guarda las cuotas que cubre, y ms-debt las informa en orden. Si igual se paga dos veces, el segundo queda `duplicated`, sin abonar y con la referencia y el RUT para devolverlo; pagar otras cuotas de la misma deuda no es duplicado. La consulta periódica no vence lo que Khipu o Mercado Pago están verificando y anula en Khipu lo que vence; un vencido que se paga después se registra, por la revisión de vencidos o por el aviso de Khipu |
@@ -1053,9 +1098,9 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
-| **De rendimiento** (k6) | Cómo lo siente una persona y dónde está el techo. Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
+| **De rendimiento** (k6) | Cómo lo siente una persona, dónde está el techo y cuánto aguanta abrir cobros (`pagos.js`, solo con las pasarelas simuladas). Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**373 pruebas en Java y 12 en Python**, sin fallos:
+**402 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
@@ -1063,7 +1108,7 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | `gateway` | 13 |
 | `ms-auth` | 40 |
 | `ms-debt` | 182 |
-| `ms-payments` | 120 |
+| `ms-payments` | 149 |
 | `ms-ai` (Python) | 12 |
 
 Además, la cadena completa con los tres sistemas se prueba de punta a punta con un script que
@@ -1140,7 +1185,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **373**, sin fallos |
+| Pruebas Java (`mvnw clean test`, JDK 25) | **402**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
@@ -1148,6 +1193,8 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 | Khipu | Contra un Khipu falso con la forma de la API v3, con los contenedores reconstruidos y en Edge: el deudor se arrepiente y el portal dice *El pago no se completó*; paga y dice *Pago aprobado*; paga y cierra la ventana sin volver, y la consulta periódica lo registra sola. En los tres casos el contrato de Patrimonio queda con lo que corresponde. Y contra **Khipu real**, con una cuenta en modo desarrollador: se pagó con DemoBank, Khipu lo concilió (4 min 20 s desde que se abrió el cobro, contando lo que tarda la persona en Khipu) y ms-payments lo registró 21 s después, cuando todavía revisaba cada 30 s Al cancelar, el cobro se anula en Khipu: probado contra Khipu real, donde queda `deleted` y ya no se puede pagar |
 | Mercado Pago | Contra el Mercado Pago real con credenciales de prueba, con ms-payments reconstruido y en Edge: la preferencia se crea con vencimiento a 30 minutos; el deudor paga con la tarjeta de prueba y no vuelve al portal, y la consulta periódica registra el pago en unos 10 s: queda `paid` y la deuda del contrato en Patrimonio baja a $0 |
 | Doble pago | Contra las pasarelas reales, con la migración `V2` aplicada sobre la base con datos: mientras Khipu verifica, otro pago por la misma cuota se rechaza (*Tienes un pago en verificación*); recién pagada la cuota, antes de que ms-debt la abone, también; un cobro de Khipu abierto sin pagar queda `deleted` en Khipu y vencido aquí al abrir otro, y la preferencia de Mercado Pago vence en el acto. Pagados a la vez un cobro de Webpay y uno de Khipu por la misma cuota, el primero se abona y el segundo queda `duplicated`: la deuda baja una sola vez, el deudor ve *Estas cuotas ya estaban pagadas* y la empresa lo ve en *Pagos para devolver* con la referencia de Khipu |
+| Webpay según Transbank ([#75](https://github.com/TechnicalBridge/TB_web/issues/75)) | En Edge contra el ambiente de integración, con ms-payments y el portal reconstruidos: 11 de 11 comprobaciones. La página abierta dos veces dice *Webpay ya se abrió* en vez del Error 21, y la primera ventana paga igual; una vuelta por tiempo con una sesión inventada responde 400 y no toca el cobro; *Abrirla de nuevo* abre un cobro nuevo y vence el anterior; **pagado y sin volver al portal, ms-payments lo confirmó solo en 7 segundos**, y la Mastercard de prueba queda rechazada. El cobro que había quedado abierto por el Error 21 se venció solo, después de consultarlo |
+| Carga de pagos (`rendimiento/pagos.js`) | Con las pasarelas simuladas, hasta 100 deudores abriendo cobros a la vez: 5.817 peticiones sin una falla, abrir un cobro en 30 ms y consultarlo en 7 ms (p95) |
 | Reclamo en pantalla | Recorrido en Edge: el deudor reclama, la empresa lo ve con su detalle y lo retira, y el acreedor ve *Disputa aceptada* |
 | Interés por mora | Con los tres sistemas reconstruidos y Khipu real: un contrato de Patrimonio al 2% mensual, con tres arriendos de $300.000 atrasados 62, 31 y 1 día, llegó por APOFYX con su tasa. El portal mostró $18.800 de mora, se pagaron $918.800 con Khipu, y Patrimonio dejó los cargos en $0 y anotó $18.800 de intereses |
 | Convenio con interés | Otro contrato, al 1,5%, repactó $914.100 (capital más mora) en 6 cuotas de $160.448, la última de $160.445: $962.685 en total, $48.585 de intereses del convenio |

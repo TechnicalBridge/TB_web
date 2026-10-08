@@ -217,7 +217,7 @@ services:
       TRANSBANK_API_URL:       ${TRANSBANK_API_URL:-https://webpay3gint.transbank.cl}
       TRANSBANK_COMMERCE_CODE: ${TRANSBANK_COMMERCE_CODE:-597055555532}
       TRANSBANK_API_KEY:       ${TRANSBANK_API_KEY:-579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C}
-      TRANSBANK_VENCE_EN:      ${TRANSBANK_VENCE_EN:-15m}
+      TRANSBANK_VENCE_EN:      ${TRANSBANK_VENCE_EN:-}
       #  Con llave, Khipu cobra de verdad (una cuenta de cobro en modo
       #  desarrollador paga con DemoBank). Sin llave, queda simulada. El
       #  deudor vuelve de Khipu a PUBLIC_URL, que viene en el bloque comun.

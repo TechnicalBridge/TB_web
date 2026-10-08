@@ -39,6 +39,11 @@ class WebpayClientTest {
              "card_detail":{"card_number":"6623"},"authorization_code":"1213","payment_type_code":"VD",
              "response_code":0,"installments_number":0,"campo_nuevo":"Transbank puede sumar campos"}""";
 
+    /** Lo que responde Transbank al consultar: pagada y sin confirmar, como en el ambiente de integracion. */
+    private String respuestaEstado = """
+            {"vci":"TSY","amount":410000,"status":"INITIALIZED","buy_order":"ORD41T123","session_id":"DBabc",
+             "payment_type_code":"VN","installments_number":0}""";
+
     @BeforeEach
     void levantar() throws IOException {
         transbank = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -46,9 +51,11 @@ class WebpayClientTest {
             String cuerpo = new String(intercambio.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             llamadas.add(new Llamada(intercambio.getRequestMethod(), intercambio.getRequestURI().getPath(),
                     intercambio.getRequestHeaders(), cuerpo));
-            String respuesta = "POST".equals(intercambio.getRequestMethod())
-                    ? "{\"token\":\"tok123\",\"url\":\"https://webpay3gint.transbank.cl/webpayserver/initTransaction\"}"
-                    : respuestaConfirmar;
+            String respuesta = switch (intercambio.getRequestMethod()) {
+                case "POST" -> "{\"token\":\"tok123\",\"url\":\"https://webpay3gint.transbank.cl/webpayserver/initTransaction\"}";
+                case "GET" -> respuestaEstado;
+                default -> respuestaConfirmar;
+            };
             byte[] bytes = respuesta.getBytes(StandardCharsets.UTF_8);
             intercambio.getResponseHeaders().add("Content-Type", "application/json");
             intercambio.sendResponseHeaders(codigo, bytes.length);
@@ -114,6 +121,46 @@ class WebpayClientTest {
         transbank.stop(0);
         ApiException caido = assertThrows(ApiException.class, () -> cliente().commitTransaction("tok123"));
         assertEquals(HttpStatus.BAD_GATEWAY, caido.getStatus());
+    }
+
+    @Test
+    void consultar_es_un_get_con_el_token_y_las_credenciales_y_no_confirma() {
+        WebpayCommitResponse estado = cliente().estado("tok123");
+
+        Llamada llamada = llamadas.getFirst();
+        assertEquals(1, llamadas.size(), "consultar no confirma");
+        assertEquals("GET", llamada.metodo());
+        assertEquals("/rswebpaytransaction/api/webpay/v1.2/transactions/tok123", llamada.ruta());
+        assertEquals("597055555532", llamada.encabezados().get("Tbk-api-key-id").getFirst());
+        assertEquals("llave-de-prueba", llamada.encabezados().get("Tbk-api-key-secret").getFirst());
+        assertEquals("INITIALIZED", estado.status());
+        assertEquals("TSY", estado.vci(), "pagada y sin confirmar: ya trae vci");
+        assertFalse(estado.isAuthorized());
+    }
+
+    @Test
+    void si_transbank_no_deja_consultar_el_deudor_no_lee_su_detalle_ni_la_llave() {
+        codigo = 401;
+        respuestaEstado = "{\"error_message\":\"Not Authorized: llave-de-prueba\"}";
+
+        ApiException error = assertThrows(ApiException.class, () -> cliente().estado("tok123"));
+
+        assertEquals(HttpStatus.BAD_GATEWAY, error.getStatus());
+        assertFalse(error.getMessage().contains("llave-de-prueba"), "la llave no sale en el mensaje");
+        assertFalse(error.getMessage().contains("401"), "ni el detalle de Transbank");
+    }
+
+    @Test
+    void el_plazo_es_el_de_transbank_segun_el_ambiente() {
+        assertEquals(java.time.Duration.ofMinutes(15),
+                new WebpayClient("https://webpay3gint.transbank.cl", "x", "y", "TEST").plazoDePago(),
+                "integracion: 5 minutos de token y 10 de formulario");
+        assertEquals(java.time.Duration.ofMinutes(9),
+                new WebpayClient("https://webpay3g.transbank.cl", "x", "y", "LIVE").plazoDePago(),
+                "produccion: 5 minutos de token y 4 de formulario");
+        assertEquals(java.time.Duration.ofMinutes(20),
+                new WebpayClient("https://webpay3g.transbank.cl", "x", "y", "LIVE", "20m", TiemposDePasarela.fabrica())
+                        .plazoDePago(), "TRANSBANK_VENCE_EN lo cambia");
     }
 
     @Test

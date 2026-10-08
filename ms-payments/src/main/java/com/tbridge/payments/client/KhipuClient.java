@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.tbridge.common.exception.ApiException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -71,10 +73,17 @@ public class KhipuClient {
     private final boolean real;
     private final RestClient rest;
 
+    @Autowired
     public KhipuClient(@Value("${app.khipu.url:https://payment-api.khipu.com}") String url,
                        @Value("${app.khipu.llave:}") String llave) {
+        this(url, llave, TiemposDePasarela.fabrica());
+    }
+
+    /** Con otros tiempos maximos: para probarlos sin esperar veinte segundos. */
+    KhipuClient(String url, String llave, ClientHttpRequestFactory fabrica) {
         this.real = llave != null && !llave.isBlank();
         this.rest = RestClient.builder()
+                .requestFactory(fabrica)
                 .baseUrl(url.replaceAll("/$", ""))
                 .defaultHeader("x-api-key", llave == null ? "" : llave.trim())
                 .build();
