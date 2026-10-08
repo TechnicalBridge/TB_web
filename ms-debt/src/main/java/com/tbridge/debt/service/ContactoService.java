@@ -70,6 +70,8 @@ public class ContactoService {
     private final LimiteDeContacto limite;
     private final ObjectMapper json;
     private final Set<LocalDate> feriados;
+    /** El ultimo dia en que se reviso si faltan feriados: se avisa una vez al dia, no cada 15 minutos. */
+    private LocalDate feriadosRevisados;
 
     public ContactoService(CampaignRepository campaigns, DebtRepository debts, DebtEventRepository events,
                            AuthClient auth, LimiteDeContacto limite, ObjectMapper json,
@@ -89,10 +91,32 @@ public class ContactoService {
 
     @Scheduled(cron = "${app.contacto.cron:0 */15 * * * *}", zone = "America/Santiago")
     public void pasar() {
-        ContactosResponse hecho = contactar(LocalDateTime.now(CHILE), null);
+        LocalDateTime ahora = LocalDateTime.now(CHILE);
+        if (!ahora.toLocalDate().equals(feriadosRevisados)) {
+            feriadosRevisados = ahora.toLocalDate();
+            List<Integer> faltan = anosSinFeriados(feriadosRevisados);
+            if (!faltan.isEmpty()) {
+                log.warn("No hay feriados cargados para {}: las campanas contactarian en feriados. "
+                        + "Agregalos en app.contacto.feriados o en CONTACTO_FERIADOS", faltan);
+            }
+        }
+        ContactosResponse hecho = contactar(ahora, null);
         if (hecho.enviados() > 0) {
             log.info("Campanas: {} toque(s) enviados, {} pendientes", hecho.enviados(), hecho.omitidos());
         }
+    }
+
+    /**
+     * Los anos sin ningun feriado cargado: este, y desde diciembre tambien el
+     * siguiente, para que haya un mes para cargarlos antes de que haga falta.
+     */
+    List<Integer> anosSinFeriados(LocalDate hoy) {
+        List<Integer> anos = hoy.getMonthValue() == 12
+                ? List.of(hoy.getYear(), hoy.getYear() + 1)
+                : List.of(hoy.getYear());
+        return anos.stream()
+                .filter(ano -> feriados.stream().noneMatch(dia -> dia.getYear() == ano))
+                .toList();
     }
 
     /** Si a esta hora de Chile se puede hacer cobranza: lunes a sabado, de 8:00 a 20:00, sin feriados. */
