@@ -11,7 +11,7 @@
 #  el jar con el JRE.
 # =============================================================================
 
-FROM maven:3.9-eclipse-temurin-25 AS construccion
+FROM maven:3.9-eclipse-temurin-26 AS construccion
 WORKDIR /obra
 
 #  Solo este servicio: su pom y su codigo.
