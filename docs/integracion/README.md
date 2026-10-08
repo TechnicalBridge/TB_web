@@ -285,6 +285,8 @@ Las que no caben en JSON Schema las aplica cada receptor al recibir:
 | `campana_desconocida` | El `mandato` apunta a una campaña que esa agencia no registró para ese acreedor |
 | `tasa_invalida` | `tasa_interes_mensual` no es un número mayor que cero, o trae más de dos decimales |
 | `tasa_sobre_maxima` | **Solo DataBridge.** La tasa supera su tope (`INTERES_TASA_MAXIMA_MENSUAL`), que es la tasa máxima convencional vigente: por ley ningún interés la supera (Ley 18.010). El acreedor la corrige y vuelve a mandar la deuda |
+| `descuento_invalido` | En el mandato o la campaña (§7): un porcentaje de descuento fuera de 0 a 100 o con más de dos decimales, o un tramo de `descuento_mora_por_tramo` que no es `1-30`, `31-90` ni `91-120` |
+| `descuento_sobre_tope` | **Solo DataBridge.** Un tramo de la campaña pasa el máximo que el acreedor autorizó en el mandato (`descuento_maximo_mora`, §7) |
 | `bajo_umbral_mora` | **Solo DataBridge.** Una deuda nueva —o una pagada que vuelve— cuyo cargo impago más antiguo lleva menos días vencido que su umbral (30, por omisión, `MIN_DIAS_MORA`): DataBridge cobra a deudores morosos. Se mide en días y no en meses impagos para que sirva en cualquier rubro, también para una deuda de un solo cargo. Una deuda que ya está en gestión puede volver con menos: el deudor pagó una parte directo |
 
 **Todos los clientes, y el receptor detecta al moroso.** El acreedor no decide quién es moroso ni
@@ -399,7 +401,7 @@ convenio. Sin tasa, la deuda vale lo que mandó el acreedor y el convenio es sin
 | --- | --- |
 | **La mora** | Interés simple sobre el capital vencido, por día (la tasa mensual entre 30), desde el día siguiente a cada vencimiento. Cada cargo crece desde su propio vencimiento. Simple porque la Ley 18.010 no deja capitalizar la mora |
 | **El convenio** | Lo que se repacta es el capital pendiente **más la mora de ese día**. Las cuotas son de sistema francés: todas iguales, cada una con el interés del mes sobre lo que queda por pagar, y la última absorbe el redondeo. Una cuota de convenio vencida tiene mora solo sobre su capital |
-| **El pago** | Se cobra el capital de las cuotas elegidas más su mora del día en que se abre el cobro. Si la pasarela lo confirma días después, la diferencia no se cobra |
+| **El pago** | Se cobra el capital de las cuotas elegidas más su mora del día en que se abre el cobro. Si la pasarela lo confirma días después, la diferencia no se cobra. Quien paga toda la deuda al contado durante una campaña con descuento paga menos mora (§7.1) |
 | **En reclamo** | La mora sigue corriendo. Si la empresa acepta el reclamo, la deuda se retira completa |
 | **El tope** | Cada receptor rechaza una tasa sobre su máximo (`tasa_sobre_maxima`, §6.4) |
 
@@ -421,7 +423,8 @@ empresa de cobranza; un acreedor que cobra sin agencia registra sus campañas ig
 ```
 POST /api/v1/mandatos
 { "acreedor_rut": "76418902-7", "razon_social": "Patrimonio Inmuebles SpA",
-  "nombre_fantasia": "Patrimonio Inmuebles", "vigente_desde": "2026-09-01", "mora_maxima_dias": 120 }
+  "nombre_fantasia": "Patrimonio Inmuebles", "vigente_desde": "2026-09-01", "mora_maxima_dias": 120,
+  "descuento_maximo_mora": 100 }
 ```
 
 **Un acreedor nuevo se registra con su mandato.** Si DataBridge no conoce ese RUT, lo registra con
@@ -435,6 +438,12 @@ enviadas por esa agencia mientras el mandato esté vigente.
 
 `mora_maxima_dias` lo fija la agencia, no DataBridge. Los 120 días son la regla de APOFYX; otra
 agencia podría usar 180 sin que DataBridge cambie.
+
+`descuento_maximo_mora` (opcional, de 0 a 100) lo fija **el acreedor**: es el % de los intereses de
+mora que autoriza condonar. Lo pone en el portal de empresas de la agencia y la agencia lo manda en
+el mandato. Sin él es 0, y ninguna campaña de esa agencia para ese acreedor puede ofrecer descuento.
+Si el acreedor lo baja, sus campañas quedan recortadas a ese máximo desde ese momento, sin volver a
+registrarlas (§7.1).
 
 **Campaña**: cómo se contacta a esa cartera. La registra quien cobra:
 
@@ -455,7 +464,8 @@ POST /api/v1/campanas
   "canales": ["correo"],
   "intentos": 5,
   "cadencia_dias": [1, 4, 11, 25, 45],
-  "estado": "en_curso"
+  "estado": "en_curso",
+  "descuento_mora_por_tramo": { "1-30": 0, "31-90": 50, "91-120": 100 }
 }
 ```
 
@@ -470,6 +480,7 @@ POST /api/v1/campanas
 | `inicio`, `fin` | Fuera de esas fechas la campaña no contacta |
 | `canales` | Hoy DataBridge contacta solo por `correo`. Una campaña sin `correo` no contacta: WhatsApp todavía no está conectado |
 | `estado` | `en_curso`, `pausada` o `terminada`. Solo una campaña en curso contacta. Sin `estado` no cambia; una nueva parte en curso. APOFYX lo vuelve a mandar cuando su personal pausa o termina la campaña |
+| `descuento_mora_por_tramo` | El % de los intereses de mora que la campaña condona según el tramo de la deuda (§7.1). Los tramos son `1-30`, `31-90` y `91-120`; un tramo que no viene es 0. Ninguno puede pasar el máximo del mandato (`descuento_sobre_tope`). Sin el campo no cambia; una campaña nueva parte sin descuento. `{}` lo quita |
 
 Cada toque es el mismo correo de la invitación: un código para entrar al portal, sin el monto ni un
 enlace. Una deuda que se paga, se repacta, se reclama o se retira deja la campaña; la repactada
@@ -487,6 +498,30 @@ sigue con los recordatorios de su convenio.
 
 Un toque que la ley no deja hoy sale en cuanto se puede. Por eso una cadencia con toques muy
 seguidos (1 y 4 está bien; 1 y 2, no) se cumple más tarde de lo que dice.
+
+### 7.1 El descuento por pronto pago
+
+Una campaña puede ofrecerle al deudor un descuento sobre **los intereses de mora** si paga toda la
+deuda de una vez. Las deudas más antiguas, las que menos se recuperan, reciben más. DataBridge lo
+aplica al cobrar:
+
+| Regla | Cómo es |
+| --- | --- |
+| **Sobre qué** | Solo los intereses de mora del día en que se abre el cobro (§6.7). Nunca el capital ni los intereses de un convenio. Una deuda sin tasa no tiene mora, así que no tiene descuento |
+| **El tramo** | Los días de mora del cargo impago más antiguo, al abrir el cobro: `1-30`, `31-90` o `91-120`. Una deuda con más de 120 días usa el tramo `91-120` |
+| **Cuándo** | Solo si se paga **toda la deuda al contado**: sin convenio, el saldo completo, con su campaña en curso y el día del cobro entre `inicio` y `fin`. Un convenio o un pago parcial no tienen descuento |
+| **Cuánto** | La mora del día × el % de su tramo, recortado al máximo vigente del mandato y redondeado como el resto: pesos enteros en CLP, centésimas en UF |
+| **Quién lo autoriza** | El acreedor, con `descuento_maximo_mora` en el mandato. Un acreedor que cobra sin agencia registra sus campañas sin mandato: él mismo autoriza su descuento, hasta 100 |
+| **Queda fijo** | Se fija al abrir el cobro, igual que el interés: si la pasarela confirma días después, no cambia |
+| **Hasta el acreedor** | `pago.confirmado` lo lleva en `descuento` (§8.2). El acreedor lo registra como *intereses condonados* |
+
+**Un ejemplo.** Tres arriendos de $300.000 al 2% mensual, atrasados 62, 31 y 1 día: $18.800 de
+mora. El más antiguo tiene 62 días, así que el tramo es `31-90`, y con la campaña del ejemplo se
+condona el 50%: $9.400. El deudor paga $900.000 + $18.800 − $9.400 = **$909.400**. Con más de 90
+días se le condonaría toda la mora; con 30 o menos, nada.
+
+**Compatibilidad.** Los tres campos son opcionales. Un sistema que no los conoce los ignora y
+sigue funcionando: sin máximo no hay descuento, y sin descuento `pago.confirmado` no cambia.
 
 ---
 
@@ -559,7 +594,7 @@ ahora en sentido contrario.
 | `lote.procesado` | Termina la ingesta de un lote | `periodo`, `fecha_corte`, `recibidas`, `aceptadas`, `rechazadas`, `tramos: [{tramo, deudas, promedio_clp}]` |
 | `campana.avance` | Una vez al día por campaña | `campana_id_externo`, `fecha_corte`, `deudas`, `enviados`, `ingresos_portal`, `repactaciones`, `pagos`, `saldadas`, `disputas`, `retiradas`, `recuperado_clp`, `recuperado_uf` |
 | `repactacion.aceptada` | El deudor acepta un plan | `deuda_id_externo`, `cuotas`, `monto_cuota`, `moneda`, `primera_cuota`; con tasa, además `tasa_interes_mensual`, `a_repactar` (el capital más la mora de ese día) y `total_a_pagar` |
-| `pago.confirmado` | La pasarela confirma un pago | `deuda_id_externo`, `pago_id`, `monto`, `moneda`, `monto_clp`, `valor_uf`, `medio`, `pagado_en`; si el pago trae mora, además `capital` e `interes` (`monto` es la suma) |
+| `pago.confirmado` | La pasarela confirma un pago | `deuda_id_externo`, `pago_id`, `monto`, `moneda`, `monto_clp`, `valor_uf`, `medio`, `pagado_en`; si el pago trae mora, además `capital` e `interes` (`monto` es la suma); con descuento por pronto pago, además `descuento` |
 | `deuda.saldada` | El saldo llega a cero | `deuda_id_externo`, `saldada_en` |
 | `deuda.disputada` | El deudor dice que la deuda no es suya o no corresponde | `deuda_id_externo`, `motivo` |
 | `deuda.reanudada` | Revisada la disputa, la deuda sí corresponde y se vuelve a cobrar | `deuda_id_externo`, `motivo`, `con_convenio` |
@@ -611,6 +646,12 @@ tiene que poder reconstruir por qué un pago de `UF 38,5` fueron esos pesos.
 sobre sus cargos, del más antiguo al más nuevo, y registra el `interes` aparte: si repartiera el
 `monto`, la mora terminaría abonando cargos que no se pagaron. Sin mora, los dos campos no viajan
 y `monto` es todo capital.
+
+**Con descuento, `pago.confirmado` suma `descuento`:** los intereses de mora que se condonaron
+(§7.1). `interes` es lo que se cobró después del descuento, y `monto` sigue siendo lo que se pagó,
+`capital` + `interes`. En el ejemplo de §7.1: `monto` 909400, `capital` 900000, `interes` 9400 y
+`descuento` 9400. El acreedor registra el descuento como *intereses condonados*. Sin descuento, el
+campo no viaja.
 
 ### 8.3 Qué hace cada uno con los eventos
 
@@ -728,6 +769,8 @@ diseña en `TBridgeDB.sql` y reemplaza la ingesta CSV actual.
 | **I11** | ¿La integración de DataBridge es un microservicio propio o un módulo de ms-debt? | **Un paquete de ms-debt** (`integracion`). Todo lo que toca el contrato —lotes, deudas, mandatos, eventos— es de ms-debt, y un servicio aparte solo agregaría llamadas entre ambos |
 | **I15** | ¿Quién resuelve una disputa? | **La empresa que cobra**, desde su panel en DataBridge (decidido el 03-10-2026). La disputa recorre la cadena hasta el acreedor, que ve en qué va pero no la resuelve: la deuda la cobra la agencia (§8.2) |
 | **I16** | ¿Cómo se guardan los secretos que hay que leer de vuelta? | **Cifrados con AES-256-GCM** y una llave fuera de la base, en los tres sistemas (decidido el 03-10-2026). Las claves que solo se comparan siguen guardadas como huella (§8.1) |
+
+| **I17** | ¿Quién autoriza un descuento sobre la deuda? | **El acreedor**, con un máximo en el mandato (decidido el 06-10-2026). La agencia lo ofrece por tramo en cada campaña, sin pasar ese máximo, y DataBridge lo aplica al cobrar. Solo sobre los intereses de mora, nunca sobre el capital (§7.1) |
 
 ### Abiertas
 
