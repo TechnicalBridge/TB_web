@@ -1,35 +1,60 @@
 # =============================================================================
-#  Dependencias vulnerables — Dependabot
+#  Dependencias al dia — Dependabot
 # =============================================================================
-#  Revisa las dependencias de los cinco ecosistemas que usa este repositorio
-#  y abre un pull request cuando aparece una version con una vulnerabilidad
-#  corregida.
+#  Revisa las dependencias de los cinco ecosistemas que usa este repositorio y
+#  abre pull requests con las versiones nuevas.
 #
 #  Es la capa que cubre Maven: OWASP dependency-check necesita una clave de la
 #  API del NVD y agrega varios minutos a cada push, y para el tamano de este
 #  proyecto esto cubre lo mismo sin ese costo.
+#
+#  Dos reglas para que llegue lo que sirve y no ruido:
+#    - Las versiones menores y los parches llegan JUNTOS: un pull request por
+#      modulo y por semana, que su workflow prueba entero.
+#    - Las versiones MAYORES no llegan solas. Spring Boot 4, React 19 o Vite 8
+#      cambian la forma de usar la libreria: son migraciones, y se planifican
+#      como un issue. Una vulnerabilidad que solo se arregla en una version
+#      mayor igual aparece en la pestana Security (alertas de Dependabot).
 # =============================================================================
 version: 2
 
 updates:
-  #  Un directorio por servicio: cada uno tiene su pom, y un arreglo de
-  #  seguridad llega como un pull request de ese servicio.
+  #  Un directorio por servicio: cada uno tiene su pom.
   - package-ecosystem: maven
     directories: [/gateway, /ms-auth, /ms-debt, /ms-payments]
     schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
     commit-message: { prefix: "deps(java)" }
+    groups:
+      java:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+      #  El tren 2025.1 de Spring Cloud ya es para Spring Boot 4.
+      - dependency-name: org.springframework.cloud:spring-cloud-dependencies
+        versions: [">= 2025.1"]
 
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
     commit-message: { prefix: "deps(portal)" }
+    groups:
+      portal:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: pip
     directory: /ms-ai
     schedule: { interval: weekly, day: monday }
     commit-message: { prefix: "deps(ms-ai)" }
+    groups:
+      asistente:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
 
   #  Las propias acciones de GitHub tambien son codigo de terceros que corre
   #  con permisos sobre el repositorio. Van fijadas a un commit exacto, y
@@ -38,10 +63,26 @@ updates:
     directory: /
     schedule: { interval: monthly }
     commit-message: { prefix: "deps(ci)" }
+    groups:
+      acciones:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
 
-  #  Las imagenes base de cada Dockerfile (JDK, JRE, Node, nginx, Python):
-  #  una imagen vieja trae las vulnerabilidades de su sistema operativo.
+  #  Las imagenes base de cada Dockerfile (JRE, Node, nginx, Python): una
+  #  imagen vieja trae las vulnerabilidades de su sistema operativo.
   - package-ecosystem: docker
     directories: [/ms-auth, /ms-debt, /ms-payments, /gateway, /frontend, /ms-ai]
     schedule: { interval: weekly, day: monday }
     commit-message: { prefix: "deps(docker)" }
+    groups:
+      imagenes:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+      #  La imagen que compila (maven:3.9-eclipse-temurin-25) se queda en el JDK
+      #  25, que es LTS. Solo se usa para compilar: no viaja en la imagen final,
+      #  que es eclipse-temurin:25-jre y si se mantiene al dia.
+      - dependency-name: maven
