@@ -30,6 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -46,8 +48,9 @@ import java.util.stream.Collectors;
  *   <li>la deuda siga abierta: si se paga, se repacta, se reclama o se retira,
  *       la campana la deja. El convenio tiene sus propios recordatorios;</li>
  *   <li>no se hayan hecho todos los intentos;</li>
- *   <li>la ley lo permita: de lunes a sabado, de 8:00 a 20:00, nunca un feriado,
- *       y no mas de lo que deja {@link LimiteDeContacto}. Un toque que la ley
+ *   <li>la ley lo permita: de lunes a sabado, de 8:00 a 20:00, nunca un feriado
+ *       ({@link FeriadosDeChile}, mas los decretados), y no mas de lo que deja
+ *       {@link LimiteDeContacto}. Un toque que la ley
  *       no deja hoy sale en la proxima pasada en que si.</li>
  * </ul>
  */
@@ -69,62 +72,53 @@ public class ContactoService {
     private final AuthClient auth;
     private final LimiteDeContacto limite;
     private final ObjectMapper json;
-    private final Set<LocalDate> feriados;
-    /** El ultimo dia en que se reviso si faltan feriados: se avisa una vez al dia, no cada 15 minutos. */
-    private LocalDate feriadosRevisados;
+    /** Los que se decretan (elecciones, plebiscitos, feriados especiales): no se pueden calcular. */
+    private final Set<LocalDate> decretados;
+    /** Los nacionales, calculados una vez por ano. */
+    private final Map<Integer, Set<LocalDate>> nacionales = new ConcurrentHashMap<>();
 
     public ContactoService(CampaignRepository campaigns, DebtRepository debts, DebtEventRepository events,
                            AuthClient auth, LimiteDeContacto limite, ObjectMapper json,
-                           @Value("${app.contacto.feriados:}") String feriados) {
+                           @Value("${app.contacto.feriados:}") String decretados) {
         this.campaigns = campaigns;
         this.debts = debts;
         this.events = events;
         this.auth = auth;
         this.limite = limite;
         this.json = json;
-        this.feriados = Arrays.stream(feriados.split(","))
+        this.decretados = Arrays.stream(decretados.split(","))
                 .map(String::trim)
                 .filter(dia -> !dia.isEmpty())
                 .map(LocalDate::parse)
                 .collect(Collectors.toUnmodifiableSet());
+        int ano = LocalDate.now(CHILE).getYear();
+        log.info("Feriados de {} en que las campanas no contactan: {}; decretados (CONTACTO_FERIADOS): {}",
+                ano, new TreeSet<>(nacionalesDe(ano)), new TreeSet<>(this.decretados));
     }
 
     @Scheduled(cron = "${app.contacto.cron:0 */15 * * * *}", zone = "America/Santiago")
     public void pasar() {
-        LocalDateTime ahora = LocalDateTime.now(CHILE);
-        if (!ahora.toLocalDate().equals(feriadosRevisados)) {
-            feriadosRevisados = ahora.toLocalDate();
-            List<Integer> faltan = anosSinFeriados(feriadosRevisados);
-            if (!faltan.isEmpty()) {
-                log.warn("No hay feriados cargados para {}: las campanas contactarian en feriados. "
-                        + "Agregalos en app.contacto.feriados o en CONTACTO_FERIADOS", faltan);
-            }
-        }
-        ContactosResponse hecho = contactar(ahora, null);
+        ContactosResponse hecho = contactar(LocalDateTime.now(CHILE), null);
         if (hecho.enviados() > 0) {
             log.info("Campanas: {} toque(s) enviados, {} pendientes", hecho.enviados(), hecho.omitidos());
         }
-    }
-
-    /**
-     * Los anos sin ningun feriado cargado: este, y desde diciembre tambien el
-     * siguiente, para que haya un mes para cargarlos antes de que haga falta.
-     */
-    List<Integer> anosSinFeriados(LocalDate hoy) {
-        List<Integer> anos = hoy.getMonthValue() == 12
-                ? List.of(hoy.getYear(), hoy.getYear() + 1)
-                : List.of(hoy.getYear());
-        return anos.stream()
-                .filter(ano -> feriados.stream().noneMatch(dia -> dia.getYear() == ano))
-                .toList();
     }
 
     /** Si a esta hora de Chile se puede hacer cobranza: lunes a sabado, de 8:00 a 20:00, sin feriados. */
     public boolean horaDeContacto(LocalDateTime ahora) {
         LocalTime hora = ahora.toLocalTime();
         return ahora.getDayOfWeek() != DayOfWeek.SUNDAY
-                && !feriados.contains(ahora.toLocalDate())
+                && !esFeriado(ahora.toLocalDate())
                 && !hora.isBefore(DESDE) && hora.isBefore(HASTA);
+    }
+
+    /** Un feriado nacional de cualquier ano, o uno decretado. */
+    boolean esFeriado(LocalDate dia) {
+        return decretados.contains(dia) || nacionalesDe(dia.getYear()).contains(dia);
+    }
+
+    private Set<LocalDate> nacionalesDe(int ano) {
+        return nacionales.computeIfAbsent(ano, FeriadosDeChile::delAno);
     }
 
     /**

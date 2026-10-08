@@ -197,7 +197,7 @@ campaña. La repactada sigue con el recordatorio de cada cuota.
 
 | Regla | Qué exige |
 | --- | --- |
-| Días | De lunes a sábado. Nunca un domingo ni un feriado: los nacionales de 2026 y 2027 ya vienen, y `CONTACTO_FERIADOS` suma los que se decreten |
+| Días | De lunes a sábado. Nunca un domingo ni un feriado: los nacionales se calculan para cualquier año con las reglas de la ley, y `CONTACTO_FERIADOS` suma los que se decretan |
 | Horario | De 8:00 a 20:00 |
 | Cantidad | Como máximo **dos correos por semana** a una misma persona: los últimos siete días, hoy incluido |
 | Separación | Al menos **dos días** entre un correo y el siguiente |
@@ -1060,7 +1060,7 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `MIN_DIAS_MORA` | `30` | Desde cuántos días de mora del cargo impago más antiguo entra una deuda a cobranza |
 | `RECORDATORIO_DIAS_ANTES` | `3` | Cuántos días antes de cada cuota llega el recordatorio. Nunca se repite para la misma cuota |
 | `INTERES_TASA_MAXIMA_MENSUAL` | `3.0` | El tope de la tasa que pacta el acreedor, en % mensual: la tasa máxima convencional vigente. Una deuda con una tasa mayor se rechaza (`tasa_sobre_maxima`) |
-| `CONTACTO_FERIADOS` | vacía | Feriados que se suman a los nacionales de 2026 y 2027, que ya vienen; por ejemplo, uno que se decrete por una elección. Las campañas no contactan esos días. Desde diciembre, ms-debt avisa en su registro si faltan los del año siguiente |
+| `CONTACTO_FERIADOS` | vacía | Los feriados que se decretan y no se pueden calcular (una elección, un plebiscito, un feriado especial), separados por coma. Se suman a los nacionales, que se calculan solos para cualquier año. Las campañas no contactan esos días |
 | `DEMO_DATOS` | `true` | Carga al arrancar la cartera de ejemplo. Solo agrega lo que falte: una base con datos propios no pierde nada |
 | `RATE_AUTH_CAPACITY`, `RATE_GLOBAL_CAPACITY` | `10` / `120` | Peticiones por minuto |
 | `EVENTS_RABBIT` | `true` en Docker, `false` con Maven | Si el aviso de pago va por RabbitMQ o por HTTP. En Docker está fijo en `true` |
@@ -1095,19 +1095,19 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De Khipu** | El cliente contra un Khipu falso: crear el cobro, preguntar en qué va y sus errores. El pago conciliado, el que sigue en verificación, el rechazado, el revertido y el arrepentido (con el cobro anulado en Khipu, o pagado justo antes de anularlo); que otro monto u otra transacción no se aprueben; que un pago real no se confirme por la simulación; la consulta periódica que cierra lo pagado y vence lo abandonado, y la firma de los avisos |
 | **Del doble pago** | Un segundo pago mientras otro se verifica se rechaza; el abierto sin pagar se anula (Khipu lo borra, la preferencia de Mercado Pago vence en el acto) y queda vencido; una cuota pagada que ms-debt todavía no abona no se cobra de nuevo; el cobro guarda las cuotas que cubre, y ms-debt las informa en orden. Si igual se paga dos veces, el segundo queda `duplicated`, sin abonar y con la referencia y el RUT para devolverlo; pagar otras cuotas de la misma deuda no es duplicado. La consulta periódica no vence lo que Khipu o Mercado Pago están verificando y anula en Khipu lo que vence; un vencido que se paga después se registra, por la revisión de vencidos o por el aviso de Khipu |
 | **De los intereses** | La mora de cada cargo atrasado desde el día siguiente a su vencimiento, con lo pagado imputado a lo más antiguo; la cuota del convenio que crece solo sobre su capital; el redondeo en pesos y en UF; el convenio en sistema francés, con la última cuota que absorbe el redondeo; que sin tasa todo quede como antes; que el cobro fije el capital y el interés y el aviso los lleve separados; la tasa que no es un número o que supera el tope |
-| **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; los feriados de 2027 tal como están en la configuración, con los que se corren al lunes, y el aviso cuando falta un año; el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
+| **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; los feriados calculados contra los publicados (2023, 2026 y 2027 completos, y cada regla contra un año real: el 2 de enero, el 17 y el 20 de septiembre, los que se corren al lunes, el 31 de octubre y el solsticio al minuto); el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
 | **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
 | **De rendimiento** (k6) | Cómo lo siente una persona, dónde está el techo y cuánto aguanta abrir cobros (`pagos.js`, solo con las pasarelas simuladas). Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**405 pruebas en Java y 12 en Python**, sin fallos:
+**413 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
 | `common` | 18 |
 | `gateway` | 13 |
 | `ms-auth` | 40 |
-| `ms-debt` | 185 |
+| `ms-debt` | 193 |
 | `ms-payments` | 149 |
 | `ms-ai` (Python) | 12 |
 
@@ -1185,7 +1185,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **405**, sin fallos |
+| Pruebas Java (`mvnw clean test`, JDK 25) | **413**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |
@@ -1211,10 +1211,10 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
   por correo, y APOFYX ya no los ofrece al crear una campaña.
 - **La tasa máxima convencional se pone a mano** (`INTERES_TASA_MAXIMA_MENSUAL`): la CMF la publica
   cada mes y no se trae sola.
-- **Los feriados están cargados hasta 2027.** Los de 2028 se agregan a fines de 2027, y ms-debt lo
-  avisa desde diciembre. Son los nacionales: los regionales (el 7 de junio en Arica y Parinacota, el
-  20 de agosto en Chillán y Chillán Viejo) no, porque DataBridge no sabe en qué región vive el
-  deudor.
+- **Los feriados que se decretan se suman a mano** (`CONTACTO_FERIADOS`): una elección, un
+  plebiscito o un feriado especial no se pueden calcular. Los nacionales se calculan solos para
+  cualquier año. Los regionales (el 7 de junio en Arica y Parinacota, el 20 de agosto en Chillán y
+  Chillán Viejo) no están, porque DataBridge no sabe en qué región vive el deudor.
 - **Que el deudor pida que no lo contacten más**, y los gastos de cobranza que permite el art. 37,
   no están.
 - **Varias réplicas:** ver *Escalabilidad* en [§9](#9-requisitos-no-funcionales).
