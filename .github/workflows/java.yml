@@ -23,7 +23,8 @@ permissions:
 
 jobs:
   probar:
-    name: Pruebas
+    #  En la lista de checks del PR se lee el modulo: "Pruebas de ms-debt".
+    name: Pruebas de ${{ inputs.modulo }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
