@@ -1,7 +1,7 @@
 # =============================================================================
 #  gateway — la puerta de entrada: rutas, CORS y limite de peticiones
 # =============================================================================
-#  Corre solo si cambio su carpeta (o este workflow, o el reutilizable): un
+#  Prueba solo si cambio su carpeta (o este workflow, o el reutilizable): un
 #  cambio en el portal no vuelve a probar los servicios Java.
 # =============================================================================
 name: gateway
@@ -10,8 +10,10 @@ on:
   push:
     branches: [main]
     paths: ['gateway/**', '.github/workflows/gateway.yml', '.github/workflows/java.yml']
+  #  En un PR corre siempre: main exige el check "CI de gateway", y un check que
+  #  no corre dejaria el PR esperando para siempre. Si su carpeta no cambio, se
+  #  salta las pruebas y el check pasa en segundos.
   pull_request:
-    paths: ['gateway/**', '.github/workflows/gateway.yml', '.github/workflows/java.yml']
 
 #  Un push nuevo a la misma rama cancela la corrida anterior, que ya no sirve.
 concurrency:
@@ -22,7 +24,48 @@ permissions:
   contents: read
 
 jobs:
+  cambios:
+    name: Que cambio
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      toca: ${{ steps.revisar.outputs.toca }}
+    steps:
+      - id: revisar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUTAS: '^(gateway/|\.github/workflows/gateway\.yml$|\.github/workflows/java\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "toca=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          archivos=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+          if grep -Eq "$RUTAS" <<< "$archivos"; then toca=true; else toca=false; fi
+          echo "toca=$toca" >> "$GITHUB_OUTPUT"
+          echo "Cambio gateway: $toca"
+
   java:
+    needs: cambios
+    if: needs.cambios.outputs.toca == 'true'
     uses: ./.github/workflows/java.yml
     with:
       modulo: gateway
+
+  #  El check que exige main: pasa si las pruebas pasaron o si no tocaban.
+  resultado:
+    name: CI de gateway
+    needs: [cambios, java]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          CAMBIOS: ${{ needs.cambios.result }}
+          PRUEBAS: ${{ needs.java.result }}
+        run: |
+          echo "Que cambio: $CAMBIOS · pruebas: $PRUEBAS"
+          [ "$CAMBIOS" = success ] && { [ "$PRUEBAS" = success ] || [ "$PRUEBAS" = skipped ]; }
