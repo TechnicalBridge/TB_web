@@ -127,4 +127,22 @@ class InteresesTest {
 
         assertTrue(mora.isEmpty());
     }
+
+    @Test
+    void los_dias_de_mora_son_los_del_cargo_impago_mas_antiguo() {
+        List<DebtCharge> cargos = List.of(cargo("300000", LocalDate.of(2026, 8, 5)),
+                cargo("300000", LocalDate.of(2026, 9, 5)), cargo("300000", LocalDate.of(2026, 10, 5)));
+
+        assertEquals(62, Intereses.diasDeMora(cargos, List.of(cuota(1, "900000", LocalDate.of(2026, 10, 5))), HOY));
+        //  Pagado agosto, lo mas antiguo que falta es septiembre.
+        assertEquals(31, Intereses.diasDeMora(cargos, List.of(cuota(1, "600000", LocalDate.of(2026, 10, 5))), HOY));
+    }
+
+    @Test
+    void sin_cuotas_pendientes_no_hay_dias_de_mora() {
+        Installment pagada = cuota(1, "300000", LocalDate.of(2026, 8, 5));
+        pagada.setStatus(Installment.Status.paid);
+
+        assertEquals(0, Intereses.diasDeMora(List.of(cargo("300000", LocalDate.of(2026, 8, 5))), List.of(pagada), HOY));
+    }
 }

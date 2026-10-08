@@ -3,6 +3,7 @@ package com.tbridge.debt.model;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -42,6 +43,10 @@ public class Mandate {
     @Column(name = "max_overdue_days", nullable = false)
     private Short maxOverdueDays = 120;
 
+    /** El % de los intereses de mora que el acreedor autoriza condonar. Null es 0. */
+    @Column(name = "max_mora_discount", precision = 5, scale = 2)
+    private BigDecimal maxMoraDiscount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private Status status = Status.active;
@@ -68,6 +73,8 @@ public class Mandate {
     public void setValidTo(LocalDate validTo) { this.validTo = validTo; }
     public Short getMaxOverdueDays() { return maxOverdueDays; }
     public void setMaxOverdueDays(Short maxOverdueDays) { this.maxOverdueDays = maxOverdueDays; }
+    public BigDecimal getMaxMoraDiscount() { return maxMoraDiscount; }
+    public void setMaxMoraDiscount(BigDecimal maxMoraDiscount) { this.maxMoraDiscount = maxMoraDiscount; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
     public void setDeclaredBy(String declaredBy) { this.declaredBy = declaredBy; }

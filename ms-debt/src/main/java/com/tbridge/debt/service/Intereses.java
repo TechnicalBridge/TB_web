@@ -96,6 +96,22 @@ public final class Intereses {
         return mora;
     }
 
+    /**
+     * Los dias de mora de la deuda al dia {@code hoy}: los del cargo impago mas
+     * antiguo, que es lo que mide el tramo del descuento. Sin cargos que lo
+     * expliquen, los de la cuota suelta pendiente mas antigua.
+     */
+    public static long diasDeMora(List<DebtCharge> cargos, List<Installment> cuotas, LocalDate hoy) {
+        List<Installment> sueltas = cuotas.stream()
+                .filter(c -> c.getStatus() == Installment.Status.pending && !c.enConvenio())
+                .sorted(DebtService.EN_ORDEN)
+                .toList();
+        Tramo masAntiguo = tramosDe(cargos, sueltas).peekFirst();
+        LocalDate vence = masAntiguo != null ? masAntiguo.vence()
+                : sueltas.stream().map(Installment::getDueDate).min(Comparator.naturalOrder()).orElse(null);
+        return vence == null ? 0 : Math.max(0, ChronoUnit.DAYS.between(vence, hoy));
+    }
+
     /** La suma de la mora de todas las cuotas. */
     public static BigDecimal total(Map<Long, BigDecimal> mora) {
         return mora.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);

@@ -18,11 +18,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,7 +49,8 @@ class MandatoServiceTest {
 
     @BeforeEach
     void preparar() {
-        servicio = new MandatoService(organizations, mandates, campaigns);
+        servicio = new MandatoService(organizations, mandates, campaigns,
+                new DescuentoService(mandates, new com.fasterxml.jackson.databind.ObjectMapper()));
         apofyx = new Organization();
         apofyx.setId(1L);
         apofyx.setRut("77305118-6");
@@ -299,5 +305,131 @@ class MandatoServiceTest {
                 () -> servicio.registrarCampana(apofyx, pedido("A", "2026-10-10", "2026-10-01", null, null, null)));
 
         assertEquals("fechas_invalidas", fallo.getCodigo());
+    }
+
+    // ------------------------------------------------------------------
+    //  El descuento por pronto pago (contrato §7.1)
+    // ------------------------------------------------------------------
+
+    private static MandatoRequest conDescuento(String maximo) {
+        return new MandatoRequest("76418902-7", "Patrimonio Inmuebles SpA", "Patrimonio Inmuebles", "2026-09-01",
+                null, 120, maximo == null ? null : new BigDecimal(maximo));
+    }
+
+    private static CampanaRequest ofrece(String porTramo) throws Exception {
+        return new CampanaRequest("APX-CMP-9", "76418902-7", null, null, null, null, null, null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(porTramo));
+    }
+
+    /** La campana de APOFYX sobre Patrimonio, con un mandato vigente que autoriza este maximo. */
+    private Campaign campanaConMaximo(String maximo) {
+        Campaign campana = campanaRegistrada();
+        Mandate mandato = new Mandate();
+        mandato.setValidFrom(LocalDate.of(2026, 9, 1));
+        mandato.setMaxMoraDiscount(maximo == null ? null : new BigDecimal(maximo));
+        when(mandates.findByAgencyAndCreditorAndStatus(eq(apofyx), any(), eq(Mandate.Status.active)))
+                .thenReturn(List.of(mandato));
+        return campana;
+    }
+
+    @Test
+    void el_mandato_guarda_el_maximo_que_autoriza_el_acreedor() {
+        ArgumentCaptor<Mandate> guardado = ArgumentCaptor.forClass(Mandate.class);
+
+        servicio.registrarMandato(apofyx, conDescuento("100"));
+
+        verify(mandates).save(guardado.capture());
+        assertEquals(new BigDecimal("100"), guardado.getValue().getMaxMoraDiscount());
+    }
+
+    @Test
+    void reenviar_el_mandato_cambia_el_maximo() {
+        Organization patrimonio = new Organization();
+        patrimonio.setRut("76418902-7");
+        Mandate existente = new Mandate();
+        existente.setCreditor(patrimonio);
+        existente.setValidFrom(LocalDate.of(2026, 9, 1));
+        existente.setMaxMoraDiscount(new BigDecimal("100"));
+        when(mandates.findByAgencyAndCreditorAndStatus(eq(apofyx), any(), eq(Mandate.Status.active)))
+                .thenReturn(List.of(existente));
+
+        servicio.registrarMandato(apofyx, conDescuento("50"));
+
+        assertEquals(new BigDecimal("50"), existente.getMaxMoraDiscount());
+    }
+
+    @Test
+    void un_maximo_fuera_de_0_a_100_se_rechaza() {
+        for (String malo : new String[]{"-1", "100.01", "12.345"}) {
+            CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                    () -> servicio.registrarMandato(apofyx, conDescuento(malo)));
+            assertEquals("descuento_invalido", fallo.getCodigo(), malo);
+        }
+    }
+
+    @Test
+    void la_campana_guarda_su_descuento_por_tramo() throws Exception {
+        Campaign campana = campanaConMaximo("100");
+
+        servicio.registrarCampana(apofyx, ofrece("{\"91-120\": 100, \"1-30\": 0, \"31-90\": 50}"));
+
+        assertEquals("{\"1-30\":0,\"31-90\":50,\"91-120\":100}", campana.getMoraDiscount());
+    }
+
+    @Test
+    void un_tramo_sobre_el_maximo_del_acreedor_se_rechaza() throws Exception {
+        campanaConMaximo("50");
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.registrarCampana(apofyx, ofrece("{\"31-90\": 50, \"91-120\": 100}")));
+
+        assertEquals("descuento_sobre_tope", fallo.getCodigo());
+    }
+
+    @Test
+    void sin_maximo_autorizado_ninguna_campana_ofrece_descuento() throws Exception {
+        campanaConMaximo(null);
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.registrarCampana(apofyx, ofrece("{\"91-120\": 10}")));
+
+        assertEquals("descuento_sobre_tope", fallo.getCodigo());
+    }
+
+    @Test
+    void un_tramo_que_no_existe_o_un_valor_que_no_es_porcentaje_se_rechaza() throws Exception {
+        campanaConMaximo("100");
+        for (String malo : new String[]{"{\"121-200\": 10}", "{\"31-90\": 150}", "{\"31-90\": \"50\"}", "[50]"}) {
+            CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                    () -> servicio.registrarCampana(apofyx, ofrece(malo)));
+            assertEquals("descuento_invalido", fallo.getCodigo(), malo);
+        }
+    }
+
+    @Test
+    void sin_el_campo_no_cambia_y_vacio_lo_quita() throws Exception {
+        Campaign campana = campanaConMaximo("100");
+        campana.setMoraDiscount("{\"31-90\":50}");
+
+        servicio.registrarCampana(apofyx, conEstado("pausada"));
+        assertEquals("{\"31-90\":50}", campana.getMoraDiscount());
+
+        servicio.registrarCampana(apofyx, ofrece("{}"));
+        assertNull(campana.getMoraDiscount());
+    }
+
+    @Test
+    void el_acreedor_sin_agencia_autoriza_su_propio_descuento() throws Exception {
+        Organization andes = new Organization();
+        andes.setId(3L);
+        andes.setRut("76543210-3");
+        when(organizations.findByRut("76543210-3")).thenReturn(Optional.of(andes));
+        Campaign propia = new Campaign();
+        when(campaigns.findByAgencyAndExternalId(andes, "AND-CMP-1")).thenReturn(Optional.of(propia));
+
+        servicio.registrarCampana(andes, new CampanaRequest("AND-CMP-1", "76543210-3", null, null, null, null, null,
+                null, null, new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"91-120\": 100}")));
+
+        assertEquals("{\"91-120\":100}", propia.getMoraDiscount());
     }
 }

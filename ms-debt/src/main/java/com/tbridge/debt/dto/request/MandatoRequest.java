@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.math.BigDecimal;
+
 /**
  * Contrato 2: la agencia declara que cobra por cuenta de un acreedor.
  *
@@ -26,6 +28,15 @@ public record MandatoRequest(
         @Schema(description = "Sin indicar, hoy", example = "2026-09-01", nullable = true) String vigenteDesde,
         @Schema(description = "Sin indicar, indefinido", example = "2027-08-31", nullable = true) String vigenteHasta,
         @Schema(description = "Pasados estos dias de mora el caso vuelve al acreedor. Sin indicar, 120",
-                example = "120", nullable = true) Integer moraMaximaDias
+                example = "120", nullable = true) Integer moraMaximaDias,
+        @Schema(description = "El % de los intereses de mora que el acreedor autoriza condonar, de 0 a 100. "
+                + "Sin indicar, 0: ninguna campana puede ofrecer descuento", example = "100", nullable = true)
+        BigDecimal descuentoMaximoMora
 ) {
+
+    /** Un mandato sin descuento autorizado. */
+    public MandatoRequest(String acreedorRut, String razonSocial, String nombreFantasia, String vigenteDesde,
+                          String vigenteHasta, Integer moraMaximaDias) {
+        this(acreedorRut, razonSocial, nombreFantasia, vigenteDesde, vigenteHasta, moraMaximaDias, null);
+    }
 }

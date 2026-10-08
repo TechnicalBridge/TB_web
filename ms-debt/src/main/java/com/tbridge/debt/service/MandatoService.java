@@ -16,6 +16,7 @@ import com.tbridge.debt.repository.OrganizationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
@@ -31,12 +32,14 @@ public class MandatoService {
     private final OrganizationRepository organizations;
     private final MandateRepository mandates;
     private final CampaignRepository campaigns;
+    private final DescuentoService descuentos;
 
     public MandatoService(OrganizationRepository organizations, MandateRepository mandates,
-                          CampaignRepository campaigns) {
+                          CampaignRepository campaigns, DescuentoService descuentos) {
         this.organizations = organizations;
         this.mandates = mandates;
         this.campaigns = campaigns;
+        this.descuentos = descuentos;
     }
 
     /**
@@ -62,6 +65,7 @@ public class MandatoService {
         }
 
         LocalDate desde = fecha(pedido.vigenteDesde(), LocalDate.now());
+        BigDecimal descuento = DescuentoService.porcentajeValido(pedido.descuentoMaximoMora());
 
         //  Declarar dos veces el mismo mandato no es un error: es un reintento.
         //  Se devuelve el que ya existe en vez de chocar contra el indice unico.
@@ -71,6 +75,10 @@ public class MandatoService {
                 .findFirst()
                 .orElse(null);
         if (existente != null) {
+            //  Reenviar el mandato es como el acreedor cambia su maximo: si lo baja,
+            //  sus campanas quedan recortadas desde ya.
+            existente.setMaxMoraDiscount(descuento);
+            mandates.save(existente);
             return MandatoResponse.from(existente);
         }
 
@@ -84,6 +92,7 @@ public class MandatoService {
         if (pedido.moraMaximaDias() != null) {
             mandato.setMaxOverdueDays(pedido.moraMaximaDias().shortValue());
         }
+        mandato.setMaxMoraDiscount(descuento);
         mandato.setDeclaredBy(agencia.getTradeName());
         mandates.save(mandato);
         return MandatoResponse.from(mandato);
@@ -148,6 +157,10 @@ public class MandatoService {
         if (presente(pedido.cadenciaDias())) {
             validarCadencia(pedido.cadenciaDias());
             campana.setCadenceDays(pedido.cadenciaDias().toString());
+        }
+        if (presente(pedido.descuentoMoraPorTramo())) {
+            campana.setMoraDiscount(descuentos.normalizar(pedido.descuentoMoraPorTramo(),
+                    descuentos.tope(quien, acreedor, LocalDate.now())));
         }
         if (pedido.estado() != null && !pedido.estado().isBlank()) {
             campana.setStatus(switch (pedido.estado().trim()) {
