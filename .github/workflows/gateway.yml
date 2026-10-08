@@ -1,0 +1,28 @@
+# =============================================================================
+#  gateway — la puerta de entrada: rutas, CORS y limite de peticiones
+# =============================================================================
+#  Corre solo si cambio su carpeta (o este workflow, o el reutilizable): un
+#  cambio en el portal no vuelve a probar los servicios Java.
+# =============================================================================
+name: gateway
+
+on:
+  push:
+    branches: [main]
+    paths: ['gateway/**', '.github/workflows/gateway.yml', '.github/workflows/java.yml']
+  pull_request:
+    paths: ['gateway/**', '.github/workflows/gateway.yml', '.github/workflows/java.yml']
+
+#  Un push nuevo a la misma rama cancela la corrida anterior, que ya no sirve.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  java:
+    uses: ./.github/workflows/java.yml
+    with:
+      modulo: gateway

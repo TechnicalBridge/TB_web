@@ -1,0 +1,2 @@
+# Lo que no viaja a Docker al construir la imagen: lo compilado en el equipo.
+target/

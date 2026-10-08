@@ -1,6 +1,6 @@
 package com.tbridge.debt.controller;
 
-import com.tbridge.common.jwt.JwtService;
+import com.tbridge.debt.security.JwtService;
 import com.tbridge.debt.config.SecurityConfig;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
 import com.tbridge.debt.dto.response.ClaveResponse;

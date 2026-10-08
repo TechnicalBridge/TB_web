@@ -1,0 +1,28 @@
+# =============================================================================
+#  ms-payments — los cobros y las pasarelas
+# =============================================================================
+#  Corre solo si cambio su carpeta (o este workflow, o el reutilizable): un
+#  cambio en el portal no vuelve a probar los servicios Java.
+# =============================================================================
+name: ms-payments
+
+on:
+  push:
+    branches: [main]
+    paths: ['ms-payments/**', 'docs/eventos/**', '.github/workflows/ms-payments.yml', '.github/workflows/java.yml']
+  pull_request:
+    paths: ['ms-payments/**', 'docs/eventos/**', '.github/workflows/ms-payments.yml', '.github/workflows/java.yml']
+
+#  Un push nuevo a la misma rama cancela la corrida anterior, que ya no sirve.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  java:
+    uses: ./.github/workflows/java.yml
+    with:
+      modulo: ms-payments

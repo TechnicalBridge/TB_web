@@ -3,7 +3,7 @@ package com.tbridge.debt.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.tbridge.common.events.PagoConfirmado;
+import com.tbridge.debt.events.PagoConfirmado;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
@@ -44,6 +44,11 @@ public class RabbitConfig {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return new Jackson2JsonMessageConverter(mapper);
+        Jackson2JsonMessageConverter convertidor = new Jackson2JsonMessageConverter(mapper);
+        //  El aviso se lee con la clase del listener, nunca con la que dice el
+        //  mensaje: ms-payments tiene su propia clase, en su propio paquete, y
+        //  un mensaje no puede elegir que clase se crea aca.
+        convertidor.setAlwaysConvertToInferredType(true);
+        return convertidor;
     }
 }

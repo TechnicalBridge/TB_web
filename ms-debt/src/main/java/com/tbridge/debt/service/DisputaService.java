@@ -2,8 +2,8 @@ package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.debt.exception.ApiException;
+import com.tbridge.debt.security.JwtPrincipal;
 import com.tbridge.debt.dto.evento.DeudaDisputadaDatos;
 import com.tbridge.debt.dto.evento.DeudaReanudadaDatos;
 import com.tbridge.debt.dto.evento.DeudaRetiradaDatos;

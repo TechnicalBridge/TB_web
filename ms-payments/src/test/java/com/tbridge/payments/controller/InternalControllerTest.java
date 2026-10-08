@@ -1,6 +1,6 @@
 package com.tbridge.payments.controller;
 
-import com.tbridge.common.jwt.JwtService;
+import com.tbridge.payments.security.JwtService;
 import com.tbridge.payments.config.SecurityConfig;
 import com.tbridge.payments.dto.response.UfResponse;
 import com.tbridge.payments.service.UfLoader;

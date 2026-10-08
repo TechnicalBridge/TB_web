@@ -1,6 +1,6 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.util.Hash;
+import com.tbridge.payments.util.Hash;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 

@@ -1,7 +1,7 @@
 package com.tbridge.payments.client;
 
-import com.tbridge.common.exception.ApiError;
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiError;
+import com.tbridge.payments.exception.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;

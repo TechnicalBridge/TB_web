@@ -2,8 +2,8 @@ package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tbridge.common.util.Hash;
-import com.tbridge.common.util.Rut;
+import com.tbridge.debt.util.Hash;
+import com.tbridge.debt.util.Rut;
 import com.tbridge.debt.dto.evento.DeudaRetiradaDatos;
 import com.tbridge.debt.dto.evento.LoteProcesadoDatos;
 import com.tbridge.debt.dto.response.CarteraResponse;

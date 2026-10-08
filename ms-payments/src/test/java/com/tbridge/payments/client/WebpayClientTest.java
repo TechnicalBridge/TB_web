@@ -3,7 +3,7 @@ package com.tbridge.payments.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiException;
 import com.tbridge.payments.dto.gateway.WebpayCommitResponse;
 import com.tbridge.payments.dto.gateway.WebpayCreateResponse;
 import org.junit.jupiter.api.AfterEach;

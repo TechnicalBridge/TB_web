@@ -13,7 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * UF al abrir el cobro, y le avisa a ms-debt cuando el pago se concreta.
  */
 @SpringBootApplication(
-        scanBasePackages = {"com.tbridge.payments", "com.tbridge.common"},
+        scanBasePackages = {"com.tbridge.payments"},
         exclude = UserDetailsServiceAutoConfiguration.class
 )
 //  El despachador de avisos y la carga diaria de la UF corren en segundo plano.

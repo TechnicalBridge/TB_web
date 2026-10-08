@@ -1,7 +1,7 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.payments.exception.ApiException;
+import com.tbridge.payments.security.JwtPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tbridge.payments.client.DebtClient;
 import com.tbridge.payments.client.KhipuClient;

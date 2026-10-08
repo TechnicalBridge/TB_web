@@ -1,6 +1,6 @@
 package com.tbridge.debt.assembler;
 
-import com.tbridge.common.jwt.SesionActual;
+import com.tbridge.debt.security.SesionActual;
 import com.tbridge.debt.controller.DebtController;
 import com.tbridge.debt.dto.response.DebtDetailResponse;
 import com.tbridge.debt.dto.response.DebtSummaryResponse;

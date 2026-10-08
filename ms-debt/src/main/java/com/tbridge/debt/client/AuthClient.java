@@ -1,6 +1,6 @@
 package com.tbridge.debt.client;
 
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.debt.exception.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;

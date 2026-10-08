@@ -2,8 +2,8 @@ package com.tbridge.auth.service;
 
 import com.tbridge.auth.model.Session;
 import com.tbridge.auth.repository.SessionRepository;
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.util.Hash;
+import com.tbridge.auth.exception.ApiException;
+import com.tbridge.auth.util.Hash;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;

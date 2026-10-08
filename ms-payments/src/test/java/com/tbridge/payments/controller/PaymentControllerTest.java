@@ -1,7 +1,7 @@
 package com.tbridge.payments.controller;
 
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtService;
+import com.tbridge.payments.exception.ApiException;
+import com.tbridge.payments.security.JwtService;
 import com.tbridge.payments.assembler.PaymentModelAssembler;
 import com.tbridge.payments.config.SecurityConfig;
 import com.tbridge.payments.dto.response.PaymentResponse;

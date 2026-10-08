@@ -1,7 +1,7 @@
 package com.tbridge.payments.controller;
 
-import com.tbridge.common.exception.ApiError;
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiError;
+import com.tbridge.payments.exception.ApiException;
 import com.tbridge.payments.config.OpenApiConfig;
 import com.tbridge.payments.dto.request.UfManualRequest;
 import com.tbridge.payments.dto.response.UfCargaResponse;

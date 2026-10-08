@@ -1,7 +1,7 @@
 package com.tbridge.auth.dto.response;
 
 import com.tbridge.auth.model.StaffUser;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.auth.security.JwtPrincipal;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**

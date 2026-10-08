@@ -1,7 +1,7 @@
 package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.tbridge.common.util.Rut;
+import com.tbridge.debt.util.Rut;
 import com.tbridge.debt.dto.request.CampanaRequest;
 import com.tbridge.debt.dto.request.MandatoRequest;
 import com.tbridge.debt.dto.response.CampanaResponse;

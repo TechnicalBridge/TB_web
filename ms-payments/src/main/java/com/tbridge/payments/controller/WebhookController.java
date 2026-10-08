@@ -1,6 +1,6 @@
 package com.tbridge.payments.controller;
 
-import com.tbridge.common.exception.ApiError;
+import com.tbridge.payments.exception.ApiError;
 import com.tbridge.payments.dto.request.WebhookRequest;
 import com.tbridge.payments.dto.response.PaymentResponse;
 import com.tbridge.payments.service.PaymentService;

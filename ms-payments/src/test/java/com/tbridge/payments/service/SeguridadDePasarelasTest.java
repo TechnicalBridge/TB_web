@@ -2,8 +2,8 @@ package com.tbridge.payments.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.payments.exception.ApiException;
+import com.tbridge.payments.security.JwtPrincipal;
 import com.tbridge.payments.client.DebtClient;
 import com.tbridge.payments.client.KhipuClient;
 import com.tbridge.payments.client.MercadoPagoClient;
