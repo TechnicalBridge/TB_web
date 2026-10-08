@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.tbridge.common.exception.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -105,18 +107,26 @@ public class MercadoPagoClient {
     private final boolean real;
     private final boolean testMode;
 
+    @Autowired
     public MercadoPagoClient(
             @Value("${app.mercadopago.url:https://api.mercadopago.com}") String apiUrl,
             @Value("${app.mercadopago.access-token:}") String accessToken,
             @Value("${app.mercadopago.public-key:}") String publicKey,
             @Value("${app.mercadopago.environment:TEST}") String environment
     ) {
+        this(apiUrl, accessToken, publicKey, environment, TiemposDePasarela.fabrica());
+    }
+
+    /** Con otros tiempos maximos: para probarlos sin esperar veinte segundos. */
+    MercadoPagoClient(String apiUrl, String accessToken, String publicKey, String environment,
+                      ClientHttpRequestFactory fabrica) {
         this.accessToken = accessToken == null ? "" : accessToken.trim();
         this.publicKey = publicKey == null ? "" : publicKey.trim();
         this.real = !this.accessToken.isBlank() && !"SIMULADA".equalsIgnoreCase(environment == null ? "" : environment.trim());
         this.testMode = "TEST".equalsIgnoreCase(environment == null ? "" : environment.trim())
                 || "SANDBOX".equalsIgnoreCase(environment == null ? "" : environment.trim());
         this.rest = RestClient.builder()
+                .requestFactory(fabrica)
                 .baseUrl(apiUrl.replaceAll("/$", ""))
                 .defaultHeader("Authorization", "Bearer " + this.accessToken)
                 .build();

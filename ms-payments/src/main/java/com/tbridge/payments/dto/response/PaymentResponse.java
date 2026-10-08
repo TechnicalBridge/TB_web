@@ -42,7 +42,10 @@ public record PaymentResponse(
         String referenciaPasarela,
         @Schema(description = "Solo en un pago duplicado: a quien devolverlo", nullable = true,
                 example = "16482337-7")
-        String deudorRut
+        String deudorRut,
+        @Schema(description = "Mientras el cobro esta abierto: hasta cuando se puede pagar en la pasarela. "
+                + "Null si ya se cerro o si es la simulacion", nullable = true, example = "2026-10-07T21:46:11Z")
+        Instant venceA
 ) {
 
     public static PaymentResponse from(Payment pago, boolean simulada) {
@@ -50,11 +53,16 @@ public record PaymentResponse(
         return new PaymentResponse(pago.getId(), pago.getDebtId(), pago.getInstallmentId(), pago.getAmount(),
                 pago.getCurrency(), pago.getAmountClp(), pago.getUfValue(), pago.getGateway(), pago.getStatus(),
                 pago.getPaidAt(), pago.getCreatedAt(), null, simulada,
-                duplicado ? pago.getGatewayTxnId() : null, duplicado ? pago.getDebtorRut() : null);
+                duplicado ? pago.getGatewayTxnId() : null, duplicado ? pago.getDebtorRut() : null, null);
     }
 
     public PaymentResponse conEnlaceDePago(String url) {
         return new PaymentResponse(id, debtId, installmentId, amount, currency, amountClp, ufValue, gateway, status,
-                paidAt, createdAt, url, simulada, referenciaPasarela, deudorRut);
+                paidAt, createdAt, url, simulada, referenciaPasarela, deudorRut, venceA);
+    }
+
+    public PaymentResponse conVence(Instant vence) {
+        return new PaymentResponse(id, debtId, installmentId, amount, currency, amountClp, ufValue, gateway, status,
+                paidAt, createdAt, checkoutUrl, simulada, referenciaPasarela, deudorRut, vence);
     }
 }

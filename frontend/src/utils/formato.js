@@ -40,6 +40,12 @@ export function fechaHora(iso) {
   });
 }
 
+/** Solo la hora, en Chile: 18:45. */
+export function hora(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+}
+
 /** Una fecha dicha como en una conversacion: 20 de octubre. */
 export function fechaLarga(iso) {
   return new Date(`${iso}T12:00:00`).toLocaleDateString("es-CL", { day: "numeric", month: "long" });

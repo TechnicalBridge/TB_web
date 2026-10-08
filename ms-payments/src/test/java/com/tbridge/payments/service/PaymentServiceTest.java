@@ -84,6 +84,7 @@ class PaymentServiceTest {
             return pago;
         });
         when(avisos.findByPaymentId(any())).thenReturn(Optional.empty());
+        when(webpay.plazoDePago()).thenReturn(java.time.Duration.ofMinutes(15));
     }
 
     private static DebtClient.DebtSnapshot deudaDe(String rut, String moneda, String monto) {
@@ -183,6 +184,11 @@ class PaymentServiceTest {
 
     private String firmaDe(Payment pago) {
         return firmas.sign("41", pago.getAmount().toPlainString(), "3");
+    }
+
+    /** La sesion del cobro en Transbank: con ella vuelve Webpay cuando se acaba el tiempo. */
+    private String sesionDe(Payment pago) {
+        return "DB" + firmas.sign("sesion-41", pago.getAmount().toPlainString(), "3").substring(0, 40);
     }
 
     @Test
@@ -681,8 +687,16 @@ class PaymentServiceTest {
         pago.setCreatedAt(Instant.now());
         when(webpay.real()).thenReturn(true);
         when(payments.findByGatewayAndGatewayTxnId(Payment.Gateway.webpay, TOKEN)).thenReturn(Optional.of(pago));
+        when(payments.paraCerrarPorToken(Payment.Gateway.webpay, TOKEN)).thenReturn(Optional.of(pago));
         when(payments.findById(41L)).thenReturn(Optional.of(pago));
+        when(payments.paraCerrar(41L)).thenReturn(Optional.of(pago));
         return pago;
+    }
+
+    /** Lo que responde la consulta de Transbank: sin vci, sin pagar; con vci, pagada y sin confirmar. */
+    private static WebpayCommitResponse estadoDeWebpay(String estado, String vci) {
+        return new WebpayCommitResponse(vci, 410000L, estado, "ORD41T123", "deuda-3", null, null, null, null,
+                vci == null ? null : "VN", null, null, null, null);
     }
 
     private static WebpayCommitResponse confirmacion(String estado, Integer codigo, long monto, String orden) {
@@ -696,11 +710,15 @@ class PaymentServiceTest {
         PaymentResponse pago = cobroConWebpay();
 
         ArgumentCaptor<String> orden = ArgumentCaptor.forClass(String.class);
-        verify(webpay).createTransaction(orden.capture(), org.mockito.ArgumentMatchers.eq("deuda-3"),
+        ArgumentCaptor<String> sesion = ArgumentCaptor.forClass(String.class);
+        verify(webpay).createTransaction(orden.capture(), sesion.capture(),
                 org.mockito.ArgumentMatchers.eq(410000L),
                 org.mockito.ArgumentMatchers.eq("http://localhost:8080/api/payments/public/webpay/retorno"));
         assertTrue(orden.getValue().matches("ORD41T\\d+"), orden.getValue());
         assertTrue(orden.getValue().length() <= 26, "Transbank acepta hasta 26 caracteres");
+        assertTrue(sesion.getValue().length() <= 61, "Transbank acepta hasta 61 caracteres");
+        assertFalse(sesion.getValue().contains("deuda"), "la sesion no se adivina: " + sesion.getValue());
+        assertTrue(sesion.getValue().matches("DB[0-9a-f]{40}"), "es una firma del pago: " + sesion.getValue());
         assertTrue(pago.checkoutUrl().startsWith("http://localhost:8080/api/payments/public/41/webpay?sig="));
         assertFalse(pago.simulada());
     }
@@ -721,7 +739,7 @@ class PaymentServiceTest {
         Payment pago = abiertoEnWebpay();
         when(webpay.commitTransaction(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
 
-        String destino = servicio.retornoWebpay(TOKEN, null, null);
+        String destino = servicio.retornoWebpay(TOKEN, null, null, null);
 
         assertEquals(Payment.Status.paid, pago.getStatus());
         assertEquals(TOKEN, pago.getGatewayTxnId());
@@ -745,7 +763,7 @@ class PaymentServiceTest {
             Payment pago = abiertoEnWebpay();
             when(webpay.commitTransaction(TOKEN)).thenReturn(mala);
 
-            servicio.retornoWebpay(TOKEN, null, null);
+            servicio.retornoWebpay(TOKEN, null, null, null);
 
             assertEquals(Payment.Status.failed, pago.getStatus(), mala.toString());
         }
@@ -755,17 +773,17 @@ class PaymentServiceTest {
     @Test
     void si_el_deudor_anula_o_se_le_acaba_el_tiempo_no_se_confirma_nada() {
         Payment anulado = abiertoEnWebpay();
-        servicio.retornoWebpay(null, TOKEN, "ORD41T123");
+        servicio.retornoWebpay(null, TOKEN, "ORD41T123", null);
         assertEquals(Payment.Status.failed, anulado.getStatus());
 
         //  Un error en el formulario de Webpay trae los dos tokens: tampoco se confirma.
         Payment conError = abiertoEnWebpay();
-        servicio.retornoWebpay(TOKEN, TOKEN, "ORD41T123");
+        servicio.retornoWebpay(TOKEN, TOKEN, "ORD41T123", null);
         assertEquals(Payment.Status.failed, conError.getStatus());
 
         //  Por tiempo, Webpay devuelve solo la orden de compra.
         Payment vencido = abiertoEnWebpay();
-        servicio.retornoWebpay(null, null, "ORD41T123");
+        servicio.retornoWebpay(null, null, "ORD41T123", sesionDe(vencido));
         assertEquals(Payment.Status.failed, vencido.getStatus());
 
         verify(webpay, never()).commitTransaction(any());
@@ -776,8 +794,8 @@ class PaymentServiceTest {
         Payment pago = abiertoEnWebpay();
         when(webpay.commitTransaction(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
 
-        servicio.retornoWebpay(TOKEN, null, null);
-        String segunda = servicio.retornoWebpay(TOKEN, null, null);
+        servicio.retornoWebpay(TOKEN, null, null, null);
+        String segunda = servicio.retornoWebpay(TOKEN, null, null, null);
 
         verify(webpay, times(1)).commitTransaction(TOKEN);
         assertEquals(Payment.Status.paid, pago.getStatus());
@@ -789,7 +807,7 @@ class PaymentServiceTest {
         Payment pago = abiertoEnWebpay();
         when(webpay.commitTransaction(TOKEN)).thenThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Webpay no confirmo"));
 
-        String destino = servicio.retornoWebpay(TOKEN, null, null);
+        String destino = servicio.retornoWebpay(TOKEN, null, null, null);
 
         assertEquals(Payment.Status.created, pago.getStatus(), "no se marca fallido: podria haber quedado confirmado");
         assertTrue(destino.startsWith("http://localhost:8080/pasarela/41?sig="));
@@ -801,7 +819,7 @@ class PaymentServiceTest {
         when(payments.findByGatewayAndGatewayTxnId(any(), any())).thenReturn(Optional.empty());
 
         assertEquals(HttpStatus.NOT_FOUND,
-                assertThrows(ApiException.class, () -> servicio.retornoWebpay("otro", null, null)).getStatus());
+                assertThrows(ApiException.class, () -> servicio.retornoWebpay("otro", null, null, null)).getStatus());
         verify(webpay, never()).commitTransaction(any());
     }
 
@@ -818,21 +836,199 @@ class PaymentServiceTest {
 
     @Test
     void un_cobro_de_webpay_abandonado_queda_vencido_y_uno_reciente_no() {
+        when(webpay.estado(TOKEN)).thenReturn(estadoDeWebpay("INITIALIZED", null));
         Payment viejo = abiertoEnWebpay();
         viejo.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
-        Payment reciente = new Payment();
-        reciente.setId(42L);
-        reciente.setGateway(Payment.Gateway.webpay);
-        reciente.setStatus(Payment.Status.created);
-        reciente.setCreatedAt(Instant.now());
-        when(payments.findByGatewayAndStatus(Payment.Gateway.webpay, Payment.Status.created))
-                .thenReturn(List.of(viejo, reciente));
-
-        assertEquals(1, servicio.vencerWebpayAbandonados(java.time.Duration.ofMinutes(15)));
-
+        assertTrue(servicio.conciliarWebpay(41L));
         assertEquals(Payment.Status.expired, viejo.getStatus());
+
+        Payment reciente = abiertoEnWebpay();
+        assertFalse(servicio.conciliarWebpay(41L), "dentro del plazo de Transbank sigue abierto");
         assertEquals(Payment.Status.created, reciente.getStatus());
         verify(avisos, never()).save(any());
+    }
+
+    // ---- Webpay segun la documentacion de Transbank (issue #75) --------------------
+
+    @Test
+    void la_pagina_de_webpay_manda_el_token_una_sola_vez() {
+        Payment pago = abiertoEnWebpay();
+        when(webpay.paginaDePago()).thenReturn("https://webpay3gint.transbank.cl/webpayserver/initTransaction");
+
+        String primera = servicio.paginaWebpay(41L, firmaDe(pago));
+        String segunda = servicio.paginaWebpay(41L, firmaDe(pago));
+
+        assertTrue(primera.contains("name=\"token_ws\" value=\"" + TOKEN + "\""));
+        org.junit.jupiter.api.Assertions.assertNotNull(pago.getRedirectedAt(), "queda cuando se llevo al deudor");
+        assertFalse(segunda.contains(TOKEN), "la segunda vez no se manda el token: seria el Error 21");
+        assertTrue(segunda.contains("Webpay ya se abrió para este pago"));
+        assertTrue(segunda.contains("http://localhost:8080/pasarela/41?sig="), "y lleva de vuelta al portal");
+    }
+
+    @Test
+    void la_pagina_de_un_cobro_ya_cerrado_lleva_al_resultado_sin_el_token() {
+        Payment pago = abiertoEnWebpay();
+        pago.setStatus(Payment.Status.paid);
+
+        String pagina = servicio.paginaWebpay(41L, firmaDe(pago));
+
+        assertFalse(pagina.contains(TOKEN));
+        assertTrue(pagina.contains("http://localhost:8080/pasarela/41?sig="));
+    }
+
+    @Test
+    void si_el_deudor_pago_y_no_volvio_ms_payments_lo_confirma() {
+        Payment pago = abiertoEnWebpay();
+        when(webpay.estado(TOKEN)).thenReturn(estadoDeWebpay("INITIALIZED", "TSY"));
+        when(webpay.commitTransaction(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
+
+        assertTrue(servicio.conciliarWebpay(41L));
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
+        verify(webpay).commitTransaction(TOKEN);
+        verify(avisos).save(any(DebtNotification.class));
+    }
+
+    @Test
+    void si_transbank_ya_lo_confirmo_se_registra_sin_volver_a_confirmar() {
+        Payment pago = abiertoEnWebpay();
+        when(webpay.estado(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
+
+        assertTrue(servicio.conciliarWebpay(41L));
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
+        verify(webpay, never()).commitTransaction(any());
+    }
+
+    @Test
+    void fallido_reversado_o_anulado_en_transbank_queda_fallido() {
+        for (String estado : List.of("FAILED", "REVERSED", "NULLIFIED")) {
+            Payment pago = abiertoEnWebpay();
+            when(webpay.estado(TOKEN)).thenReturn(confirmacion(estado, -1, 410000, "ORD41T123"));
+
+            assertTrue(servicio.conciliarWebpay(41L), estado);
+
+            assertEquals(Payment.Status.failed, pago.getStatus(), estado);
+        }
+        verify(avisos, never()).save(any());
+    }
+
+    @Test
+    void sin_pagar_y_dentro_del_plazo_sigue_abierto_sin_confirmar_nada() {
+        Payment pago = abiertoEnWebpay();
+        when(webpay.estado(TOKEN)).thenReturn(estadoDeWebpay("INITIALIZED", null));
+
+        assertFalse(servicio.conciliarWebpay(41L));
+
+        assertEquals(Payment.Status.created, pago.getStatus());
+        verify(webpay, never()).commitTransaction(any());
+    }
+
+    @Test
+    void si_transbank_no_responde_sigue_abierto_y_un_dia_despues_vence() {
+        Payment pago = abiertoEnWebpay();
+        when(webpay.estado(TOKEN)).thenThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Webpay no respondio"));
+
+        pago.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+        assertFalse(servicio.conciliarWebpay(41L));
+        assertEquals(Payment.Status.created, pago.getStatus(), "sin respuesta no se sabe: se pregunta de nuevo");
+
+        pago.setCreatedAt(Instant.now().minus(java.time.Duration.ofHours(25)));
+        assertTrue(servicio.conciliarWebpay(41L));
+        assertEquals(Payment.Status.expired, pago.getStatus(), "un cobro no queda abierto para siempre");
+    }
+
+    @Test
+    void un_cobro_vencido_que_transbank_alcanzo_a_confirmar_se_registra() {
+        Payment pago = abiertoEnWebpay();
+        pago.setStatus(Payment.Status.expired);
+        when(webpay.estado(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
+
+        assertTrue(servicio.conciliarWebpay(41L));
+
+        assertEquals(Payment.Status.paid, pago.getStatus());
+    }
+
+    @Test
+    void solo_se_revisan_los_cobros_de_un_webpay_real() {
+        when(webpay.real()).thenReturn(false);
+        assertTrue(servicio.webpayPorRevisar(false).isEmpty());
+        assertTrue(servicio.webpayPorRevisar(true).isEmpty());
+
+        Payment pago = abiertoEnWebpay();
+        when(payments.findByGatewayAndStatus(Payment.Gateway.webpay, Payment.Status.created)).thenReturn(List.of(pago));
+        assertEquals(List.of(41L), servicio.webpayPorRevisar(false));
+
+        Payment khipu = abiertoEnWebpay();
+        khipu.setGateway(Payment.Gateway.khipu);
+        assertFalse(servicio.conciliarWebpay(41L), "un cobro de otra pasarela no se le pregunta a Transbank");
+        verify(webpay, never()).estado(any());
+    }
+
+    @Test
+    void al_abrir_otro_cobro_si_el_webpay_anterior_ya_se_pago_se_registra_y_no_se_cobra_dos_veces() {
+        Payment anterior = abiertoEnWebpay();
+        anterior.setCuotas(List.of(12L));
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(anterior));
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.paid)).thenAnswer(llamada ->
+                anterior.getStatus() == Payment.Status.paid ? List.of(anterior) : List.of());
+        when(webpay.estado(TOKEN)).thenReturn(estadoDeWebpay("INITIALIZED", "TSY"));
+        when(webpay.commitTransaction(TOKEN)).thenReturn(confirmacion("AUTHORIZED", 0, 410000, "ORD41T123"));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        ApiException error = assertThrows(ApiException.class,
+                () -> servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay")));
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals(Payment.Status.paid, anterior.getStatus(), "lo que pago en la ventana anterior quedo registrado");
+        verify(webpay, never()).createTransaction(any(), any(), anyLong(), any());
+    }
+
+    @Test
+    void al_abrir_otro_cobro_el_webpay_anterior_sin_pagar_queda_vencido() {
+        Payment anterior = abiertoEnWebpay();
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(anterior));
+        when(webpay.estado(TOKEN)).thenReturn(estadoDeWebpay("INITIALIZED", null));
+        when(webpay.createTransaction(any(), any(), anyLong(), any()))
+                .thenReturn(new WebpayCreateResponse("tok-nuevo", "https://webpay3gint.transbank.cl/webpayserver/initTransaction"));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        assertEquals(Payment.Status.expired, anterior.getStatus(),
+                "si igual pagara en esa ventana no se confirmaria: no se le cobra dos veces");
+    }
+
+    @Test
+    void si_transbank_no_responde_al_abrir_otro_el_anterior_se_deja() {
+        Payment anterior = abiertoEnWebpay();
+        when(payments.findByDebtIdAndStatus(3L, Payment.Status.created)).thenReturn(List.of(anterior));
+        when(webpay.estado(TOKEN)).thenThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Webpay no respondio"));
+        when(webpay.createTransaction(any(), any(), anyLong(), any()))
+                .thenReturn(new WebpayCreateResponse("tok-nuevo", "https://webpay3gint.transbank.cl/webpayserver/initTransaction"));
+        when(deudas.obtener(3L, null)).thenReturn(deudaDe(FELIPE, "CLP", "410000"));
+
+        servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        assertEquals(Payment.Status.created, anterior.getStatus(), "sin saber si se pago, no se vence a ciegas");
+    }
+
+    @Test
+    void el_cobro_dice_hasta_cuando_se_puede_pagar() {
+        PaymentResponse webpayReal = cobroConWebpay();
+        assertEquals(java.time.Duration.ofMinutes(15),
+                java.time.Duration.between(webpayReal.createdAt(), webpayReal.venceA()), "lo que da Transbank");
+
+        when(khipu.real()).thenReturn(true);
+        when(khipu.crear(any(), any(), anyLong(), any(), any(), any(), any()))
+                .thenReturn(new KhipuClient.Cobro("pago-khipu", "https://khipu.com/payment/info/pago-khipu"));
+        PaymentResponse conKhipu = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "khipu"));
+        assertEquals(java.time.Duration.ofMinutes(30),
+                java.time.Duration.between(conKhipu.createdAt(), conKhipu.venceA()));
+
+        when(khipu.real()).thenReturn(false);
+        PaymentResponse simulada = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "khipu"));
+        assertNull(simulada.venceA(), "la simulacion no vence");
     }
 
     @Test

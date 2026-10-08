@@ -2,6 +2,8 @@ package com.tbridge.payments.client;
 
 import com.tbridge.common.exception.ApiError;
 import com.tbridge.common.exception.ApiException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -47,9 +49,15 @@ public class DebtClient {
     private final RestClient rest;
     private final String internalKey;
 
+    @Autowired
     public DebtClient(@Value("${app.debt-url}") String debtUrl,
                       @Value("${app.internal-key}") String internalKey) {
-        this.rest = RestClient.builder().baseUrl(debtUrl.replaceAll("/$", "")).build();
+        this(debtUrl, internalKey, TiemposDePasarela.fabrica());
+    }
+
+    /** Con otros tiempos maximos: para probarlos sin esperar veinte segundos. */
+    DebtClient(String debtUrl, String internalKey, ClientHttpRequestFactory fabrica) {
+        this.rest = RestClient.builder().requestFactory(fabrica).baseUrl(debtUrl.replaceAll("/$", "")).build();
         this.internalKey = internalKey;
     }
 

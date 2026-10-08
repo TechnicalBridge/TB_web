@@ -117,6 +117,10 @@ public class Payment {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    /** Cuando se llevo al deudor a la pasarela. En Webpay, para no mandar el mismo token dos veces. */
+    @Column(name = "redirected_at")
+    private Instant redirectedAt;
+
     public Long getId() {
         return id;
     }
@@ -249,5 +253,13 @@ public class Payment {
 
     public void setPaidAt(Instant paidAt) {
         this.paidAt = paidAt;
+    }
+
+    public Instant getRedirectedAt() {
+        return redirectedAt;
+    }
+
+    public void setRedirectedAt(Instant redirectedAt) {
+        this.redirectedAt = redirectedAt;
     }
 }

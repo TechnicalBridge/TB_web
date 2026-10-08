@@ -64,7 +64,7 @@ class PaymentControllerTest {
     private static PaymentResponse pago() {
         return new PaymentResponse(41L, 3L, null, new BigDecimal("410000"), Payment.Currency.CLP, 410000L, null,
                 Payment.Gateway.khipu, Payment.Status.created, null, Instant.parse("2026-09-24T12:00:00Z"), null, false,
-                null, null);
+                null, null, Instant.parse("2026-09-24T12:30:00Z"));
     }
 
     @Test
@@ -91,7 +91,7 @@ class PaymentControllerTest {
         when(payments.paraDevolver(any())).thenReturn(List.of(new PaymentResponse(58L, 3L, null,
                 new BigDecimal("900000"), Payment.Currency.CLP, 900000L, null, Payment.Gateway.khipu,
                 Payment.Status.duplicated, null, Instant.parse("2026-10-06T06:53:00Z"), null, false,
-                "yiddism7h8oc", RUT)));
+                "yiddism7h8oc", RUT, null)));
 
         mvc.perform(get("/api/payments/para-devolver").header("Authorization", empresa))
                 .andExpect(status().isOk())
@@ -203,8 +203,8 @@ class PaymentControllerTest {
 
     @Test
     void la_vuelta_de_webpay_redirige_al_resultado_por_get_y_por_post() throws Exception {
-        when(payments.retornoWebpay("tok", null, null)).thenReturn("http://localhost:8080/pasarela/41?sig=x");
-        when(payments.retornoWebpay(null, "tbk", "ORD41T123")).thenReturn("http://localhost:8080/pasarela/41?sig=x");
+        when(payments.retornoWebpay("tok", null, null, null)).thenReturn("http://localhost:8080/pasarela/41?sig=x");
+        when(payments.retornoWebpay(null, "tbk", "ORD41T123", null)).thenReturn("http://localhost:8080/pasarela/41?sig=x");
 
         //  Pago: Webpay vuelve por GET con token_ws.
         mvc.perform(get("/api/payments/public/webpay/retorno").param("token_ws", "tok"))

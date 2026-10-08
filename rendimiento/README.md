@@ -8,6 +8,7 @@ la red de Docker Compose mide el camino completo: nginx → gateway → servicio
 | [`capacidad.js`](capacidad.js) | Cómo lo siente una persona: cien personas a la vez, leyendo su deuda |
 | [`estres.js`](estres.js) | Cuánto aguanta el sistema, y dónde empieza a doler |
 | [`limite.js`](limite.js) | Que el límite de peticiones corte donde dice, y que se recargue solo |
+| [`pagos.js`](pagos.js) | Cuánto aguanta abrir cobros: muchos deudores tocando *Pagar* a la vez, con las pasarelas simuladas |
 
 ## Antes de correrlas
 
@@ -232,13 +233,53 @@ reglas tienen además sus pruebas unitarias en `gateway/src/test`.
 
 ---
 
+## 4. Pagos: abrir cobros
+
+Lo que pasa cuando muchos deudores tocan *Pagar* a la vez: abrir el cobro (nginx → gateway →
+ms-payments, que le pregunta el monto a ms-debt y lo guarda en MySQL) y la consulta que repite el
+portal mientras espera a la pasarela. Cada deudor abre un cobro en una pasarela al azar, pregunta
+dos veces en qué va y descansa dos segundos.
+
+**Solo contra las pasarelas simuladas.** Los ambientes de prueba de Transbank, Khipu y Mercado Pago
+son compartidos y no se les hace carga. Antes de empezar, la prueba abre un cobro en cada pasarela
+y **se detiene** si alguno sale a una pasarela de verdad. Para correrla, ms-payments con las tres
+simuladas y el límite subido, solo en esa terminal:
+
+```powershell
+$env:TRANSBANK_ENVIRONMENT = "SIMULADA"; $env:KHIPU_LLAVE = ""; $env:MERCADOPAGO_ACCESS_TOKEN = ""
+$env:RATE_GLOBAL_CAPACITY = "10000000"
+docker compose --profile app up -d --wait ms-payments gateway
+docker compose --profile carga run --rm -e RUT_DEUDOR=<un deudor de prueba> k6 run /rendimiento/pagos.js
+```
+
+Con `-e MAX_VUS=100` el último escalón llega a cien deudores. No confirma los cobros (pagarlos
+dejaría la deuda en cero a mitad de la medición): quedan abiertos y simulados, y al final la prueba
+imprime los `DELETE` que los borran. Después, se vuelve a lo normal:
+
+```powershell
+Remove-Item Env:\TRANSBANK_ENVIRONMENT, Env:\KHIPU_LLAVE, Env:\MERCADOPAGO_ACCESS_TOKEN, Env:\RATE_GLOBAL_CAPACITY
+docker compose --profile app up -d --wait ms-payments gateway
+```
+
+### Resultado (7 de octubre de 2026)
+
+| Último escalón | Peticiones | Fallidas | Abrir el cobro (p95) | Consultarlo (p95) | Cobros por segundo |
+| --- | --- | --- | --- | --- | --- |
+| 20 deudores | 1.161 | **0** | 37 ms | 13 ms | 2,6 |
+| 100 deudores | 5.817 | **0** | 30 ms | 7 ms | 13 |
+
+Abrir un cobro cuesta unos 25 ms y no crece con la carga: el tiempo de un pago de verdad está en
+la pasarela, no en DataBridge. El limitador no intervino en ninguna de las dos.
+
+---
+
 ## Lo que estas pruebas no dicen
 
 - Se corren sobre **Docker Desktop en una máquina de escritorio**, con las tres bases, el bus de
   mensajes y los cinco servicios compitiendo por los mismos núcleos. Los números sirven para
   comparar entre escalones y para detectar una regresión, **no para prometer capacidad en
   producción**.
-- No miden escritura. Repactar y pagar cambian estado, y medirlos con carga sostenida exigiría
-  poder deshacer lo escrito.
+- No miden confirmar pagos ni repactar. `pagos.js` mide abrir cobros, que sí escribe, pero
+  confirmarlos cambia el saldo, y medirlo con carga sostenida exigiría poder deshacer lo escrito.
 - No miden la base con volumen real. La cartera de prueba tiene unas pocas deudas: una tabla con
   cien mil se comportaría distinto, y eso es una prueba aparte que todavía no existe.
