@@ -3,8 +3,10 @@ package com.tbridge.debt.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.hateoas.server.core.Relation;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /** Una campana, como la ve en el portal la empresa que la gestiona, con su avance. */
 @Relation(collectionRelation = "campanas", itemRelation = "campana")
@@ -25,6 +27,18 @@ public record CampanaPortalResponse(
         @Schema(description = "Las deudas de la campana", example = "12") int deudas,
         @Schema(description = "Los correos que salieron: invitaciones y toques", example = "20") int contactos,
         @Schema(description = "Los pagos recibidos", example = "4") int pagos,
-        @Schema(description = "Las deudas saldadas", example = "3") int saldadas
+        @Schema(description = "Las deudas saldadas", example = "3") int saldadas,
+        @Schema(description = "El % de los intereses de mora que condona por tramo (1-30, 31-90 y 91-120). Vacio "
+                + "sin descuento", nullable = true, example = "{\"31-90\": 50, \"91-120\": 100}")
+        Map<String, BigDecimal> descuentoPorTramo
 ) {
+
+    /** Una campana sin descuento por pronto pago. */
+    public CampanaPortalResponse(String idExterno, String nombre, String acreedorRut, String acreedor, boolean propia,
+                                 LocalDate inicio, LocalDate fin, List<String> canales, int intentos,
+                                 List<Integer> cadenciaDias, String estado, int deudas, int contactos, int pagos,
+                                 int saldadas) {
+        this(idExterno, nombre, acreedorRut, acreedor, propia, inicio, fin, canales, intentos, cadenciaDias, estado,
+                deudas, contactos, pagos, saldadas, null);
+    }
 }

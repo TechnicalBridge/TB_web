@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { descargarCertificado, disputar, listarDeudas } from "../api/deudas";
-import { dinero, MOTIVOS_DISPUTA, porcentaje, porMoneda, rutLegible, totalDeLaDeuda } from "../utils/formato";
+import { dinero, fechaLarga, MOTIVOS_DISPUTA, porcentaje, porMoneda, rutLegible, totalDeLaDeuda } from "../utils/formato";
 import { useAuth } from "../store/authStore";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
@@ -113,6 +113,16 @@ function TarjetaDeuda({ deuda: d, i, onCambio }) {
           ) : null}
         </div>
       </div>
+
+      {!pagada && Number(d.descuentoDisponible) > 0 ? (
+        <div className="oferta">
+          <b>
+            Si pagas todo{d.descuentoHasta ? ` antes del ${fechaLarga(d.descuentoHasta)}` : " ahora"}, te
+            descontamos {dinero(d.descuentoDisponible, d.moneda)} de intereses.
+          </b>
+          <span>Pagarías {dinero(Number(d.totalHoy) - Number(d.descuentoDisponible), d.moneda)} en vez de {dinero(d.totalHoy, d.moneda)}.</span>
+        </div>
+      ) : null}
 
       <BarraEstado deuda={d} />
 

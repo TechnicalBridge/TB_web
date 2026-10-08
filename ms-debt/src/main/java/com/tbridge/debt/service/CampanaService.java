@@ -12,12 +12,14 @@ import com.tbridge.debt.repository.CampaignRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Las campanas desde el portal de empresas: la lista con su avance, crearlas o
@@ -109,7 +111,20 @@ public class CampanaService {
                     case paused -> "pausada";
                     case finished -> "terminada";
                 },
-                datos.deudas(), datos.enviados(), datos.pagos(), datos.saldadas());
+                datos.deudas(), datos.enviados(), datos.pagos(), datos.saldadas(),
+                porTramo(campana.getMoraDiscount()));
+    }
+
+    /** El descuento por tramo, como lo guardo {@link DescuentoService#normalizar}. Null sin descuento. */
+    private Map<String, BigDecimal> porTramo(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
+        try {
+            return json.readValue(texto, new TypeReference<Map<String, BigDecimal>>() { });
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private <T> List<T> lista(String texto, TypeReference<List<T>> tipo) {

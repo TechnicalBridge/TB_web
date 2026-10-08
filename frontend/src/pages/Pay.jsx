@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { obtenerDeuda } from "../api/deudas";
 import { abrirCobro, obtenerPago } from "../api/pagos";
-import { dinero, fecha, hora, hoyEnChile, porcentaje } from "../utils/formato";
+import { dinero, fecha, fechaLarga, hora, hoyEnChile, porcentaje } from "../utils/formato";
 import BarraEstado from "../components/BarraEstado";
 import Cargando from "../components/Cargando";
 import LogoPasarela, { PASARELAS, nombreDePasarela } from "../components/LogoPasarela";
@@ -98,7 +98,9 @@ export default function Pay() {
   //  Con tasa, cada cuota vencida se paga con su mora de hoy: ms-debt la suma al cobrar.
   const capital = elegidas.reduce((suma, c) => suma + Number(c.monto), 0);
   const mora = elegidas.reduce((suma, c) => suma + Number(c.interesMora || 0), 0);
-  const monto = capital + mora;
+  //  El descuento por pronto pago es solo para el pago de toda la deuda, sin convenio: ms-debt lo descuenta al cobrar.
+  const descuento = !enConvenio ? Number(deuda.descuentoDisponible || 0) : 0;
+  const monto = capital + mora - descuento;
   const hoy = hoyEnChile();
 
   /** Marcar la cuota i marca todas las anteriores; desmarcarla, todas las que siguen. */
@@ -266,6 +268,15 @@ export default function Pay() {
                           <td className="num">{dinero(mora, moneda)}</td>
                         </tr>
                       ) : null}
+                      {descuento > 0 ? (
+                        <tr className="fila-descuento">
+                          <td colSpan={2}>
+                            Descuento por pronto pago
+                            {deuda.descuentoHasta ? <span className="sub">Si pagas antes del {fechaLarga(deuda.descuentoHasta)}</span> : null}
+                          </td>
+                          <td className="num">−{dinero(descuento, moneda)}</td>
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                   {deuda.estado === "open" ? (
@@ -274,6 +285,7 @@ export default function Pay() {
                       <Link className="link-btn" to={`/app/repactar/${deuda.id}`}>
                         {deuda.tasaInteresMensual ? "Págalo en cuotas" : "Págalo en cuotas sin interés"}
                       </Link>
+                      {descuento > 0 ? " En cuotas no hay descuento: es solo para quien paga todo de una vez." : null}
                     </p>
                   ) : null}
                 </>
@@ -291,7 +303,12 @@ export default function Pay() {
                 </div>
                 <b key={`${k}-${monto}`}>{dinero(monto, moneda)}</b>
               </div>
-              {mora > 0 ? (
+              {mora > 0 && descuento > 0 ? (
+                <p className="hint" style={{ marginTop: -6 }}>
+                  {dinero(capital, moneda)} de capital y {dinero(mora - descuento, moneda)} de intereses por mora: te
+                  descontamos {dinero(descuento, moneda)} por pagar todo de una vez.
+                </p>
+              ) : mora > 0 ? (
                 <p className="hint" style={{ marginTop: -6 }}>
                   {dinero(capital, moneda)} de capital y {dinero(mora, moneda)} de intereses por mora, al{" "}
                   {porcentaje(deuda.tasaInteresMensual)} mensual que pactaste con {deuda.acreedor}.
