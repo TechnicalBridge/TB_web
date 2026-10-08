@@ -144,7 +144,7 @@ public class ContactoService {
                     || !porCorreo(campana)) {
                 continue;
             }
-            List<Integer> cadencia = cadencia(campana);
+            List<Integer> cadencia = cadencia(campana, json);
             int tope = Math.min(campana.getAttempts(), cadencia.size());
             List<Debt> abiertas = debts.findByCampaign(campana).stream()
                     .filter(d -> d.getStatus() == Debt.Status.open)
@@ -195,8 +195,11 @@ public class ContactoService {
         return campana.getChannels() != null && campana.getChannels().contains("\"correo\"");
     }
 
-    /** Los dias de la cadencia, de menor a mayor. Sin una valida, la de APOFYX. */
-    private List<Integer> cadencia(Campaign campana) {
+    /**
+     * Los dias de la cadencia, de menor a mayor. Sin una valida, la de APOFYX.
+     * El portal muestra esta misma: la que se cumple, no la que se guardo.
+     */
+    static List<Integer> cadencia(Campaign campana, ObjectMapper json) {
         if (campana.getCadenceDays() == null || campana.getCadenceDays().isBlank()) {
             return CADENCIA_POR_OMISION;
         }

@@ -7,7 +7,7 @@ import Logo from "./Logo";
 import Chatbot from "./Chatbot";
 import TemaToggle from "./TemaToggle";
 import {
-  IconoAlerta, IconoAyuda, IconoCalendario, IconoCartera, IconoDocumento, IconoLlave, IconoRecibo, IconoSalir,
+  IconoAlerta, IconoAyuda, IconoCalendario, IconoCartera, IconoDocumento, IconoLlave, IconoMegafono, IconoRecibo, IconoSalir,
   IconoSubir, IconoUsuario,
 } from "./Iconos";
 
@@ -25,6 +25,7 @@ const EMPRESA = [
   { to: "/databridge/pagos", label: "Pagos recibidos", corto: "Pagos", Icono: IconoRecibo },
   { to: "/databridge/en-riesgo", label: "Convenios en riesgo", corto: "En riesgo", Icono: IconoAlerta, riesgo: true },
   { to: "/databridge/cargar", label: "Cargar cartera", corto: "Cargar", Icono: IconoSubir },
+  { to: "/databridge/campanas", label: "Campañas", corto: "Campañas", Icono: IconoMegafono },
   { to: "/databridge/claves", label: "Claves de API", corto: "Claves", Icono: IconoLlave },
   { to: "/databridge/como-funciona", label: "Cómo funciona", corto: "Ayuda", Icono: IconoAyuda, aparte: true },
 ];

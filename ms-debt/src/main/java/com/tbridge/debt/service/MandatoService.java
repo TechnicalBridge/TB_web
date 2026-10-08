@@ -101,6 +101,9 @@ public class MandatoService {
         if (idExterno == null || idExterno.isBlank()) {
             throw new CarteraInvalida("campana_incompleta", "La campana necesita id_externo");
         }
+        if (idExterno.length() > 64) {
+            throw new CarteraInvalida("id_invalido", "El id_externo de la campana tiene hasta 64 caracteres");
+        }
         boolean esElAcreedor = quien.getId().equals(acreedor.getId());
         if (!esElAcreedor
                 && mandates.findByAgencyAndCreditorAndStatus(quien, acreedor, Mandate.Status.active).isEmpty()) {
@@ -108,21 +111,42 @@ public class MandatoService {
         }
 
         Campaign campana = campaigns.findByAgencyAndExternalId(quien, idExterno).orElseGet(Campaign::new);
+        boolean nueva = campana.getId() == null;
         campana.setAgency(quien);
         campana.setCreditor(acreedor);
         campana.setExternalId(idExterno);
-        campana.setName(pedido.nombre() == null ? idExterno : pedido.nombre());
-        campana.setStartsOn(fecha(pedido.inicio(), LocalDate.now()));
+        //  Lo que no viene no cambia: a una campana que ya existe, mandarle solo
+        //  el estado no le pisa el nombre con su id ni el inicio con hoy.
+        if (pedido.nombre() != null && !pedido.nombre().isBlank()) {
+            if (pedido.nombre().strip().length() > 120) {
+                throw new CarteraInvalida("nombre_invalido", "El nombre de la campana tiene hasta 120 caracteres");
+            }
+            campana.setName(pedido.nombre().strip());
+        } else if (nueva) {
+            campana.setName(idExterno);
+        }
+        if (pedido.inicio() != null) {
+            campana.setStartsOn(fecha(pedido.inicio(), LocalDate.now()));
+        } else if (nueva) {
+            campana.setStartsOn(LocalDate.now());
+        }
         if (pedido.fin() != null) {
             campana.setEndsOn(fecha(pedido.fin(), null));
+        }
+        if (campana.getEndsOn() != null && campana.getEndsOn().isBefore(campana.getStartsOn())) {
+            throw new CarteraInvalida("fechas_invalidas", "La campana no puede terminar antes de empezar");
         }
         if (presente(pedido.canales())) {
             campana.setChannels(pedido.canales().toString());
         }
         if (pedido.intentos() != null) {
+            if (pedido.intentos() < 1 || pedido.intentos() > 10) {
+                throw new CarteraInvalida("intentos_invalidos", "Los intentos de una campana van de 1 a 10");
+            }
             campana.setAttempts(pedido.intentos().shortValue());
         }
         if (presente(pedido.cadenciaDias())) {
+            validarCadencia(pedido.cadenciaDias());
             campana.setCadenceDays(pedido.cadenciaDias().toString());
         }
         if (pedido.estado() != null && !pedido.estado().isBlank()) {
@@ -136,6 +160,18 @@ public class MandatoService {
         }
         campaigns.save(campana);
         return CampanaResponse.from(campana);
+    }
+
+    /** Dias enteros, mayores que cero y crecientes: el dia de cada toque, contado desde la entrada. */
+    private static void validarCadencia(JsonNode cadencia) {
+        int anterior = 0;
+        for (JsonNode dia : cadencia) {
+            if (!dia.canConvertToInt() || !dia.isIntegralNumber() || dia.asInt() <= anterior) {
+                throw new CarteraInvalida("cadencia_invalida",
+                        "La cadencia son dias crecientes y mayores que cero, por ejemplo 1, 4, 11");
+            }
+            anterior = dia.asInt();
+        }
     }
 
     private Organization buscarAcreedor(String crudo) {

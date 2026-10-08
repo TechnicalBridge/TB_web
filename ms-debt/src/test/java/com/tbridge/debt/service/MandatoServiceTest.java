@@ -235,4 +235,69 @@ class MandatoServiceTest {
         assertEquals(403, fallo.getStatus());
         verify(campaigns, never()).save(any());
     }
+
+    // ------------------------------------------------------------------
+    //  Lo que no viene no cambia, y lo que viene se valida
+    // ------------------------------------------------------------------
+
+    private static CampanaRequest pedido(String nombre, String inicio, String fin, Integer intentos, String cadencia,
+                                         String estado) throws Exception {
+        return new CampanaRequest("APX-CMP-9", "76418902-7", nombre, inicio, fin, null, intentos,
+                cadencia == null ? null : new com.fasterxml.jackson.databind.ObjectMapper().readTree(cadencia), estado);
+    }
+
+    @Test
+    void mandar_solo_el_estado_no_pisa_el_nombre_ni_el_inicio() throws Exception {
+        Campaign campana = campanaRegistrada();
+        campana.setId(7L);
+        campana.setName("Arriendos octubre");
+        campana.setStartsOn(java.time.LocalDate.of(2026, 10, 1));
+
+        servicio.registrarCampana(apofyx, pedido(null, null, null, null, null, "pausada"));
+
+        assertEquals("Arriendos octubre", campana.getName());
+        assertEquals(java.time.LocalDate.of(2026, 10, 1), campana.getStartsOn());
+        assertEquals(Campaign.Status.paused, campana.getStatus());
+    }
+
+    @Test
+    void una_cadencia_que_no_crece_o_con_ceros_se_rechaza() throws Exception {
+        campanaRegistrada();
+        for (String mala : new String[]{"[1, 1, 4]", "[0, 3]", "[4, 2]", "[1.5]", "[\"uno\"]"}) {
+            CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                    () -> servicio.registrarCampana(apofyx, pedido("A", "2026-10-01", null, null, mala, null)), mala);
+            assertEquals("cadencia_invalida", fallo.getCodigo(), mala);
+        }
+        servicio.registrarCampana(apofyx, pedido("A", "2026-10-01", null, null, "[1, 4, 11]", null));
+    }
+
+    @Test
+    void los_intentos_van_de_1_a_10() throws Exception {
+        campanaRegistrada();
+        for (int malos : new int[]{0, 11}) {
+            CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                    () -> servicio.registrarCampana(apofyx, pedido("A", "2026-10-01", null, malos, null, null)));
+            assertEquals("intentos_invalidos", fallo.getCodigo());
+        }
+    }
+
+    @Test
+    void un_id_externo_de_mas_de_64_caracteres_se_rechaza() throws Exception {
+        campanaRegistrada();
+        CampanaRequest largo = new CampanaRequest("C".repeat(65), "76418902-7", "A", null, null, null, null, null, null);
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class, () -> servicio.registrarCampana(apofyx, largo));
+
+        assertEquals("id_invalido", fallo.getCodigo());
+    }
+
+    @Test
+    void una_campana_no_termina_antes_de_empezar() throws Exception {
+        campanaRegistrada();
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.registrarCampana(apofyx, pedido("A", "2026-10-10", "2026-10-01", null, null, null)));
+
+        assertEquals("fechas_invalidas", fallo.getCodigo());
+    }
 }

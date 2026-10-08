@@ -33,4 +33,9 @@ public record CampanaRequest(
                         + "(una nueva parte en curso)", example = "en_curso")
         String estado
 ) {
+
+    /** El mismo pedido, con el id externo que le pone DataBridge a una campana creada en el portal. */
+    public CampanaRequest conIdExterno(String id) {
+        return new CampanaRequest(id, acreedorRut, nombre, inicio, fin, canales, intentos, cadenciaDias, estado);
+    }
 }
