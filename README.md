@@ -542,10 +542,10 @@ El portal queda en http://localhost:5173, servido por Vite con recarga automáti
 
 | Integrante | Rol |
 | --- | --- |
-| Pedro Campos | Team worker |
-| Martín Gutiérrez | Product Owner |
-| Flavio Henríquez | Team Worker |
-| Esteban Maino | Scrum master |
+| Flavio Henríquez | Product Owner y líder técnico |
+| Esteban Maino | Scrum Master |
+| Pedro Campos | Equipo de desarrollo |
+| Martín Gutiérrez | Equipo de desarrollo |
 
 ---
 
@@ -554,10 +554,13 @@ El portal queda en http://localhost:5173, servido por Vite con recarga automáti
 **Scrumban**: los roles de **Scrum** y el flujo de trabajo de **Kanban**, con prácticas de **DevOps**
 para la entrega.
 
-- **Roles (Scrum).** Martín Gutiérrez es el Product Owner: prioriza el backlog y decide qué pasa a
-  *Ready*. Esteban Maino es el Scrum Master: cuida que el trabajo fluya, que nadie tenga más de dos
-  tarjetas en curso, y abre las retrospectivas. Pedro Campos y Flavio Henríquez son el equipo de
-  desarrollo.
+- **Roles (Scrum).** Flavio Henríquez es el Product Owner: prioriza el backlog, escribe los
+  criterios de aceptación y decide qué pasa a *Ready*. Además es el líder técnico: la arquitectura,
+  la integración entre los tres sistemas y la revisión de los PRs que se le piden. Esteban Maino es
+  el Scrum Master: cuida que el trabajo fluya, que nadie tenga más de dos tarjetas en curso, y abre
+  las retrospectivas. Pedro Campos y Martín Gutiérrez son el equipo de desarrollo, junto con Flavio.
+- **Revisión.** Cada autor elige quién revisa su PR. Los de Flavio los revisa la cuenta
+  `H4desDevs` antes de mergearlos.
 - **Flujo (Kanban).** Sin sprints: cada persona toma la siguiente tarjeta de *Ready* cuando termina
   la que tiene. Las columnas del [tablero](https://github.com/orgs/TechnicalBridge/projects/3) son
   Backlog, Ready, In progress, In review y Done, y el tablero reúne los tres repositorios.
