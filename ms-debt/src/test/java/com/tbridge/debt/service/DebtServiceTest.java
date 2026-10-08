@@ -2,9 +2,9 @@ package com.tbridge.debt.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tbridge.common.events.PagoConfirmado;
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.debt.events.PagoConfirmado;
+import com.tbridge.debt.exception.ApiException;
+import com.tbridge.debt.security.JwtPrincipal;
 import com.tbridge.debt.dto.evento.PagoConfirmadoDatos;
 import com.tbridge.debt.dto.evento.RepactacionAceptadaDatos;
 import com.tbridge.debt.dto.response.DebtDetailResponse;

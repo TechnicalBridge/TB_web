@@ -2,9 +2,10 @@
 # =============================================================================
 #  ms-debt — la imagen del servicio de deudas.
 # =============================================================================
-#  Se construye desde la raiz de TB_web, porque necesita el pom padre y common:
+#  Se construye desde la carpeta de este servicio, que no necesita nada
+#  de los demas:
 #
-#      docker build -f ms-debt/Dockerfile -t tbridge/ms-debt .
+#      docker build -t tbridge/ms-debt ms-debt
 #
 #  El compose lo hace solo (perfil "app").
 #
@@ -16,23 +17,15 @@
 FROM maven:3.9-eclipse-temurin-25 AS construccion
 WORKDIR /obra
 
-#  Maven lee todos los modulos que declara el pom padre aunque se compile uno
-#  solo, asi que hacen falta sus pom. El codigo, solo el de common y el propio.
+#  Solo este servicio: su pom y su codigo.
 COPY pom.xml .
-COPY common/pom.xml      common/pom.xml
-COPY gateway/pom.xml     gateway/pom.xml
-COPY ms-auth/pom.xml     ms-auth/pom.xml
-COPY ms-debt/pom.xml     ms-debt/pom.xml
-COPY ms-payments/pom.xml ms-payments/pom.xml
-COPY common/src  common/src
-COPY ms-debt/src ms-debt/src
+COPY src src
 
-#  -pl ms-debt -am: este servicio y lo que necesita (common), nada mas.
 #  El cache de ~/.m2 sobrevive entre construcciones: las dependencias se bajan
 #  una vez, no en cada cambio de codigo. Sin pruebas: las corre la integracion
 #  continua; una imagen se construye para desplegar.
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -pl ms-debt -am package -DskipTests
+    mvn -B -q package -DskipTests
 
 
 FROM eclipse-temurin:25-jre
@@ -46,7 +39,7 @@ RUN apt-get update \
 #  encuentra con un usuario sin permisos sobre nada.
 RUN useradd --system --create-home --uid 10001 tbridge
 WORKDIR /app
-COPY --from=construccion /obra/ms-debt/target/*.jar app.jar
+COPY --from=construccion /obra/target/*.jar app.jar
 USER tbridge
 
 #  La JVM toma el limite de memoria del contenedor, no el de la maquina: sin

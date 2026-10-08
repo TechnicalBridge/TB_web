@@ -1,0 +1,43 @@
+# =============================================================================
+#  ms-ai — el asistente (FastAPI)
+# =============================================================================
+#  Corre solo si cambio su carpeta. Las pruebas usan el motor local, que solo
+#  necesita la biblioteca estandar; aparte se revisan sus dependencias.
+# =============================================================================
+name: ms-ai
+
+on:
+  push:
+    branches: [main]
+    paths: ['ms-ai/**', '.github/workflows/ms-ai.yml']
+  pull_request:
+    paths: ['ms-ai/**', '.github/workflows/ms-ai.yml']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probar:
+    name: Pruebas y dependencias
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ms-ai
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13'
+      - name: Pruebas
+        run: python -m unittest discover tests -v
+      - name: Dependencias vulnerables
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt

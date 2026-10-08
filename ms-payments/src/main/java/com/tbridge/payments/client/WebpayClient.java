@@ -1,6 +1,6 @@
 package com.tbridge.payments.client;
 
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiException;
 import com.tbridge.payments.dto.gateway.WebpayCommitResponse;
 import com.tbridge.payments.dto.gateway.WebpayCreateRequest;
 import com.tbridge.payments.dto.gateway.WebpayCreateResponse;

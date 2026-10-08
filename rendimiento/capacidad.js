@@ -21,7 +21,9 @@ import { Counter, Trend } from 'k6/metrics';
 const PORTAL = __ENV.PORTAL_URI || 'http://portal:8080';
 const AUTH = __ENV.AUTH_URI || 'http://ms-auth:8081';
 const BUZON = __ENV.MAIL_URI || 'http://mailpit:8025';
-const CLAVE_INTERNA = __ENV.INTERNAL_KEY || 'tbridge-internal-dev';
+//  La clave interna llega del .env por el compose: no se escribe aqui.
+const CLAVE_INTERNA = __ENV.INTERNAL_KEY;
+if (!CLAVE_INTERNA) throw new Error('Falta INTERNAL_KEY: corre la prueba con el compose, que la toma del .env');
 const RUT_DEUDOR = __ENV.RUT_DEUDOR || '16482337-7';
 const CORREO_EMPRESA = __ENV.CORREO_EMPRESA || 'camila.reyes@apofyx.cl';
 

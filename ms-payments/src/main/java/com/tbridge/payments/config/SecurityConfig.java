@@ -1,6 +1,6 @@
 package com.tbridge.payments.config;
 
-import com.tbridge.common.jwt.JwtAuthFilter;
+import com.tbridge.payments.security.JwtAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;

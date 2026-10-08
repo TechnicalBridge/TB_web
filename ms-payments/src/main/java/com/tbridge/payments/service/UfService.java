@@ -1,6 +1,6 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiException;
 import com.tbridge.payments.dto.response.UfResponse;
 import com.tbridge.payments.model.UfValue;
 import com.tbridge.payments.repository.UfValueRepository;

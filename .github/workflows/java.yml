@@ -1,0 +1,68 @@
+# =============================================================================
+#  Las pruebas de un servicio Java — workflow reutilizable
+# =============================================================================
+#  Lo llaman gateway.yml, ms-auth.yml, ms-debt.yml y ms-payments.yml: cada
+#  servicio se compila y se prueba solo, con su propio pom, y deja en el
+#  resumen de la corrida cuantas pruebas pasaron, clase por clase.
+#
+#  Ninguna prueba necesita base de datos: son unitarias (JUnit y Mockito, con
+#  los repositorios simulados) y de controlador (@WebMvcTest).
+# =============================================================================
+name: Java
+
+on:
+  workflow_call:
+    inputs:
+      modulo:
+        description: La carpeta del servicio
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probar:
+    #  En la lista de checks del PR se lee el modulo: "Pruebas de ms-debt".
+    name: Pruebas de ${{ inputs.modulo }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MODULO: ${{ inputs.modulo }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          #  El token de GitHub no se queda guardado en el repositorio clonado.
+          persist-credentials: false
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: oracle
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: ${{ inputs.modulo }}/pom.xml
+
+      #  mvn y no ./mvnw: el wrapper esta en git sin el bit de ejecucion (se
+      #  commitea desde Windows), y en Linux daria "Permission denied". El
+      #  runner de GitHub ya trae Maven.
+      - name: Pruebas
+        run: mvn -B -f "$MODULO/pom.xml" test
+
+      - name: Resumen de las pruebas
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import glob, os, xml.etree.ElementTree as ET
+          modulo = os.environ["MODULO"]
+          filas, total = [], [0, 0, 0, 0]
+          for ruta in sorted(glob.glob(f"{modulo}/target/surefire-reports/TEST-*.xml")):
+              suite = ET.parse(ruta).getroot()
+              n = [int(suite.get(k, 0)) for k in ("tests", "failures", "errors", "skipped")]
+              total = [a + b for a, b in zip(total, n)]
+              filas.append((suite.get("name").rsplit(".", 1)[-1], n[0], n[1] + n[2]))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as resumen:
+              resumen.write(f"## {modulo}: {total[0]} pruebas, {total[1] + total[2]} con fallas\n\n")
+              resumen.write("| Clase | Pruebas | Fallas |\n| --- | --- | --- |\n")
+              for clase, pruebas, fallas in filas:
+                  resumen.write(f"| {clase} | {pruebas} | {fallas} |\n")
+          EOF

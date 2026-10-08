@@ -11,7 +11,7 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
  * con un enlace al correo. Emite el JWT de la sesion y la llave de renovacion.
  */
 @SpringBootApplication(
-        scanBasePackages = {"com.tbridge.auth", "com.tbridge.common"},
+        scanBasePackages = {"com.tbridge.auth"},
         //  Sin usuarios en memoria: nadie entra con usuario y contrasena.
         exclude = UserDetailsServiceAutoConfiguration.class
 )

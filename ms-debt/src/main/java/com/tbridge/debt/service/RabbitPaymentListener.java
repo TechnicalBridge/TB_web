@@ -1,6 +1,6 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.common.events.PagoConfirmado;
+import com.tbridge.debt.events.PagoConfirmado;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;

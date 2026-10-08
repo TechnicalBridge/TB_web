@@ -27,7 +27,7 @@ deliberados; se explican más abajo. Lo que queda pendiente está al final.
 | Configurar API Gateway con enrutamiento | Hecha | `gateway/` (Spring Cloud Gateway) |
 | MS-Auth: generación de UUID y envío SMTP | Hecha | `ms-auth`, `AuthService.pedirEnlace`, `MailService` |
 | Rate limiting (Bucket4j) | Hecha | `gateway`, 10 peticiones por minuto en `/api/auth/**` |
-| Validar token y emitir JWT | Hecha | `common/jwt`, `AuthService` |
+| Validar token y emitir JWT | Hecha | `security/JwtService` de cada servicio, `AuthService` |
 | Inicializar React (Zustand, Axios, Tailwind) | Hecha. Tailwind se retiró el 24-09-2026: los estilos son propios y no usaba ninguna de sus clases | `frontend/` |
 | Maquetar login passwordless | Hecha | `frontend/src/pages/Login.jsx` |
 | Captura del UUID desde la URL y sesión JWT | Hecha | `frontend/src/pages/Magic.jsx` |

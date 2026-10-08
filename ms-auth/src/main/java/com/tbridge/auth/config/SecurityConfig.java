@@ -1,6 +1,6 @@
 package com.tbridge.auth.config;
 
-import com.tbridge.common.jwt.JwtAuthFilter;
+import com.tbridge.auth.security.JwtAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;

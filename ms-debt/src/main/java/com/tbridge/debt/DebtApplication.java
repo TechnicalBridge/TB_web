@@ -18,7 +18,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * (EVENTS_RABBIT), y de ella dependen la cola, el listener y su salud.
  */
 @SpringBootApplication(
-        scanBasePackages = {"com.tbridge.debt", "com.tbridge.common"},
+        scanBasePackages = {"com.tbridge.debt"},
         exclude = UserDetailsServiceAutoConfiguration.class
 )
 //  El despachador de eventos y el avance diario de las campanas.

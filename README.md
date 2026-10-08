@@ -1,6 +1,6 @@
 # Technical Bridge — DataBridge
 
-[![CI](https://github.com/TechnicalBridge/TB_web/actions/workflows/ci.yml/badge.svg)](https://github.com/TechnicalBridge/TB_web/actions/workflows/ci.yml)
+[![gateway](https://github.com/TechnicalBridge/TB_web/actions/workflows/gateway.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/gateway.yml) [![ms-auth](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-auth.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-auth.yml) [![ms-debt](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-debt.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-debt.yml) [![ms-payments](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-payments.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-payments.yml) [![frontend](https://github.com/TechnicalBridge/TB_web/actions/workflows/frontend.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/frontend.yml) [![ms-ai](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-ai.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/ms-ai.yml) [![codeql](https://github.com/TechnicalBridge/TB_web/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/TechnicalBridge/TB_web/actions/workflows/codeql.yml)
 
 Plataforma donde el deudor en cobranza **paga, repacta o reclama** su deuda, sea del rubro que
 sea: arriendos, aranceles, tratamientos, planes mensuales. Proyecto de Capstone; las empresas, las
@@ -230,9 +230,11 @@ reanuda la campaña, sigue donde quedó, sin repetir los correos que ya salieron
 DataBridge revisa las campañas cada 15 minutos. Para probar una cadencia sin esperar semanas:
 
 ```powershell
-docker compose exec -T ms-debt curl -s -X POST "http://127.0.0.1:8083/internal/campanas/contactos?ahora=2026-10-08T10:00:00&campana=APX-CMP-8" `
-  -H "X-Internal-Key: tbridge-internal-dev"
+docker compose --profile app exec -T ms-debt sh -c 'curl -s -X POST http://127.0.0.1:8083/internal/campanas/contactos?ahora=2026-10-08T10:00:00\&campana=APX-CMP-8 -H X-Internal-Key:$INTERNAL_KEY'
 ```
+
+La clave interna no se escribe: el contenedor la tiene en su entorno (`$INTERNAL_KEY`), sacada del
+`.env`.
 
 `ahora` es la hora de Chile que se simula y `campana` limita la pasada a una sola campaña. Cada
 correo queda fechado a esa hora.
@@ -298,11 +300,14 @@ externas son tres, y ninguna es obligatoria:
 
 Lo único que hace falta es **Docker Desktop** corriendo, con al menos 4 GB de memoria para
 Docker, e internet la primera vez: se bajan las imágenes y las dependencias de Maven, npm y pip.
-No hace falta un `.env`: todo tiene un valor por omisión.
+La primera vez, `preparar-env.ps1` crea el `.env` con los secretos: claves al azar para la base,
+RabbitMQ, el JWT y lo interno. **Ningún secreto tiene un valor escrito en el repositorio**, porque
+sería público: sin el `.env`, `docker compose` se detiene y dice cuál falta.
 
 ```powershell
 git clone https://github.com/TechnicalBridge/TB_web.git
 cd TB_web
+powershell -ExecutionPolicy Bypass -File .\preparar-env.ps1    # una sola vez: el .env con claves al azar
 docker compose --profile app up -d --build --wait
 ```
 
@@ -315,8 +320,8 @@ conexión; después son segundos.
 | **Portal** | http://localhost:8080 |
 | **Documentación de la API (Swagger)** | http://localhost:8080/swagger-ui.html |
 | Buzón de prueba (los códigos llegan acá) | http://localhost:8025 |
-| RabbitMQ | http://localhost:15672 · `guest` / `guest` |
-| Base de datos | `127.0.0.1:3308` · `tbridge` / `tbridge_pass` |
+| RabbitMQ | http://localhost:15672 · `guest`, con la clave de `RABBIT_PASSWORD` de tu `.env` |
+| Base de datos | `127.0.0.1:3308` · `tbridge`, con la clave de `MYSQL_PASSWORD` de tu `.env` |
 
 Para apagar: `docker compose --profile app down`. Con `-v` borra además los datos.
 
@@ -324,7 +329,9 @@ Para apagar: `docker compose --profile app down`. Con `-v` borra además los dat
 
 | Qué pasa | Qué hacer |
 | --- | --- |
-| `port is already allocated` | Otro programa usa ese puerto. Copia `.env.example` como `.env` y cambia el que choca: `PORTAL_PORT` (8080), `MYSQL_PORT` (3308), `RABBIT_PORT` (5672), `RABBIT_ADMIN_PORT` (15672), `MAILPIT_SMTP_PORT` (1025) o `MAILPIT_PORT` (8025) |
+| `Falta JWT_SECRET en el .env` (o cualquier otro secreto) | No hay `.env`, o le falta ese secreto: `powershell -ExecutionPolicy Bypass -File .\preparar-env.ps1` lo completa sin tocar lo que ya tiene |
+| Tu `.env` es de antes y tiene los valores de desarrollo que venían en el repositorio | Esos valores son públicos. El script los reconoce y avisa; con `-Renovar` los cambia, también las claves dentro de MySQL si la base está arriba, sin perder datos. Después, `docker compose --profile app up -d` |
+| `port is already allocated` | Otro programa usa ese puerto. Cámbialo en tu `.env`: `PORTAL_PORT` (8080), `MYSQL_PORT` (3308), `RABBIT_PORT` (5672), `RABBIT_ADMIN_PORT` (15672), `MAILPIT_SMTP_PORT` (1025) o `MAILPIT_PORT` (8025) |
 | `--wait` termina con un contenedor `unhealthy` o `exited` | `docker compose --profile app ps` dice cuál, y `docker compose logs <servicio>` por qué. Lo más común es poca memoria para Docker: en Docker Desktop, *Settings → Resources* |
 | La construcción se cae bajando dependencias | Sin internet, o un proxy que la corta. Se vuelve a correr la misma orden: lo que ya bajó queda en caché |
 | Todos los deudores reciben *Demasiadas solicitudes* a la vez | El gateway no reconoce al nginx del portal como proxy y ve a todos como una sola IP. Ya confía en las tres redes privadas que usa Docker; si tu red es otra, ajústala en `TRUSTED_PROXIES` |
@@ -374,8 +381,7 @@ buzón. También se puede pedir directo a ms-auth:
 ```powershell
 $cuerpo = @{ rut = "16482337-7"; canales = @("correo"); correo = "felipe.rojas@correo.cl"
              acreedor = "Patrimonio Inmuebles"; paraQue = "CTR-2025-014" } | ConvertTo-Json -Compress
-$cuerpo | docker compose exec -T ms-auth curl -s -X POST http://127.0.0.1:8081/internal/codigos `
-  -H "X-Internal-Key: tbridge-internal-dev" -H "Content-Type: application/json" --data-binary "@-"
+$cuerpo | docker compose --profile app exec -T ms-auth sh -c 'curl -s -X POST http://127.0.0.1:8081/internal/codigos -H X-Internal-Key:$INTERNAL_KEY -H Content-Type:application/json --data-binary @-'
 ```
 
 Responde con el `codigo`. Con él se entra al portal en **Tengo un código de acceso**, con el RUT
@@ -495,17 +501,19 @@ Hace falta **Docker Desktop**, un **JDK 25** (no un JRE: Maven compila), **Node 
 `$env:JAVA_HOME = "C:\Program Files\Java\jdk-25"`.
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File .\preparar-env.ps1    # si todavía no tienes .env
 docker compose up -d                 # solo MySQL, RabbitMQ y el buzón
-.\mvnw.cmd -q install -DskipTests    # compila todo y deja common instalado para los servicios
 ```
 
-Después, **una terminal por pieza**. El perfil `dev` muestra el SQL y el detalle de cada ruta:
+Después, **una terminal por pieza**: cada servicio se compila y arranca solo, con su propio
+`pom.xml`, y lee los secretos del mismo `.env`. El perfil `dev` muestra el SQL y el detalle de
+cada ruta:
 
 ```powershell
-.\mvnw.cmd -pl ms-auth spring-boot:run "-Dspring-boot.run.profiles=dev"
-.\mvnw.cmd -pl ms-debt spring-boot:run "-Dspring-boot.run.profiles=dev"
-.\mvnw.cmd -pl ms-payments spring-boot:run "-Dspring-boot.run.profiles=dev"
-.\mvnw.cmd -pl gateway spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -f ms-auth\pom.xml spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -f ms-debt\pom.xml spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -f ms-payments\pom.xml spring-boot:run "-Dspring-boot.run.profiles=dev"
+.\mvnw.cmd -f gateway\pom.xml spring-boot:run "-Dspring-boot.run.profiles=dev"
 ```
 
 ```powershell
@@ -521,9 +529,7 @@ npm install
 npm run dev
 ```
 
-El portal queda en http://localhost:5173, servido por Vite con recarga automática. Si cambias
-algo en `common`, vuelve a correr el `install`: los servicios usan la copia instalada, no el
-código.
+El portal queda en http://localhost:5173, servido por Vite con recarga automática.
 
 ---
 
@@ -619,9 +625,16 @@ com/tbridge/<servicio>/
 └── exception/     los errores propios del servicio
 ```
 
-`common` es la librería que comparten: el JWT, el manejo de errores (todos responden
-`{"error": "..."}` con el código que corresponde) y el RUT. El gateway no tiene base: solo
-`config/` (las rutas) y `filter/` (el límite de peticiones, la IP real y el retorno de Webpay).
+**Cada servicio por sí solo.** No hay un pom padre ni una librería compartida: cada servicio
+tiene su `pom.xml` (con Spring Boot como padre y sus propias versiones), su `Dockerfile`, su
+workflow y su base, y se compila, se prueba y se despliega sin los demás. Lo que antes estaba en
+una librería común lo tiene cada uno en sus paquetes, solo lo que usa: `security/` (verificar el
+JWT; ms-auth además lo firma), `exception/` (todos responden `{"error": "..."}` con el código que
+corresponde) y `util/` (el RUT y el hash). El aviso de pago (`events/PagoConfirmado`) lo tienen
+ms-payments, que lo escribe, y ms-debt, que lo lee, y los dos se prueban contra el mismo contrato:
+[`docs/eventos/pago-confirmado.json`](docs/eventos/pago-confirmado.json). El gateway no tiene
+base: solo `config/` (las rutas) y `filter/` (el límite de peticiones, la IP real y el retorno de
+Webpay).
 
 **Swagger.** Cada servicio documenta sus endpoints en tres grupos según quién los llama —el
 **portal**, el **contrato de integración** y lo **interno**—, y el gateway los junta en una sola
@@ -641,8 +654,9 @@ las cabeceras `X-Forwarded-*` del gateway. El contrato `/api/v1` no lleva enlace
 publicada y la leen sistemas de otras empresas.
 
 **Configuración.** Cada servicio tiene `application.properties`, con todo en
-`${VARIABLE:valor por omisión}`; `application-dev.properties` para programar, y
-`application-test.properties` para las pruebas.
+`${VARIABLE:valor por omisión}` salvo los secretos, que van como `${VARIABLE}` y sin valor: si
+falta uno, el servicio no arranca y dice cuál. `application-dev.properties` es para programar, y
+`application-test.properties`, con sus propios valores, para las pruebas.
 
 ### Comunicación entre servicios
 
@@ -1009,11 +1023,11 @@ componente con su interfaz HTTP, su base propia y sus dependencias dibujadas.
 | `tbridge/ms-ai` | [`ms-ai/Dockerfile`](ms-ai/Dockerfile) |
 | `tbridge/portal` | [`frontend/Dockerfile`](frontend/Dockerfile): compila con Node y sirve con nginx |
 
-Cada servicio de Java compila solo lo suyo (`mvn -pl <servicio> -am`: el servicio y `common`). Se
-construyen desde la raíz porque necesitan el `pom.xml` padre:
+Cada servicio de Java se construye desde su propia carpeta, con su `pom.xml` y su código, sin
+nada de los demás:
 
 ```powershell
-docker build -f ms-debt/Dockerfile -t tbridge/ms-debt .
+docker build -t tbridge/ms-debt ms-debt
 ```
 
 Son **dos etapas**: la primera compila con Maven y el JDK, y la segunda se queda solo con el JRE y
@@ -1024,19 +1038,25 @@ solo la infraestructura (MySQL, RabbitMQ y el buzón); con `--profile app`, el s
 
 ### Variables de entorno
 
-Todas tienen un valor por omisión de desarrollo, así que el sistema levanta sin configurar nada.
-Para cambiarlas, un archivo `.env` al lado del `docker-compose.yml`: [`.env.example`](.env.example)
-las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corren con Maven.
+Van en un archivo `.env` al lado del `docker-compose.yml`, que no se sube al repositorio.
+[`.env.example`](.env.example) las trae todas, comentadas, y `preparar-env.ps1` crea el `.env`
+desde él. El mismo `.env` lo leen los servicios cuando se corren con Maven.
+
+**Los secretos no tienen valor por omisión** (los marcados *el `.env`*): el repositorio es
+público, y un valor escrito aquí lo podría leer cualquiera. El script los genera al azar. Lo que
+no es secreto sí tiene un valor de desarrollo.
 
 | Variable | Por omisión | Para qué |
 | --- | --- | --- |
 | `PORTAL_PORT`, `MYSQL_PORT`, `RABBIT_PORT`, `RABBIT_ADMIN_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_PORT` | `8080`, `3308`, `5672`, `15672`, `1025`, `8025` | Los puertos que se publican en el equipo. Se cambian si alguno ya está ocupado |
 | `PUBLIC_URL` | `http://localhost:8080` | La dirección del portal que va en los correos y en el retorno de Webpay y de Khipu |
-| `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD` | `tbridge` / `tbridge_pass` / `rootpass` | La base |
-| `RABBIT_USER`, `RABBIT_PASSWORD` | `guest` / `guest` | RabbitMQ |
-| `JWT_SECRET` | `tbridge-dev-secret-change-me-32chars` | Firma los JWT. **El mismo en ms-auth, ms-debt y ms-payments.** Al menos 32 bytes: con menos, los servicios no arrancan |
-| `INTERNAL_KEY` | `tbridge-internal-dev` | Autentica las llamadas entre servicios |
-| `CIFRADO_LLAVE` | `databridge-cifrado-dev-cambiar` | Cifra en la base el secreto de las suscripciones. Si se cambia, los suscritos tienen que volver a suscribirse |
+| `MYSQL_USER` | `tbridge` | El usuario de la base para los servicios |
+| `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD` | el `.env` | Las claves de la base. Una vez creada la base, se cambian con `preparar-env.ps1 -Renovar`, que las cambia también dentro de MySQL |
+| `RABBIT_USER` | `guest` | El usuario de RabbitMQ |
+| `RABBIT_PASSWORD` | el `.env` | Su clave |
+| `JWT_SECRET` | el `.env` | Firma los JWT. **El mismo en ms-auth, ms-debt y ms-payments.** Al menos 32 bytes: con menos, los servicios no arrancan |
+| `INTERNAL_KEY` | el `.env` | Autentica las llamadas entre servicios |
+| `CIFRADO_LLAVE` | el `.env` | Cifra en la base el secreto de las suscripciones. Si se cambia, los suscritos tienen que volver a suscribirse |
 | `JWT_TTL_MINUTES` | `15` | Cuánto dura el JWT. Corto a propósito: no se puede revocar |
 | `REFRESH_TTL_HOURS` | `168` | Cuánto dura una sesión desde que se entra. Renovar no la alarga |
 | `COOKIE_SECURE` | `false` | **Encender detrás de HTTPS.** Una cookie `Secure` sobre HTTP el navegador la descarta sin avisar |
@@ -1044,9 +1064,9 @@ las trae todas, comentadas. El mismo `.env` lo leen los servicios cuando se corr
 | `MAIL_FROM` | `noreply@technicalbridge.local` | El remitente de los correos. En Docker los correos van al buzón de prueba; `SMTP_*` son solo para correr ms-auth con Maven |
 | `CORS_ORIGINS` | los del portal | Qué orígenes pueden hacer peticiones con credenciales al gateway |
 | `TRUSTED_PROXIES` | local y las redes privadas (`10.x`, `172.16–31`, `192.168.x`) | En qué proxies confía el gateway para saber la IP del cliente. No puede quedar vacía |
-| `WEBHOOK_SECRET` | `tbridge-webhook-dev` | Firma los enlaces de pago y verifica los avisos de las pasarelas simuladas |
+| `WEBHOOK_SECRET` | el `.env` | Firma los enlaces de pago y verifica los avisos de las pasarelas simuladas |
 | `TRANSBANK_ENVIRONMENT` | `TEST` | `TEST` cobra contra el ambiente de integración de Transbank; `SIMULADA`, sin internet, vuelve a la pasarela simulada |
-| `TRANSBANK_API_URL`, `TRANSBANK_COMMERCE_CODE`, `TRANSBANK_API_KEY` | los públicos de integración | En producción, los del comercio |
+| `TRANSBANK_API_URL`, `TRANSBANK_COMMERCE_CODE`, `TRANSBANK_API_KEY` | los públicos de integración | Los únicos con un valor escrito: Transbank los publica para todos en su documentación, para probar. En producción, los del comercio van solo en el `.env` |
 | `TRANSBANK_VENCE_EN` | según el ambiente | Cuánto vale un cobro de Webpay. Vacía, lo que da Transbank: 15 minutos en integración (5 de token y 10 de formulario) y 9 en producción |
 | `KHIPU_LLAVE` | vacía | La llave de API de una cuenta de cobro de Khipu. Con ella, Khipu cobra de verdad; vacía, es simulada. **Es un secreto: solo en el `.env`** |
 | `KHIPU_URL_AVISOS`, `KHIPU_SECRETO` | vacías | Con una dirección pública de DataBridge: dónde avisa Khipu, y el secreto con que se verifica su firma |
@@ -1074,9 +1094,15 @@ para nada que no sea una demostración.**
 ## 11. Pruebas
 
 ```powershell
-.\mvnw.cmd clean test                                           # Java: common, gateway y los tres servicios
+.\mvnw.cmd -f ms-debt\pom.xml clean test                        # un servicio (lo mismo con gateway, ms-auth o ms-payments)
+foreach ($s in "gateway","ms-auth","ms-debt","ms-payments") { .\mvnw.cmd -q -f "$s\pom.xml" clean test }   # los cuatro
 cd ms-ai ; .venv\Scripts\python.exe -m unittest discover tests  # el asistente
 ```
+
+En GitHub cada módulo tiene su propio workflow (`gateway`, `ms-auth`, `ms-debt`, `ms-payments`,
+`frontend`, `ms-ai`), que corre solo si cambió su carpeta y deja en el resumen cuántas pruebas
+pasaron, clase por clase. Los de Java comparten [`java.yml`](.github/workflows/java.yml). Todos
+con permisos de solo lectura y con cada acción externa fijada a un commit exacto.
 
 Cada servicio tiene sus pruebas en `src/test/java`, con la misma estructura de paquetes que el
 código. **Ninguna necesita base de datos ni internet**, así que corren en segundos en cualquier
@@ -1097,18 +1123,18 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De los intereses** | La mora de cada cargo atrasado desde el día siguiente a su vencimiento, con lo pagado imputado a lo más antiguo; la cuota del convenio que crece solo sobre su capital; el redondeo en pesos y en UF; el convenio en sistema francés, con la última cuota que absorbe el redondeo; que sin tasa todo quede como antes; que el cobro fije el capital y el interés y el aviso los lleve separados; la tasa que no es un número o que supera el tope |
 | **De las campañas** | Que cada recordatorio salga el día que dice la cadencia y no antes; los intentos, las fechas y el estado de la campaña; que pare con el pago, el convenio, el reclamo o el retiro; el horario, el domingo y el feriado; los feriados calculados contra los publicados (2023, 2026 y 2027 completos, y cada regla contra un año real: el 2 de enero, el 17 y el 20 de septiembre, los que se corren al lunes, el 31 de octubre y el solsticio al minuto); el límite de dos por semana con dos días entre uno y otro, que frena también la invitación, el recordatorio de cuota y el reenvío del código; el estado que manda APOFYX |
 | **De la capa web** (`@WebMvcTest` + MockMvc) | Cada controlador con su seguridad, su validación y su JSON: `401` sin sesión, `403` con la deuda de otro, `400` con datos malos, los `_links` según quién mira, la cookie de la sesión y los nombres del contrato v1 intactos. El aviso de Khipu llega con el cuerpo tal como vino, porque sobre ese texto va la firma. En el gateway, que el retorno de Webpay pase sin `Origin` y nada más |
-| **De seguridad** | En cada push, **CodeQL** (Java, JavaScript y Python), una auditoría de dependencias que rompe el build ante una vulnerabilidad alta, y Dependabot |
+| **Del contrato del aviso de pago** | ms-payments manda exactamente el ejemplo de [`docs/eventos/pago-confirmado.json`](docs/eventos/pago-confirmado.json), por el exchange y la clave que dice; ms-debt escucha en esa cola y entiende cada campo; un mensaje no puede elegir qué clase se crea al leerlo |
+| **De seguridad** | **CodeQL** (Java, JavaScript y Python) en cada pull request y cada semana; la auditoría de dependencias del portal y del asistente, que rompe su workflow ante una vulnerabilidad alta; Dependabot por módulo, también para las acciones de GitHub; y el escaneo de secretos de GitHub con protección de push, que rechaza un push que traiga un token conocido |
 | **De rendimiento** (k6) | Cómo lo siente una persona, dónde está el techo y cuánto aguanta abrir cobros (`pagos.js`, solo con las pasarelas simuladas). Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**413 pruebas en Java y 12 en Python**, sin fallos:
+**454 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
-| `common` | 18 |
 | `gateway` | 13 |
-| `ms-auth` | 40 |
-| `ms-debt` | 193 |
-| `ms-payments` | 149 |
+| `ms-auth` | 58 |
+| `ms-debt` | 214 |
+| `ms-payments` | 169 |
 | `ms-ai` (Python) | 12 |
 
 Además, la cadena completa con los tres sistemas se prueba de punta a punta con un script que
@@ -1175,8 +1201,7 @@ a mano:
 
 ```powershell
 $cuerpo = @{ dia = "2026-10-03"; valor = "39876.54" } | ConvertTo-Json
-$cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:8084/internal/uf `
-  -H "X-Internal-Key: tbridge-internal-dev" -H "Content-Type: application/json" --data-binary "@-"
+$cuerpo | docker compose --profile app exec -T ms-payments sh -c 'curl -s -X POST http://127.0.0.1:8084/internal/uf -H X-Internal-Key:$INTERNAL_KEY -H Content-Type:application/json --data-binary @-'
 ```
 
 ---
@@ -1185,7 +1210,7 @@ $cuerpo | docker compose exec -T ms-payments curl -s -X POST http://127.0.0.1:80
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (`mvnw clean test`, JDK 25) | **413**, sin fallos |
+| Pruebas Java (cada servicio con su `mvnw -f <servicio>\pom.xml clean test`, JDK 25) | **454**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |

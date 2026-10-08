@@ -1,7 +1,7 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.debt.exception.ApiException;
+import com.tbridge.debt.security.JwtPrincipal;
 import com.tbridge.debt.dto.response.ResumenResponse;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.DebtEvent;

@@ -1,7 +1,7 @@
 package com.tbridge.payments.client;
 
 import com.sun.net.httpserver.HttpServer;
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.payments.exception.ApiException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

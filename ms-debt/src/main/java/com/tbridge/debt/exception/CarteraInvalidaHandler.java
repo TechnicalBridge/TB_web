@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *
  * <p>Antes cada controlador que recibe cartera tenia su propia copia de este
  * manejador. Va primero ({@code HIGHEST_PRECEDENCE}): si no, el manejador
- * general de common, que atrapa toda excepcion, se la quedaria como un 500.
+ * general (ApiExceptionHandler), que atrapa toda excepcion, se la quedaria
+ * como un 500.
  */
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)

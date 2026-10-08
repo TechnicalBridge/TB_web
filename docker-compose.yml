@@ -14,11 +14,13 @@
 #        JDK, ni Node, ni Python—. El portal queda en http://localhost:8080 y
 #        la documentacion de toda la API en http://localhost:8080/swagger-ui.html
 #
-#  Cada servicio tiene su propio Dockerfile (ms-auth/Dockerfile, ...), que se
-#  construye desde esta carpeta porque necesita el pom padre y common.
+#  Cada servicio tiene su propio Dockerfile (ms-auth/Dockerfile, ...), y se
+#  construye desde su propia carpeta: no necesita nada de los demas.
 #
-#  Las contrasenas salen de variables de entorno con un valor por omision de
-#  desarrollo. Para cualquier otra cosa, un archivo .env al lado de este.
+#  Los secretos (claves de la base y de RabbitMQ, JWT_SECRET, INTERNAL_KEY,
+#  CIFRADO_LLAVE, WEBHOOK_SECRET) no tienen valor por omision: salen del .env
+#  que crea preparar-env.ps1, con claves al azar. Sin el, docker compose se
+#  detiene y dice cual falta.
 # =============================================================================
 
 services:
@@ -35,9 +37,9 @@ services:
     container_name: tbridge-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Falta MYSQL_ROOT_PASSWORD en el .env (crealo con preparar-env.ps1)}
       MYSQL_USER: ${MYSQL_USER:-tbridge}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tbridge_pass}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Falta MYSQL_PASSWORD en el .env (crealo con preparar-env.ps1)}
       MYSQL_DATABASE: tb_debt
     command:
       - --character-set-server=utf8mb4
@@ -50,8 +52,9 @@ services:
       # Corre solo la primera vez, cuando el volumen esta vacio.
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1",
-             "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      #  La clave la lee del propio contenedor: asi no queda en la linea de
+      #  comando, donde la mostraria docker inspect.
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -u root"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -70,7 +73,7 @@ services:
       - "${RABBIT_ADMIN_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:?Falta RABBIT_PASSWORD en el .env (crealo con preparar-env.ps1)}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -106,7 +109,7 @@ services:
 
   ms-auth:
     profiles: ["app"]
-    build: { context: ., dockerfile: ms-auth/Dockerfile }
+    build: { context: ./ms-auth }
     image: tbridge/ms-auth:1.0.0
     restart: unless-stopped
     depends_on:
@@ -116,11 +119,11 @@ services:
         DB_HOST: mysql
         DB_PORT: "3306"
         DB_USER: ${MYSQL_USER:-tbridge}
-        DB_PASSWORD: ${MYSQL_PASSWORD:-tbridge_pass}
+        DB_PASSWORD: ${MYSQL_PASSWORD:?Falta MYSQL_PASSWORD en el .env (crealo con preparar-env.ps1)}
         #  El mismo secreto en los tres: un JWT que firma ms-auth lo tienen
         #  que poder verificar ms-debt y ms-payments. El gateway no lo usa.
-        JWT_SECRET: ${JWT_SECRET:-tbridge-dev-secret-change-me-32chars}
-        INTERNAL_KEY: ${INTERNAL_KEY:-tbridge-internal-dev}
+        JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en el .env (crealo con preparar-env.ps1)}
+        INTERNAL_KEY: ${INTERNAL_KEY:?Falta INTERNAL_KEY en el .env (crealo con preparar-env.ps1)}
         PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
         SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       PORT: "8081"
@@ -152,7 +155,7 @@ services:
 
   ms-debt:
     profiles: ["app"]
-    build: { context: ., dockerfile: ms-debt/Dockerfile }
+    build: { context: ./ms-debt }
     image: tbridge/ms-debt:1.0.0
     restart: unless-stopped
     depends_on:
@@ -173,12 +176,12 @@ services:
       #  Feriados que se suman a los de 2026, en que las campanas no contactan.
       CONTACTO_FERIADOS: ${CONTACTO_FERIADOS:-}
       #  Cifra en la base el secreto de las suscripciones a los avisos.
-      CIFRADO_LLAVE: ${CIFRADO_LLAVE:-databridge-cifrado-dev-cambiar}
+      CIFRADO_LLAVE: ${CIFRADO_LLAVE:?Falta CIFRADO_LLAVE en el .env (crealo con preparar-env.ps1)}
       DEMO_DATOS: ${DEMO_DATOS:-true}
       EVENTS_RABBIT: "true"
       RABBIT_HOST: rabbitmq
       RABBIT_USER: ${RABBIT_USER:-guest}
-      RABBIT_PASSWORD: ${RABBIT_PASSWORD:-guest}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Falta RABBIT_PASSWORD en el .env (crealo con preparar-env.ps1)}
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8083/actuator/health || exit 1"]
       interval: 10s
@@ -189,7 +192,7 @@ services:
 
   ms-payments:
     profiles: ["app"]
-    build: { context: ., dockerfile: ms-payments/Dockerfile }
+    build: { context: ./ms-payments }
     image: tbridge/ms-payments:1.0.0
     restart: unless-stopped
     depends_on:
@@ -204,8 +207,8 @@ services:
       EVENTS_RABBIT: "true"
       RABBIT_HOST: rabbitmq
       RABBIT_USER: ${RABBIT_USER:-guest}
-      RABBIT_PASSWORD: ${RABBIT_PASSWORD:-guest}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-tbridge-webhook-dev}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Falta RABBIT_PASSWORD en el .env (crealo con preparar-env.ps1)}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Falta WEBHOOK_SECRET en el .env (crealo con preparar-env.ps1)}
       #  Sin credenciales del Banco Central la UF se carga a mano; el servicio
       #  arranca igual y lo dice en su log.
       BCENTRAL_USER: ${BCENTRAL_USER:-}
@@ -272,7 +275,7 @@ services:
 
   gateway:
     profiles: ["app"]
-    build: { context: ., dockerfile: gateway/Dockerfile }
+    build: { context: ./gateway }
     image: tbridge/gateway:1.0.0
     restart: unless-stopped
     depends_on:
@@ -353,7 +356,7 @@ services:
       PORTAL_URI:   http://portal:8080
       AUTH_URI:     http://ms-auth:8081
       MAIL_URI:     http://mailpit:8025
-      INTERNAL_KEY: ${INTERNAL_KEY:-tbridge-internal-dev}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Falta INTERNAL_KEY en el .env (crealo con preparar-env.ps1)}
       #  Los mismos cupos que tenga el gateway, para que limite.js compruebe
       #  contra el numero real y no contra uno escrito a mano.
       RATE_AUTH_CAPACITY:   ${RATE_AUTH_CAPACITY:-10}

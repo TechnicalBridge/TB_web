@@ -2,9 +2,10 @@
 # =============================================================================
 #  gateway — la imagen de la puerta de entrada a los servicios.
 # =============================================================================
-#  Se construye desde la raiz de TB_web, porque necesita el pom padre:
+#  Se construye desde la carpeta de este servicio, que no necesita nada
+#  de los demas:
 #
-#      docker build -f gateway/Dockerfile -t tbridge/gateway .
+#      docker build -t tbridge/gateway gateway
 #
 #  Dos etapas: la primera compila con el JDK y Maven, la segunda solo ejecuta
 #  el jar con el JRE.
@@ -13,18 +14,15 @@
 FROM maven:3.9-eclipse-temurin-25 AS construccion
 WORKDIR /obra
 
-#  Maven lee todos los modulos que declara el pom padre aunque se compile uno
-#  solo. El gateway no usa common: solo viaja su propio codigo.
+#  Solo este servicio: su pom y su codigo.
 COPY pom.xml .
-COPY common/pom.xml      common/pom.xml
-COPY gateway/pom.xml     gateway/pom.xml
-COPY ms-auth/pom.xml     ms-auth/pom.xml
-COPY ms-debt/pom.xml     ms-debt/pom.xml
-COPY ms-payments/pom.xml ms-payments/pom.xml
-COPY gateway/src gateway/src
+COPY src src
 
+#  El cache de ~/.m2 sobrevive entre construcciones: las dependencias se bajan
+#  una vez, no en cada cambio de codigo. Sin pruebas: las corre la integracion
+#  continua; una imagen se construye para desplegar.
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -pl gateway -am package -DskipTests
+    mvn -B -q package -DskipTests
 
 
 FROM eclipse-temurin:25-jre
@@ -35,7 +33,7 @@ RUN apt-get update \
 
 RUN useradd --system --create-home --uid 10001 tbridge
 WORKDIR /app
-COPY --from=construccion /obra/gateway/target/*.jar app.jar
+COPY --from=construccion /obra/target/*.jar app.jar
 USER tbridge
 
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"

@@ -4,7 +4,7 @@ import com.tbridge.auth.config.SecurityConfig;
 import com.tbridge.auth.dto.response.CodigoEmitidoResponse;
 import com.tbridge.auth.service.AuthService;
 import com.tbridge.auth.service.MailService;
-import com.tbridge.common.jwt.JwtService;
+import com.tbridge.auth.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;

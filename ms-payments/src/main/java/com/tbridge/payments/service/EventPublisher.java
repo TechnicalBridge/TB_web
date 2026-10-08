@@ -1,6 +1,6 @@
 package com.tbridge.payments.service;
 
-import com.tbridge.common.events.PagoConfirmado;
+import com.tbridge.payments.events.PagoConfirmado;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;

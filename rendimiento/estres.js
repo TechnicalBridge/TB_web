@@ -31,7 +31,9 @@ const limitador = new Counter('limitador_intervino');
 
 const PORTAL = __ENV.PORTAL_URI || 'http://portal:8080';
 const AUTH = __ENV.AUTH_URI || 'http://ms-auth:8081';
-const CLAVE_INTERNA = __ENV.INTERNAL_KEY || 'tbridge-internal-dev';
+//  La clave interna llega del .env por el compose: no se escribe aqui.
+const CLAVE_INTERNA = __ENV.INTERNAL_KEY;
+if (!CLAVE_INTERNA) throw new Error('Falta INTERNAL_KEY: corre la prueba con el compose, que la toma del .env');
 const RUT = __ENV.RUT_DEUDOR || '16482337-7';
 
 export const options = {

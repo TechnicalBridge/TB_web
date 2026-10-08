@@ -1,6 +1,6 @@
 package com.tbridge.debt.service;
 
-import com.tbridge.common.exception.ApiException;
+import com.tbridge.debt.exception.ApiException;
 import com.tbridge.debt.client.AuthClient;
 import com.tbridge.debt.model.Debt;
 import com.tbridge.debt.model.DebtEvent;

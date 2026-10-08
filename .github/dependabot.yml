@@ -12,8 +12,10 @@
 version: 2
 
 updates:
+  #  Un directorio por servicio: cada uno tiene su pom, y un arreglo de
+  #  seguridad llega como un pull request de ese servicio.
   - package-ecosystem: maven
-    directory: /
+    directories: [/gateway, /ms-auth, /ms-debt, /ms-payments]
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
     commit-message: { prefix: "deps(java)" }
@@ -30,7 +32,8 @@ updates:
     commit-message: { prefix: "deps(ms-ai)" }
 
   #  Las propias acciones de GitHub tambien son codigo de terceros que corre
-  #  con permisos sobre el repositorio.
+  #  con permisos sobre el repositorio. Van fijadas a un commit exacto, y
+  #  Dependabot las sube de version con un pull request.
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }

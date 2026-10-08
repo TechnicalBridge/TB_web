@@ -1,8 +1,8 @@
 package com.tbridge.debt.controller;
 
-import com.tbridge.common.exception.ApiError;
-import com.tbridge.common.exception.ApiException;
-import com.tbridge.common.jwt.JwtPrincipal;
+import com.tbridge.debt.exception.ApiError;
+import com.tbridge.debt.exception.ApiException;
+import com.tbridge.debt.security.JwtPrincipal;
 import com.tbridge.debt.config.OpenApiConfig;
 import com.tbridge.debt.dto.request.ClaveRequest;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
