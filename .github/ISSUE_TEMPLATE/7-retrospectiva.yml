@@ -23,10 +23,10 @@ body:
     attributes:
       label: Participaron
       options:
-        - label: "Martín Gutiérrez (Product Owner)"
+        - label: "Flavio Henríquez (Product Owner)"
         - label: "Esteban Maino (Scrum Master)"
         - label: "Pedro Campos"
-        - label: "Flavio Henríquez"
+        - label: "Martín Gutiérrez"
   - type: textarea
     id: bien
     attributes:
