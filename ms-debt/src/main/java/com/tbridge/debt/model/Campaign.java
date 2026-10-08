@@ -56,6 +56,10 @@ public class Campaign {
     @Column(name = "cadence_days", columnDefinition = "json")
     private String cadenceDays;
 
+    /** El % de los intereses de mora que condona por tramo, como texto JSON. Null: sin descuento. */
+    @Column(name = "mora_discount", columnDefinition = "json")
+    private String moraDiscount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private Status status = Status.running;
@@ -81,6 +85,8 @@ public class Campaign {
     public void setAttempts(Short attempts) { this.attempts = attempts; }
     public String getCadenceDays() { return cadenceDays; }
     public void setCadenceDays(String cadenceDays) { this.cadenceDays = cadenceDays; }
+    public String getMoraDiscount() { return moraDiscount; }
+    public void setMoraDiscount(String moraDiscount) { this.moraDiscount = moraDiscount; }
     public java.time.LocalDate getStartsOn() { return startsOn; }
     public java.time.LocalDate getEndsOn() { return endsOn; }
     public Status getStatus() { return status; }

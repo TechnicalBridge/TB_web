@@ -31,11 +31,23 @@ public record CampanaRequest(
         @Schema(allowableValues = {"en_curso", "pausada", "terminada"}, nullable = true,
                 description = "Solo una campana en curso contacta. Sin indicar, la campana no cambia de estado "
                         + "(una nueva parte en curso)", example = "en_curso")
-        String estado
+        String estado,
+        @Schema(implementation = Object.class, nullable = true,
+                description = "El % de los intereses de mora que se condona a quien paga toda la deuda, por tramo "
+                        + "de mora (1-30, 31-90 y 91-120), sin pasar el maximo del mandato. Sin indicar no cambia; "
+                        + "{} lo quita", example = "{\"1-30\":0,\"31-90\":50,\"91-120\":100}")
+        JsonNode descuentoMoraPorTramo
 ) {
+
+    /** Una campana sin descuento por pronto pago, o que no lo cambia. */
+    public CampanaRequest(String idExterno, String acreedorRut, String nombre, String inicio, String fin,
+                          JsonNode canales, Integer intentos, JsonNode cadenciaDias, String estado) {
+        this(idExterno, acreedorRut, nombre, inicio, fin, canales, intentos, cadenciaDias, estado, null);
+    }
 
     /** El mismo pedido, con el id externo que le pone DataBridge a una campana creada en el portal. */
     public CampanaRequest conIdExterno(String id) {
-        return new CampanaRequest(id, acreedorRut, nombre, inicio, fin, canales, intentos, cadenciaDias, estado);
+        return new CampanaRequest(id, acreedorRut, nombre, inicio, fin, canales, intentos, cadenciaDias, estado,
+                descuentoMoraPorTramo);
     }
 }
