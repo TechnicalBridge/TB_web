@@ -176,4 +176,63 @@ class MandatoServiceTest {
 
         assertEquals("estado_invalido", fallo.getCodigo());
     }
+
+    // ------------------------------------------------------------------
+    //  El acreedor que cobra sin agencia, con sus propias campanas
+    // ------------------------------------------------------------------
+
+    private Organization acreedor(long id, String rut) {
+        Organization acreedor = new Organization();
+        acreedor.setId(id);
+        acreedor.setRut(rut);
+        acreedor.setKind(Organization.Kind.creditor);
+        when(organizations.findByRut(rut)).thenReturn(Optional.of(acreedor));
+        return acreedor;
+    }
+
+    @Test
+    void un_acreedor_registra_su_propia_campana_sin_mandato() {
+        Organization andes = acreedor(5L, "76543210-3");
+        when(campaigns.findByAgencyAndExternalId(andes, "AND-CMP-1")).thenReturn(Optional.empty());
+        when(campaigns.save(any(Campaign.class))).thenAnswer(llamada -> llamada.getArgument(0));
+
+        servicio.registrarCampana(andes, new CampanaRequest("AND-CMP-1", "76543210-3", "Aranceles", "2026-10-01",
+                null, null, 3, null, "en_curso"));
+
+        ArgumentCaptor<Campaign> guardada = ArgumentCaptor.forClass(Campaign.class);
+        verify(campaigns).save(guardada.capture());
+        assertEquals(andes, guardada.getValue().getAgency(), "la gestiona el mismo acreedor");
+        assertEquals(andes, guardada.getValue().getCreditor());
+        assertEquals(Campaign.Status.running, guardada.getValue().getStatus());
+        verify(mandates, never()).findByAgencyAndCreditorAndStatus(any(), any(), any());
+    }
+
+    @Test
+    void el_acreedor_pausa_y_termina_la_suya() {
+        Organization andes = acreedor(5L, "76543210-3");
+        Campaign suya = new Campaign();
+        when(campaigns.findByAgencyAndExternalId(andes, "AND-CMP-1")).thenReturn(Optional.of(suya));
+
+        servicio.registrarCampana(andes, new CampanaRequest("AND-CMP-1", "76543210-3", null, null, null, null, null,
+                null, "pausada"));
+        assertEquals(Campaign.Status.paused, suya.getStatus());
+
+        servicio.registrarCampana(andes, new CampanaRequest("AND-CMP-1", "76543210-3", null, null, null, null, null,
+                null, "terminada"));
+        assertEquals(Campaign.Status.finished, suya.getStatus());
+    }
+
+    @Test
+    void un_acreedor_no_registra_la_campana_de_otro() {
+        Organization andes = acreedor(5L, "76543210-3");
+        acreedor(6L, "76418902-7");
+
+        CarteraInvalida fallo = assertThrows(CarteraInvalida.class,
+                () -> servicio.registrarCampana(andes, new CampanaRequest("AND-CMP-2", "76418902-7", "Ajena", null,
+                        null, null, null, null, null)));
+
+        assertEquals("sin_mandato", fallo.getCodigo());
+        assertEquals(403, fallo.getStatus());
+        verify(campaigns, never()).save(any());
+    }
 }

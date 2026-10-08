@@ -162,9 +162,10 @@ public class IntegracionController {
 
     @PostMapping("/campanas")
     @Operation(summary = "Registrar o actualizar una campana",
-            description = "La estrategia de contacto de la agencia para un acreedor. Necesita un mandato vigente.")
+            description = "La estrategia de contacto de quien cobra: una agencia con mandato vigente sobre el "
+                    + "acreedor, o el mismo acreedor cuando cobra sin agencia.")
     @ApiResponse(responseCode = "200", description = "La campana")
-    @ApiResponse(responseCode = "403", description = "Sin mandato vigente sobre ese acreedor",
+    @ApiResponse(responseCode = "403", description = "Una agencia sin mandato vigente, o un acreedor con la campana de otro",
             content = @Content(schema = @Schema(implementation = ErrorContrato.class)))
     public CampanaResponse campanas(
             @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String autorizacion,

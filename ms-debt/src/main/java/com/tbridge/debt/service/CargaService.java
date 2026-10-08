@@ -46,14 +46,15 @@ public class CargaService {
 
     /**
      * Por cuenta de quien puede cargar la empresa de la sesion: la propia, si
-     * es acreedora, y la de cada acreedor que le dio un mandato vigente, con
-     * sus campanas.
+     * es acreedora (con las campanas que ella misma gestiona), y la de cada
+     * acreedor que le dio un mandato vigente, con sus campanas.
      */
     public OpcionesCargaResponse opciones(JwtPrincipal user) {
         Organization organizacion = empresaDe(user);
         List<AcreedorCarga> acreedores = new ArrayList<>();
         if (organizacion.getKind() != Organization.Kind.agency) {
-            acreedores.add(AcreedorCarga.de(organizacion, List.of()));
+            acreedores.add(AcreedorCarga.de(organizacion,
+                    campanas.findByAgencyAndCreditorOrderByStartsOnDesc(organizacion, organizacion)));
         }
         LocalDate hoy = LocalDate.now();
         for (Mandate mandato : mandatos.findByAgencyAndStatus(organizacion, Mandate.Status.active)) {
@@ -71,7 +72,7 @@ public class CargaService {
         Organization organizacion = empresaDe(user);
         boolean propia = organizacion.getRut().equalsIgnoreCase(acreedorRut);
         CarteraCsv.Lote lote = new CarteraCsv.Lote(loteId, fechaCorte, acreedorRut,
-                propia ? null : organizacion.getRut(), propia ? null : campana);
+                propia ? null : organizacion.getRut(), campana);
         return ingesta.recibir(organizacion, CarteraCsv.leer(archivo, lote), Batch.Source.file);
     }
 

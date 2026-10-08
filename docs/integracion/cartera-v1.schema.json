@@ -52,6 +52,10 @@
             "nombre_fantasia": { "type": "string", "maxLength": 120 }
           }
         },
+        "campana_id_externo": {
+          "$ref": "#/definitions/idExterno",
+          "description": "Solo cuando el acreedor cobra sin agencia: la campaña que él mismo registró en la plataforma. Una agencia la manda en su mandato."
+        },
         "mandato": {
           "description": "Lo agrega la agencia al reenviar la cartera a la plataforma: su RUT y la campaña a la que la asignó. El acreedor no lo manda. Sin mandato, es gestión directa del acreedor.",
           "type": "object",

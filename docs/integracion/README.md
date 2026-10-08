@@ -217,6 +217,7 @@ En el tramo APOFYX → DataBridge, el lote lleva además:
 | `acreedor.rut` | Sí | Tiene que coincidir con el emisor, o el emisor tiene que ser una agencia con mandato sobre él |
 | `acreedor.razon_social` | No | Informativo: el receptor ya lo conoce por el RUT |
 | `mandato` | No | Lo pone la agencia al reenviar. Sin mandato, es gestión directa del acreedor |
+| `campana_id_externo` | No | Solo en la gestión directa: la campaña que el mismo acreedor registró en DataBridge (§7). Una agencia la manda en su `mandato` |
 
 **Cada deuda**
 
@@ -368,7 +369,7 @@ POST /api/v1/carteras   (multipart/form-data)
   fecha_corte        2026-09-18
   acreedor_rut       76418902-7
   agencia_rut        77305118-6          (solo en el tramo agencia → plataforma)
-  campana_id_externo APX-PAT-2026-09     (ídem)
+  campana_id_externo APX-PAT-2026-09     (la campaña: la de la agencia, o sin agencia la del acreedor)
 ```
 
 - **Una fila por cargo.** Las filas con el mismo `deuda_id` forman una deuda, y sus columnas de
@@ -410,9 +411,10 @@ capital a sus cargos y registra el interés aparte.
 
 ---
 
-## 7. Contrato ② — Mandato y Campaña v1 (agencia → DataBridge)
+## 7. Contrato ② — Mandato y Campaña v1 (quien cobra → DataBridge)
 
-Lo que APOFYX le dice a DataBridge **antes** de pasarle una cartera.
+Lo que quien cobra le dice a DataBridge **antes** de pasarle una cartera. En la demo es APOFYX, la
+empresa de cobranza; un acreedor que cobra sin agencia registra sus campañas igual, sin mandato.
 
 **Mandato**: la agencia cobra por cuenta de este acreedor.
 
@@ -434,7 +436,14 @@ enviadas por esa agencia mientras el mandato esté vigente.
 `mora_maxima_dias` lo fija la agencia, no DataBridge. Los 120 días son la regla de APOFYX; otra
 agencia podría usar 180 sin que DataBridge cambie.
 
-**Campaña**: cómo se contacta a esa cartera.
+**Campaña**: cómo se contacta a esa cartera. La registra quien cobra:
+
+- **Una agencia**, para un acreedor sobre el que tiene mandato vigente. Sin mandato responde `403`
+  (`sin_mandato`).
+- **El mismo acreedor**, cuando cobra sin agencia: con su clave de API y su propio RUT en
+  `acreedor_rut`, sin mandato. La campaña queda a su nombre, su avance (`campana.avance`) le llega
+  a él, y sus carteras la nombran en `lote.campana_id_externo` (§6.3). La campaña de otro acreedor
+  responde `403` (`sin_mandato`).
 
 ```
 POST /api/v1/campanas

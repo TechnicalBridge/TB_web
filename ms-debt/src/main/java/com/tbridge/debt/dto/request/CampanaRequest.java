@@ -6,13 +6,14 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * Contrato 2: la estrategia de contacto de la agencia para un acreedor.
- * DataBridge la ejecuta pero no la decide.
+ * Contrato 2: la estrategia de contacto de quien cobra, una agencia con
+ * mandato o el mismo acreedor sin agencia. DataBridge la ejecuta pero no la
+ * decide.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 @Schema(description = "Una campana de la agencia")
 public record CampanaRequest(
-        @Schema(description = "El id de la campana en el sistema de la agencia", example = "APX-CMP-8") String idExterno,
+        @Schema(description = "El id de la campana en el sistema de quien cobra", example = "APX-CMP-8") String idExterno,
         @Schema(example = "76418902-7") String acreedorRut,
         @Schema(description = "Sin indicar, el id externo", example = "Arriendos septiembre", nullable = true) String nombre,
         @Schema(description = "Sin indicar, hoy", example = "2026-09-01", nullable = true) String inicio,
