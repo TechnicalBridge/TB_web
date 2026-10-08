@@ -40,6 +40,9 @@ export const IconoCalendario = (p) => (
   <Trazo {...p}><rect x="3" y="5" width="18" height="16" rx="2.5" /><path d="M3 10h18M8 3v4M16 3v4" /></Trazo>
 );
 
+export const IconoMegafono = (p) => (
+  <Trazo {...p}><path d="M4 10v4a1 1 0 0 0 1 1h3l7 4V5L8 9H5a1 1 0 0 0-1 1z" /><path d="M19 9.5a3.5 3.5 0 0 1 0 5M8 15l1.5 5" /></Trazo>
+);
 export const IconoDocumento = (p) => (
   <Trazo {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></Trazo>
 );

@@ -14,4 +14,7 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     List<Campaign> findByAgencyAndCreditorOrderByStartsOnDesc(Organization agency, Organization creditor);
 
     List<Campaign> findByStatus(Campaign.Status status);
+
+    /** Las que gestiona una empresa: como agencia, o como acreedor que cobra sin agencia. */
+    List<Campaign> findByAgencyOrderByStartsOnDesc(Organization agency);
 }

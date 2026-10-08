@@ -635,6 +635,21 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .fecha-caja.vencida b, .fecha-caja.vencida span { color: var(--warn); }
 .fila-acciones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
 
+/* ---- Campañas ---------------------------------------------------------------------------------- */
+
+.campanas { display: grid; gap: 12px; }
+.campana {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.campana.elegida { border-color: var(--brand); box-shadow: 0 0 0 3px var(--ring); }
+.campana-cabeza { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.campana .mono { white-space: nowrap; }
+.campana-cifras { margin-top: 8px; color: var(--ink-2); font-size: 14.5px; }
+.campos-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
 /* Las fichas de una lista miden lo mismo para las tres pasarelas: el ancho sale del alto del logo. */
 .pasarela-logo {
   display: inline-flex;

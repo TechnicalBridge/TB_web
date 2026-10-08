@@ -114,7 +114,7 @@ function ParaEmpresas() {
             ["La cartera llega", "Por la API del contrato de integración, desde tu sistema, o cargando el archivo CSV del mismo contrato en Cargar cartera."],
             ["Entran solo morosos", `Una deuda entra cuando su cargo impago más antiguo lleva ${minimo} días vencido, sea un arriendo mensual, un arancel o un tratamiento de un solo cargo. Las que no cumplen se rechazan solas, con su motivo: DataBridge no cobra lo que todavía no es mora.`],
             ["El deudor recibe su código", "Desde la cartera le envías el código a su correo. El código no se muestra aquí: quien lo viera podría entrar en su lugar."],
-            ["Paga o pide un convenio", "El deudor paga todo o en 3 a 24 cuotas sin interés. Tú ves en qué va cada deuda: pendiente, en convenio o pago conciliado."],
+            ["Paga o pide un convenio", "El deudor paga todo o en 3 a 24 cuotas, con la tasa de interés que traiga la deuda o sin interés si no trae. Tú ves en qué va cada deuda: pendiente, en convenio o pago conciliado."],
             ["El pago vuelve a tu sistema", "Cada pago viaja de vuelta como un evento firmado a la dirección que registraste. Aquí lo ves en Pagos recibidos."],
           ]} />
         </div>
@@ -135,7 +135,20 @@ Content-Type: application/json`}</pre>
               en <Link className="link-btn" to="/databridge/cargar">Cargar cartera</Link>.
             </p>
           </div>
-          <div className="card aparece" style={{ "--i": 3 }}>
+          <div className="card aparece" style={{ "--i": 3, marginBottom: 16 }}>
+            <h3>Campañas</h3>
+            <p style={{ margin: 0 }}>
+              En <Link className="link-btn" to="/databridge/campanas">Campañas</Link> decides cuántas veces se le escribe
+              al deudor y qué días, contados desde que su deuda entra (por ejemplo 1, 4, 11). DataBridge envía cada
+              correo y deja de escribir cuando el deudor paga, repacta, reclama o la deuda sale de la cobranza.
+            </p>
+            <p className="hint">
+              La ley (art. 37 de la Ley 19.496) pone el límite: como máximo 2 contactos por semana, con al menos 2 días
+              entre uno y otro, de lunes a sábado entre 8:00 y 20:00 y nunca en feriados. Un contacto que no cabe se
+              corre al siguiente momento permitido. Pausar una campaña detiene los correos; reanudarla los retoma.
+            </p>
+          </div>
+          <div className="card aparece" style={{ "--i": 4 }}>
             <h3>Preguntas frecuentes</h3>
             <Preguntas preguntas={[
               ["¿Por qué se rechazó una deuda?", `Cada rechazo viene con su motivo. Los más comunes: bajo_umbral_mora (menos de ${minimo} días de mora), cargo_no_vencido (un cargo todavía no vence a la fecha de corte), rut_invalido y sin_canal_contacto (el deudor no trae correo ni teléfono).`],
