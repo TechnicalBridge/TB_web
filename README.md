@@ -551,9 +551,29 @@ El portal queda en http://localhost:5173, servido por Vite con recarga automáti
 
 ## 5. Metodología de trabajo
 
-**Kanban**, con prácticas de **DevOps** para la entrega.
+**Scrumban**: los roles de **Scrum** y el flujo de trabajo de **Kanban**, con prácticas de **DevOps**
+para la entrega.
 
-El trabajo se organizó en un tablero Kanban con cinco épicas —autenticación, gestión de deudas,
+- **Roles (Scrum).** Martín Gutiérrez es el Product Owner: prioriza el backlog y decide qué pasa a
+  *Ready*. Esteban Maino es el Scrum Master: cuida que el trabajo fluya, que nadie tenga más de dos
+  tarjetas en curso, y abre las retrospectivas. Pedro Campos y Flavio Henríquez son el equipo de
+  desarrollo.
+- **Flujo (Kanban).** Sin sprints: cada persona toma la siguiente tarjeta de *Ready* cuando termina
+  la que tiene. Las columnas del [tablero](https://github.com/orgs/TechnicalBridge/projects/3) son
+  Backlog, Ready, In progress, In review y Done, y el tablero reúne los tres repositorios.
+- **Issues.** Cada repositorio trae formularios en `.github/ISSUE_TEMPLATE/`, y todo issue entra solo
+  al tablero. Para el producto: historia de usuario (con su criterio de aceptación), épica, error e
+  investigación. Para el equipo: tarea técnica, decisión, versión mayor de una dependencia y, en este
+  repositorio, la retrospectiva.
+- **Ramas (trunk-based).** Todo entra a `main` por PRs chicos y bien descritos. Cada rama vive uno o
+  dos días, sale de `main` y se llama `tipo/número-qué`, por ejemplo `feat/45-descuento-contrato`. Un
+  issue grande se entrega en varios PRs: los intermedios dicen *Parte de #45* y el último *Closes #45*.
+  Lo que todavía no está terminado entra apagado, detrás de una configuración, en vez de esperar en
+  una rama larga. Cada PR pasa la CI y se mergea con squash.
+- **PRs.** La plantilla pide qué cambia, cómo se probó y cómo se deshace, y trae la **Definition of
+  Done** como checklist.
+
+El trabajo se organizó en un tablero con cinco épicas —autenticación, gestión de deudas,
 pagos, asistente y reportes— y un backlog de tareas que se fueron tomando de a una. El
 seguimiento tarea por tarea, con **en qué nos apartamos del plan original y por qué**, está en
 [`docs/plan-kanban.md`](docs/plan-kanban.md).

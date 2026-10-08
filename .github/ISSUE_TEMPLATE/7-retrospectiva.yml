@@ -1,0 +1,60 @@
+name: Retrospectiva
+description: Qué funcionó, qué no y qué cambia el equipo
+title: "retro: "
+type: Task
+labels: [documentation]
+projects: ["TechnicalBridge/3"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Una por retrospectiva. La abre el Scrum Master y la cierra cuando las acciones quedan como issues.
+        Es la evidencia de mejora continua que pide el curso.
+        **No escribas claves, contraseñas ni datos reales de personas:** este repositorio es público.
+  - type: input
+    id: periodo
+    attributes:
+      label: Período
+      placeholder: "Del 1 al 8 de octubre de 2026"
+    validations:
+      required: true
+  - type: checkboxes
+    id: participantes
+    attributes:
+      label: Participaron
+      options:
+        - label: "Martín Gutiérrez (Product Owner)"
+        - label: "Esteban Maino (Scrum Master)"
+        - label: "Pedro Campos"
+        - label: "Flavio Henríquez"
+  - type: textarea
+    id: bien
+    attributes:
+      label: Qué funcionó
+    validations:
+      required: true
+  - type: textarea
+    id: mal
+    attributes:
+      label: Qué no funcionó
+    validations:
+      required: true
+  - type: textarea
+    id: aprendimos
+    attributes:
+      label: Qué aprendimos
+  - type: textarea
+    id: flujo
+    attributes:
+      label: El flujo
+      description: "Del tablero: cuántas tarjetas se terminaron, cuánto tardaron de In progress a Done y qué se trabó."
+  - type: textarea
+    id: acciones
+    attributes:
+      label: Acciones
+      description: "Cada una con su responsable. Las grandes, como issue."
+      value: |
+        - [ ] @ 
+
+    validations:
+      required: true
