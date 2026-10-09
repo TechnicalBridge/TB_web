@@ -88,6 +88,18 @@ class CampanaServiceTest {
         assertEquals(12, vista.deudas());
         assertEquals(20, vista.contactos());
         assertEquals(4, vista.pagos());
+        assertNull(vista.descuentoPorTramo(), "sin descuento, no trae nada");
+    }
+
+    @Test
+    void la_campana_trae_su_descuento_por_tramo_para_poder_cambiarlo() {
+        campana.setMoraDiscount("{\"31-90\":50,\"91-120\":100}");
+        when(campanas.findByAgencyOrderByStartsOnDesc(apofyx)).thenReturn(List.of(campana));
+
+        CampanaPortalResponse vista = servicio.listar(apofyx).getFirst();
+
+        assertEquals(0, new java.math.BigDecimal("50").compareTo(vista.descuentoPorTramo().get("31-90")));
+        assertEquals(0, new java.math.BigDecimal("100").compareTo(vista.descuentoPorTramo().get("91-120")));
     }
 
     @Test

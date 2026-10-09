@@ -93,6 +93,7 @@ export default function Historial() {
                   <div className="fila-monto">
                     <b>{dinero(p.monto, p.moneda)}</b>
                     {p.moneda === "UF" && p.montoClp ? <span>{dinero(p.montoClp)} ese día</span> : null}
+                    {Number(p.descuento) > 0 ? <span>Con {dinero(p.descuento, p.moneda)} de descuento</span> : null}
                   </div>
                 </div>
               );

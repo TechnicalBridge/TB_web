@@ -12,7 +12,16 @@ const ESTADO = {
   terminada: ["Terminada", "badge-muted"],
 };
 
-const VACIA = { id: "", acreedor: "", nombre: "", inicio: "", fin: "", intentos: "3", cadencia: "1, 4, 11" };
+const VACIA = {
+  id: "", acreedor: "", nombre: "", inicio: "", fin: "", intentos: "3", cadencia: "1, 4, 11",
+  descuento: { "1-30": "", "31-90": "", "91-120": "" },
+};
+
+/** Los tramos del contrato, por los días de mora del cargo impago más antiguo. */
+const TRAMOS = [["1-30", "1 a 30 días"], ["31-90", "31 a 90 días"], ["91-120", "Más de 90 días"]];
+
+/** Un % de descuento del formulario: vacío es 0; si no, de 0 a 100 con hasta dos decimales. */
+const porcentajeValido = (v) => v === "" || (/^\d{1,3}([.,]\d{1,2})?$/.test(v) && Number(v.replace(",", ".")) <= 100);
 
 /** "1, 4, 11" -> { dias: [1, 4, 11] }, o el error. Las mismas reglas con que DataBridge la rechaza. */
 function leerCadencia(texto) {
@@ -77,7 +86,9 @@ export default function Campanas() {
   const intentosValidos = Number.isInteger(intentos) && intentos >= 1 && intentos <= 10;
   const fechasValidas = !form.inicio || !form.fin || form.fin >= form.inicio;
   const avisos = cadencia.dias && intentosValidos ? advertencias(cadencia.dias, intentos) : [];
-  const listo = form.nombre.trim() && form.acreedor && cadencia.dias && intentosValidos && fechasValidas;
+  const descuentosValidos = TRAMOS.every(([t]) => porcentajeValido(form.descuento[t]));
+  const listo = form.nombre.trim() && form.acreedor && cadencia.dias && intentosValidos && fechasValidas
+    && descuentosValidos;
 
   const campo = (nombre) => (e) => setForm((f) => ({ ...f, [nombre]: e.target.value }));
 
@@ -93,6 +104,7 @@ export default function Campanas() {
     setForm({
       id: c.idExterno, acreedor: c.acreedorRut, nombre: c.nombre, inicio: c.inicio || "", fin: c.fin || "",
       intentos: String(c.intentos), cadencia: (c.cadenciaDias || []).join(", "),
+      descuento: Object.fromEntries(TRAMOS.map(([t]) => [t, c.descuentoPorTramo?.[t] != null ? String(c.descuentoPorTramo[t]) : ""])),
     });
     document.getElementById("form-campana")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -112,6 +124,10 @@ export default function Campanas() {
         canales: ["correo"],
         intentos,
         cadencia_dias: cadencia.dias,
+        //  Vacío quita el descuento; lo que no pasa del máximo del acreedor lo revisa DataBridge.
+        descuento_mora_por_tramo: Object.fromEntries(TRAMOS
+          .filter(([t]) => form.descuento[t] !== "" && Number(form.descuento[t].replace(",", ".")) > 0)
+          .map(([t]) => [t, Number(form.descuento[t].replace(",", "."))])),
       });
       setHecho(editando
         ? `Se guardaron los cambios de "${guardada.nombre}".`
@@ -176,6 +192,11 @@ export default function Campanas() {
                     <div className="totales campana-cifras">
                       <span>{fecha(c.inicio)} – {c.fin ? fecha(c.fin) : "sin fin"}</span>
                       <span>{c.intentos} {c.intentos === 1 ? "contacto" : "contactos"}, días {(c.cadenciaDias || []).join(", ")}</span>
+                      {c.descuentoPorTramo ? (
+                        <span>
+                          Descuento: {TRAMOS.map(([t]) => `${c.descuentoPorTramo[t] ?? 0}%`).join(" · ")}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="totales campana-cifras">
                       <span><b className="num">{c.deudas}</b> {c.deudas === 1 ? "deuda" : "deudas"}</span>
@@ -265,6 +286,24 @@ export default function Campanas() {
                 </div>
               </div>
             ) : null}
+            <fieldset className="campos-tramo">
+              <legend>Descuento por pronto pago (opcional)</legend>
+              <div className="campos-3">
+                {TRAMOS.map(([t, etiqueta]) => (
+                  <div className="field" key={t}>
+                    <label htmlFor={`c-d-${t}`}>{etiqueta}</label>
+                    <input id={`c-d-${t}`} inputMode="decimal" placeholder="0" value={form.descuento[t]}
+                           aria-describedby="c-descuento-ayuda"
+                           onChange={(e) => setForm((f) => ({ ...f, descuento: { ...f.descuento, [t]: e.target.value } }))} />
+                  </div>
+                ))}
+              </div>
+              <p className="hint" id="c-descuento-ayuda" style={{ marginTop: -6 }}>
+                El % de los intereses de mora que se condona a quien paga toda la deuda de una vez, según lo
+                atrasada que está. Nunca toca el capital, y no puede pasar lo que el acreedor autorizó.
+              </p>
+              {!descuentosValidos ? <div className="error">Cada descuento es un % de 0 a 100.</div> : null}
+            </fieldset>
             {editando ? null : (
               <div className="field">
                 <label htmlFor="c-id">Id en tu sistema (opcional)</label>

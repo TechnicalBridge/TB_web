@@ -76,6 +76,7 @@ function ParaDeudores() {
               ["¿Cobran intereses?", "Depende de lo que pactaste con la empresa. Si tu contrato tiene una tasa de interés, una deuda atrasada crece por cada día de atraso y el convenio lleva interés; el portal te muestra cuánto es capital y cuánto interés antes de pagar. Si no tiene tasa, no se cobra nada extra: el total del convenio es lo que debes hoy."],
               ["¿Puedo pagar varias cuotas a la vez?", "Sí, siempre desde la que vence primero. Así nunca queda una cuota antigua impaga mientras pagas una nueva."],
               ["Mi deuda está en UF: ¿cuánto pago en pesos?", "Pagas en pesos, al valor de la UF del día en que pagas. El comprobante dice qué UF se usó."],
+              ["¿Hay descuento si pago todo?", "A veces. Si la empresa tiene una campaña con descuento, al pagar toda la deuda de una vez te descontamos parte de los intereses por mora: más mientras más antigua es la deuda. Lo ves en Mis deudas y en el detalle antes de pagar. No aplica si pagas en cuotas, y el capital nunca se descuenta."],
               ["¿Cómo sé que esto es legítimo?", "En Mis datos ves qué empresa te registró y el correo que tiene de ti. Si no reconoces la deuda, no pagues y comunícate directo con esa empresa."],
               ["¿Qué pasa si se me atrasa una cuota?", "La empresa ve que el convenio está atrasado y te va a contactar. Mientras antes pagues la cuota vencida, mejor."],
               ["¿Me van a recordar las cuotas?", "Sí, por correo, unos días antes de cada vencimiento. Puedes apagar esos avisos en Mis datos."],

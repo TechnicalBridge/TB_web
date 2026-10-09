@@ -33,10 +33,11 @@ export default function PagosRecibidos() {
 
   function exportar() {
     descargarCsv("pagos-recibidos.csv",
-      ["Fecha", "Deudor", "RUT", "Referencia", "Acreedor", "Que pago", "Medio", "Operacion", "Moneda", "Monto", "Pesos"],
+      ["Fecha", "Deudor", "RUT", "Referencia", "Acreedor", "Que pago", "Medio", "Operacion", "Moneda", "Monto", "Pesos", "Descuento"],
       visibles.map((p) => [new Date(p.pagadoEn).toLocaleString("es-CL"), p.deudor, rutLegible(p.deudorRut),
         p.externalId, p.acreedor, queSePago(p), nombreDePasarela(p.pasarela), p.referencia, p.moneda,
-        montoParaExcel(p.monto, p.moneda), p.montoClp ?? ""]));
+        montoParaExcel(p.monto, p.moneda), p.montoClp ?? "",
+        p.descuento ? montoParaExcel(p.descuento, p.moneda) : ""]));
   }
 
   return (
@@ -149,6 +150,9 @@ export default function PagosRecibidos() {
                     <td className="num">
                       {dinero(p.monto, p.moneda)}
                       {p.moneda === "UF" && p.montoClp ? <span className="sub">{dinero(p.montoClp)}</span> : null}
+                      {Number(p.descuento) > 0 ? (
+                        <span className="sub">{dinero(p.descuento, p.moneda)} de intereses condonados</span>
+                      ) : null}
                     </td>
                     <td>
                       <button type="button" className="btn btn-ghost btn-sm" onClick={() =>
