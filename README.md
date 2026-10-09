@@ -932,6 +932,7 @@ classDiagram
     class Mandate {
         validFrom
         validTo
+        maxMoraDiscount
         status: active o ended
     }
     class Campaign {
@@ -939,6 +940,7 @@ classDiagram
         startsOn
         endsOn
         cadenceDays
+        moraDiscount: % por tramo
         status: running, paused o finished
     }
     class Batch {
@@ -981,6 +983,7 @@ classDiagram
     class Payment {
         amount
         interestAmount
+        discountAmount
         gateway: webpay, khipu o mercadopago
         status
     }
@@ -1002,7 +1005,8 @@ classDiagram
 
 Lo que se guarda y lo que se calcula: el **saldo** y la **mora** no son atributos, se calculan con
 los cargos, las cuotas y la tasa ([§7](#7-modelo-de-datos)). Lo que sí queda escrito es lo que ya se
-fijó: el interés de cada cuota del convenio y el interés de cada pago.
+fijó: el interés de cada cuota del convenio, y el interés y el descuento de cada pago. El descuento
+de una campaña nunca pasa del máximo que el acreedor autorizó en el mandato.
 
 #### Estados de una deuda
 
@@ -1045,7 +1049,7 @@ flowchart TB
 
     subgraph PAT["Acreedor (Patrimonio)"]
         P0(("Fin de mes")):::inicio --> P1["Genera los cargos<br/>del mes"]:::tarea --> P2["Emite la cartera:<br/>todos sus clientes,<br/>deban o no"]:::tarea
-        P9["Abona el capital y<br/>anota el interés aparte"]:::tarea --> P10((("Cuenta<br/>al día"))):::fin
+        P9["Abona el capital y anota<br/>el interés y lo condonado"]:::tarea --> P10((("Cuenta<br/>al día"))):::fin
     end
 
     subgraph APX["Agencia (APOFYX)"]
@@ -1061,7 +1065,7 @@ flowchart TB
     end
 
     subgraph DEU["Deudor"]
-        U1["Recibe un correo<br/>con su código"]:::tarea --> U2["Entra y ve lo que debe,<br/>con la mora de hoy"]:::tarea --> U3{"¿Qué hace?"}:::decision
+        U1["Recibe un correo<br/>con su código"]:::tarea --> U2["Entra y ve lo que debe,<br/>con la mora de hoy<br/>y el descuento, si hay"]:::tarea --> U3{"¿Qué hace?"}:::decision
     end
 
     P2 -. "cartera" .-> A1
@@ -1079,10 +1083,10 @@ flowchart TB
 | 2 | APOFYX | Revisa cada deuda (mora, al día, más de 120 días), la asigna a la **campaña** en curso y se la pasa a DataBridge |
 | 3 | DataBridge | Acepta las deudas con 30 días de mora o más y una tasa bajo el tope, y le manda al deudor una **invitación**: un código, sin monto ni enlace |
 | 4 | DataBridge | Si el deudor no entra ni paga, **le sigue escribiendo** los días de la campaña, dentro de lo que permite la ley |
-| 5 | Deudor | Entra con su RUT y el código, ve lo que debe con la mora del día y decide: **pagar**, **repactar** o **reclamar** |
+| 5 | Deudor | Entra con su RUT y el código, ve lo que debe con la mora del día (y el descuento, si la campaña lo trae y paga todo de una vez) y decide: **pagar**, **repactar** o **reclamar** |
 | 6 | DataBridge | Cobra con la pasarela, arma el convenio o abre el reclamo, y **avisa** lo que pasó, firmado |
 | 7 | APOFYX | Pone su cartera al día y le **reenvía el aviso** al acreedor, firmado por ella |
-| 8 | Acreedor | Deja los cargos pagados y anota el interés aparte, sin saber que detrás está DataBridge |
+| 8 | Acreedor | Deja los cargos pagados y anota aparte el interés cobrado y el condonado, sin saber que detrás está DataBridge |
 
 #### Flujo: la cartera de cada mes
 
@@ -1123,7 +1127,7 @@ flowchart TB
         D1 -->|no| D2["Rechaza esa deuda:<br/>bajo_umbral_mora"]:::tarea
         D1 -->|sí| D3{"¿La tasa de interés<br/>está bajo el tope?"}:::decision
         D3 -->|no| D4["Rechaza esa deuda:<br/>tasa_sobre_maxima"]:::tarea
-        D3 -->|sí| D5["Registra la deuda,<br/>sus cargos y su tasa"]:::tarea
+        D3 -->|sí| D5["Registra la deuda,<br/>sus cargos y su tasa<br/>(un correo mal escrito<br/>entra con un aviso)"]:::tarea
         D5 --> D6["Le manda la invitación<br/>al deudor"]:::tarea
         D6 --> D7((("Deuda en<br/>cobranza"))):::fin
     end
@@ -1154,7 +1158,7 @@ sequenceDiagram
     D->>P: "Pagar" (el saldo, o las cuotas marcadas)
     P->>Y: POST /api/payments/checkout
     Y->>M: GET /internal/debts/{id}?installmentIds=...
-    M-->>Y: monto (capital + mora de hoy) y RUT del dueño
+    M-->>Y: monto (capital + mora de hoy − descuento) y RUT del dueño
     Note over M: Las cuotas tienen que ser<br/>las que vencen primero.<br/>La mora se calcula con la tasa<br/>que pactó el acreedor.
     Note over Y: El monto lo decide ms-debt.<br/>Si es UF, fija los pesos<br/>con la UF del día en Chile.
     Y->>K: POST /v3/payments (monto, transacción, retorno)
@@ -1172,8 +1176,8 @@ sequenceDiagram
     Y->>R: pago.confirmado
     R->>M: la cola entrega
     M->>M: abona, y si queda en cero: deuda.saldada
-    M->>X: evento firmado con HMAC, con el capital y el interés aparte
-    X-->>X: lo reenvía al acreedor, que abona el capital<br/>y anota el interés por separado
+    M->>X: evento firmado con HMAC, con el capital,<br/>el interés y el descuento aparte
+    X-->>X: lo reenvía al acreedor, que abona el capital<br/>y anota el interés y lo condonado por separado
 ```
 
 **El navegador nunca dice cuánto hay que pagar ni si el pago salió bien.** El monto lo pregunta
@@ -1279,31 +1283,34 @@ flowchart LR
 
 ### 8.4 Vista de desarrollo
 
-Un solo repositorio con tres tecnologías. Los servicios de Java son módulos de un mismo proyecto
-de Maven y comparten `common`:
+Un solo repositorio con dos lenguajes: Java en los servicios y JavaScript en el portal. **Cada
+servicio es un proyecto de Maven aparte**, con Spring Boot como padre: no hay un pom padre del
+repositorio ni una librería compartida. Lo único que comparten es lo publicado: el contrato y el
+aviso de pago.
 
 ```mermaid
 flowchart TB
     subgraph REPO["Repositorio TB_web"]
-        subgraph MVN["Maven multimódulo: Java 25 y Spring Boot 3.5"]
-            COMMON["common<br/>JWT, errores, RUT y el aviso de pago"]
+        subgraph JAVA["Java 25 y Spring Boot 3.5: cada uno con su pom.xml"]
             AUTH["ms-auth"]
             DEBT["ms-debt"]
             PAY["ms-payments"]
+            AI["ms-ai"]
             GWY["gateway"]
         end
-        AI["ms-ai<br/>Python y FastAPI"]
         FE["frontend<br/>React y Vite"]
         DOCS["docs/integracion<br/>el contrato v1"]
+        EVT["docs/eventos<br/>el aviso de pago"]
         DBD["db<br/>las bases y sus usuarios"]
     end
-    AUTH --> COMMON
-    DEBT --> COMMON
-    PAY --> COMMON
     FE -. "llama por HTTP" .-> GWY
+    GWY -. "enruta" .-> AUTH
     AI -. "lee las deudas por HTTP" .-> DEBT
+    PAY -. "le pide el monto por HTTP" .-> DEBT
     DOCS -. "lo implementa" .-> DEBT
-    DBD -. "crea las bases<br/>que migra cada servicio" .-> MVN
+    EVT -. "lo escribe" .-> PAY
+    EVT -. "lo lee" .-> DEBT
+    DBD -. "crea las bases<br/>que migra cada servicio" .-> JAVA
 ```
 
 Dentro de cada servicio, las mismas capas, de afuera hacia adentro (el detalle de cada carpeta está
