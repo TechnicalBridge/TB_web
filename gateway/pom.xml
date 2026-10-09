@@ -24,7 +24,7 @@
     <java.version>25</java.version>
     <spring-cloud.version>2025.0.3</spring-cloud.version>
     <!-- La rama 2.8 es la de Spring Boot 3.5; la 3.x ya es para Spring Boot 4. -->
-    <springdoc.version>2.8.17</springdoc.version>
+    <springdoc.version>2.9.1</springdoc.version>
   </properties>
 
   <dependencyManagement>
@@ -57,7 +57,7 @@
     <dependency>
       <groupId>com.bucket4j</groupId>
       <artifactId>bucket4j_jdk17-core</artifactId>
-      <version>8.14.0</version>
+      <version>8.21.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
