@@ -12,14 +12,15 @@
     "installmentId": 7,
     "debtorRut": "16482337-7",
     "creditorRut": "76418902-7",
-    "amount": 318800,
+    "amount": 309400,
     "currency": "CLP",
-    "amountClp": 318800,
+    "amountClp": 309400,
     "ufValue": 39485.65,
     "gateway": "khipu",
     "gatewayTxnId": "kh-ejemplo-0001",
     "paidAt": "2026-10-06T15:30:00Z",
     "installmentIds": [7, 8],
-    "interest": 18800
+    "interest": 9400,
+    "discount": 9400
   }
 }

@@ -81,7 +81,8 @@ public class HistorialService {
                 detalle == null ? null : detalle.de(),
                 detalle == null ? null : detalle.fuera(),
                 evento.getOccurredAt(),
-                detalle == null ? null : detalle.interes());
+                detalle == null ? null : detalle.interes(),
+                detalle == null ? null : detalle.descuento());
     }
 
     /** El detalle guardado con el pago. Los pagos anteriores a que existiera no lo traen. */

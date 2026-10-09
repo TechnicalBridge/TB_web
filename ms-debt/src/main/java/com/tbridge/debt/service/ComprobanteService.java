@@ -56,6 +56,10 @@ public class ComprobanteService {
                     + ", incluidos en el monto. El resto es capital: "
                     + DocumentoPdf.dinero(pago.monto().subtract(pago.interes()), pago.moneda())});
         }
+        if (pago.descuento() != null && pago.descuento().signum() > 0) {
+            filas.add(new String[]{"Descuento por pronto pago", DocumentoPdf.dinero(pago.descuento(), pago.moneda())
+                    + " de intereses de mora condonados, por pagar toda la deuda durante la campaña"});
+        }
         filas.add(new String[]{"Fecha", DocumentoPdf.fechaYHora(pago.pagadoEn())});
         if (pago.pasarela() != null) {
             filas.add(new String[]{"Medio de pago", PASARELAS.getOrDefault(pago.pasarela(), pago.pasarela())

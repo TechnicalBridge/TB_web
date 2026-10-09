@@ -118,6 +118,35 @@ class PaymentServiceTest {
     }
 
     @Test
+    void el_descuento_por_pronto_pago_tambien_queda_fijo_en_el_cobro() {
+        //  El ejemplo del contrato: $900.000 + $18.800 de mora - $9.400 de descuento.
+        when(deudas.obtener(3L, null)).thenReturn(new DebtClient.DebtSnapshot(3L, "76418902-7", FELIPE, "CLP",
+                new BigDecimal("909400"), 12L, List.of(12L), new BigDecimal("900000"), new BigDecimal("9400"),
+                new BigDecimal("9400")));
+        ArgumentCaptor<Payment> guardado = ArgumentCaptor.forClass(Payment.class);
+
+        PaymentResponse pago = servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        assertEquals(new BigDecimal("909400"), pago.amount(), "se cobra lo que dice ms-debt, ya con el descuento");
+        verify(payments, org.mockito.Mockito.atLeastOnce()).save(guardado.capture());
+        assertEquals(new BigDecimal("9400"), guardado.getValue().getInterestAmount());
+        assertEquals(new BigDecimal("9400"), guardado.getValue().getDiscountAmount());
+    }
+
+    @Test
+    void sin_descuento_el_cobro_no_lo_guarda() {
+        when(deudas.obtener(3L, null)).thenReturn(new DebtClient.DebtSnapshot(3L, "76418902-7", FELIPE, "CLP",
+                new BigDecimal("416150"), 12L, List.of(12L), new BigDecimal("410000"), new BigDecimal("6150"),
+                BigDecimal.ZERO));
+        ArgumentCaptor<Payment> guardado = ArgumentCaptor.forClass(Payment.class);
+
+        servicio.checkout(DEUDOR, new CheckoutRequest(3L, null, "webpay"));
+
+        verify(payments, org.mockito.Mockito.atLeastOnce()).save(guardado.capture());
+        org.junit.jupiter.api.Assertions.assertNull(guardado.getValue().getDiscountAmount());
+    }
+
+    @Test
     void las_cuotas_elegidas_viajan_a_ms_debt_que_es_quien_pone_el_monto() {
         when(deudas.obtener(3L, List.of(12L, 13L))).thenReturn(deudaDe(FELIPE, "CLP", "280000"));
 

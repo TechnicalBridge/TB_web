@@ -86,6 +86,23 @@ class NotificationDispatcherTest {
     }
 
     @Test
+    void el_aviso_lleva_el_descuento_que_quedo_fijo_en_el_cobro() {
+        pendiente();
+        Payment pago = payments.findById(41L).orElseThrow();
+        pago.setCuotas(List.of(12L));
+        pago.setAmount(new BigDecimal("909400"));
+        pago.setInterestAmount(new BigDecimal("9400"));
+        pago.setDiscountAmount(new BigDecimal("9400"));
+
+        despachador.despachar();
+
+        ArgumentCaptor<PagoConfirmado> enviado = ArgumentCaptor.forClass(PagoConfirmado.class);
+        verify(publicador).publicar(enviado.capture());
+        assertEquals(new BigDecimal("9400"), enviado.getValue().interest());
+        assertEquals(new BigDecimal("9400"), enviado.getValue().discount());
+    }
+
+    @Test
     void si_ms_debt_esta_caido_se_reintenta_despues() {
         DebtNotification aviso = pendiente();
         doThrow(new IllegalStateException("Connection refused")).when(publicador).publicar(any());

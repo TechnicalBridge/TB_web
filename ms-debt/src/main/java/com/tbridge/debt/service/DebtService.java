@@ -68,6 +68,7 @@ public class DebtService {
 
     private static final Logger log = LoggerFactory.getLogger(DebtService.class);
     private static final ZoneId CHILE = ZoneId.of("America/Santiago");
+    private static final BigDecimal CIEN = BigDecimal.valueOf(100);
 
     /** El orden en que se pagan las cuotas: la que vence primero, primero. */
     static final Comparator<Installment> EN_ORDEN =
@@ -83,6 +84,7 @@ public class DebtService {
     private final RepactationService repactation;
     private final EventosService eventos;
     private final ObjectMapper json;
+    private final DescuentoService descuentos;
 
     public DebtService(
             DebtRepository debts,
@@ -94,7 +96,8 @@ public class DebtService {
             DebtEventRepository events,
             RepactationService repactation,
             EventosService eventos,
-            ObjectMapper json
+            ObjectMapper json,
+            DescuentoService descuentos
     ) {
         this.debts = debts;
         this.debtors = debtors;
@@ -106,6 +109,7 @@ public class DebtService {
         this.repactation = repactation;
         this.eventos = eventos;
         this.json = json;
+        this.descuentos = descuentos;
     }
 
     // ------------------------------------------------------------------
@@ -192,6 +196,35 @@ public class DebtService {
             return Map.of();
         }
         return Intereses.deMora(deuda, charges.findByDebtOrderByDueDateAsc(deuda), cuotas, LocalDate.now(CHILE));
+    }
+
+    /**
+     * La mora que se condona si hoy se paga toda la deuda (contrato §7.1): la
+     * mora del dia por el % de su tramo, redondeada como el resto. Cero en
+     * convenio, sin mora o sin una campana que ofrezca descuento.
+     */
+    private BigDecimal descuentoDelDia(Debt deuda, List<Installment> pendientes, BigDecimal moraTotal) {
+        if (deuda.getStatus() != Debt.Status.open || moraTotal.signum() <= 0 || deuda.getCampaign() == null
+                || deuda.getCampaign().getMoraDiscount() == null
+                || pendientes.stream().anyMatch(Installment::enConvenio)) {
+            return BigDecimal.ZERO;
+        }
+        LocalDate hoy = LocalDate.now(CHILE);
+        long dias = Intereses.diasDeMora(charges.findByDebtOrderByDueDateAsc(deuda), pendientes, hoy);
+        BigDecimal porcentaje = descuentos.porcentaje(deuda, dias, hoy);
+        if (porcentaje == null || porcentaje.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return Intereses.redondear(moraTotal.multiply(porcentaje).divide(CIEN), deuda.getCurrency());
+    }
+
+    /** El descuento que tiene hoy la deuda, para mostrarlo antes de pagar. Null sin descuento. */
+    private DebtSummaryResponse.Oferta oferta(Debt deuda, List<Installment> cuotas, BigDecimal moraTotal) {
+        List<Installment> pendientes = cuotas.stream().filter(c -> c.getStatus() == Installment.Status.pending)
+                .toList();
+        BigDecimal descuento = descuentoDelDia(deuda, pendientes, moraTotal);
+        return descuento.signum() > 0 ? new DebtSummaryResponse.Oferta(descuento, deuda.getCampaign().getEndsOn())
+                : null;
     }
 
     /** Lo que la deuda tiene de capital pendiente: las cuotas, sin el interes del convenio que aun no corre. */
@@ -450,10 +483,15 @@ public class DebtService {
         Map<Long, BigDecimal> mora = mora(deuda, pendientes);
         BigDecimal interes = aPagar.stream().map(c -> mora.getOrDefault(c.getId(), BigDecimal.ZERO))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        //  El descuento por pronto pago es solo para quien paga toda la deuda, y
+        //  queda fijo desde aca: si la pasarela confirma despues, no cambia.
+        BigDecimal descuento = aPagar.size() == pendientes.size()
+                ? descuentoDelDia(deuda, pendientes, interes) : BigDecimal.ZERO;
+        interes = interes.subtract(descuento);
         Long cuotaId = aPagar.size() == 1 ? aPagar.getFirst().getId() : null;
         return new DebtSnapshotResponse(deuda.getId(), deuda.getCreditor().getRut(), deuda.getDebtor().getRut(),
                 deuda.getCurrency().name(), capital.add(interes), cuotaId,
-                aPagar.stream().map(Installment::getId).toList(), capital, interes);
+                aPagar.stream().map(Installment::getId).toList(), capital, interes, descuento);
     }
 
     /** Por que una cuota pedida no esta entre las que se pueden pagar. */
@@ -567,9 +605,12 @@ public class DebtService {
      */
     private static PagoConfirmadoDatos datosDelPago(Debt deuda, PagoConfirmado aviso, Debt.Currency moneda,
                                                     Instant pagadoEn) {
-        //  Sin mora no van ni capital ni interes: el evento queda como siempre.
-        boolean conInteres = aviso.interest() != null && aviso.interest().signum() > 0;
-        BigDecimal capital = conInteres && aviso.amount() != null ? aviso.amount().subtract(aviso.interest()) : null;
+        //  Sin mora no van ni capital ni interes: el evento queda como siempre. Con
+        //  descuento si van, aunque se haya condonado toda la mora (interes en cero).
+        boolean conDescuento = aviso.discount() != null && aviso.discount().signum() > 0;
+        BigDecimal interes = aviso.interest() == null ? BigDecimal.ZERO : aviso.interest();
+        boolean conInteres = interes.signum() > 0 || conDescuento;
+        BigDecimal capital = conInteres && aviso.amount() != null ? aviso.amount().subtract(interes) : null;
         return new PagoConfirmadoDatos(
                 deuda.getExternalId(),
                 String.valueOf(aviso.paymentId()),
@@ -580,7 +621,8 @@ public class DebtService {
                 aviso.gateway() == null ? null : aviso.gateway().toLowerCase(),
                 EventosService.enChile(pagadoEn),
                 EventosService.monto(capital, moneda),
-                conInteres ? EventosService.monto(aviso.interest(), moneda) : null);
+                conInteres ? EventosService.monto(interes, moneda) : null,
+                conDescuento ? EventosService.monto(aviso.discount(), moneda) : null);
     }
 
     /**
@@ -612,7 +654,8 @@ public class DebtService {
         DetallePago detalle = new DetallePago(aviso.paymentId(), aviso.amountClp(), aviso.ufValue(),
                 aviso.gateway() == null ? null : aviso.gateway().toLowerCase(Locale.ROOT), lugares, de,
                 fuera == 0 ? null : (int) fuera,
-                aviso.interest() == null || aviso.interest().signum() == 0 ? null : aviso.interest());
+                aviso.interest() == null || aviso.interest().signum() == 0 ? null : aviso.interest(),
+                aviso.discount() == null || aviso.discount().signum() == 0 ? null : aviso.discount());
         try {
             return json.writeValueAsString(detalle);
         } catch (JsonProcessingException e) {
@@ -634,7 +677,9 @@ public class DebtService {
     /** Con una sola consulta de cuotas: el saldo, la mora y el avance salen de la misma lista. */
     private DebtSummaryResponse resumen(Debt deuda, Instant codigoEnviado, DebtSummaryResponse.Disputa disputa) {
         List<Installment> cuotas = installments.findByDebtOrderByNumberAsc(deuda);
-        return DebtSummaryResponse.from(deuda, cuotas, codigoEnviado, disputa, Intereses.total(mora(deuda, cuotas)));
+        BigDecimal moraTotal = Intereses.total(mora(deuda, cuotas));
+        return DebtSummaryResponse.from(deuda, cuotas, codigoEnviado, disputa, moraTotal,
+                oferta(deuda, cuotas, moraTotal));
     }
 
     private DebtDetailResponse detalle(Debt deuda) {
@@ -642,7 +687,7 @@ public class DebtService {
         Map<Long, BigDecimal> mora = mora(deuda, cuotas);
         return new DebtDetailResponse(
                 DebtSummaryResponse.from(deuda, cuotas, null, disputas(List.of(deuda)).get(deuda.getId()),
-                        Intereses.total(mora)),
+                        Intereses.total(mora), oferta(deuda, cuotas, Intereses.total(mora))),
                 charges.findByDebtOrderByDueDateAsc(deuda).stream().map(DebtDetailResponse.Cargo::from).toList(),
                 cuotas.stream().map(c -> DebtDetailResponse.Cuota.from(c, mora.get(c.getId()))).toList(),
                 events.findByDebtOrderByOccurredAtAsc(deuda).stream().map(DebtDetailResponse.Suceso::from).toList());
