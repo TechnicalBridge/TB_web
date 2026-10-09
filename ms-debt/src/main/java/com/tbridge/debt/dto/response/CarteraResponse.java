@@ -47,23 +47,31 @@ public record CarteraResponse(
                     example = "44") Long moraDias,
             @Schema(allowableValues = {"1-30", "31-90", "91-120", ">120"}, nullable = true, example = "31-90")
             String tramo,
-            @Schema(description = "Solo si se rechazo", nullable = true) List<ErrorDeuda> errores
+            @Schema(description = "Solo si se rechazo", nullable = true) List<ErrorDeuda> errores,
+            @Schema(description = "Lo que se corrigio sin rechazarla: por ejemplo correo_invalido, que la deja "
+                    + "entrar sin correo", nullable = true) List<ErrorDeuda> avisos
     ) {
         public static ResultadoDeuda registrada(String idExterno, String resultado, long moraDias, String tramo) {
-            return new ResultadoDeuda(idExterno, resultado, moraDias, tramo, null);
+            return new ResultadoDeuda(idExterno, resultado, moraDias, tramo, null, null);
         }
 
         public static ResultadoDeuda retirada(String idExterno) {
-            return new ResultadoDeuda(idExterno, "retirada", null, null, null);
+            return new ResultadoDeuda(idExterno, "retirada", null, null, null, null);
         }
 
         /** Un cliente al dia: no hay nada que cobrarle. */
         public static ResultadoDeuda alDia(String idExterno) {
-            return new ResultadoDeuda(idExterno, "al_dia", null, null, null);
+            return new ResultadoDeuda(idExterno, "al_dia", null, null, null, null);
         }
 
         public static ResultadoDeuda rechazada(String idExterno, List<ErrorDeuda> errores) {
-            return new ResultadoDeuda(idExterno, "rechazada", null, null, errores);
+            return new ResultadoDeuda(idExterno, "rechazada", null, null, errores, null);
+        }
+
+        /** El mismo resultado, con sus avisos. Sin avisos, queda igual. */
+        public ResultadoDeuda conAvisos(List<ErrorDeuda> avisos) {
+            return avisos == null || avisos.isEmpty() ? this
+                    : new ResultadoDeuda(idExterno, resultado, moraDias, tramo, errores, avisos);
         }
 
         public boolean aceptada() {

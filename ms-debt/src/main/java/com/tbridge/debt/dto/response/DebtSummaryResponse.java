@@ -63,7 +63,10 @@ public record DebtSummaryResponse(
         BigDecimal descuentoDisponible,
         @Schema(description = "Hasta cuando vale el descuento: el fin de la campana. Vacio si no tiene fin o no hay "
                 + "descuento", nullable = true, example = "2026-11-03")
-        LocalDate descuentoHasta
+        LocalDate descuentoHasta,
+        @Schema(description = "El deudor no tiene un correo valido: no le llegan el codigo ni los recordatorios por "
+                + "correo", example = "false")
+        boolean sinCorreoValido
 ) {
 
     /** El descuento por pronto pago que tiene hoy la deuda, y hasta cuando vale. */
@@ -152,6 +155,7 @@ public record DebtSummaryResponse(
                 mora,
                 saldo.add(mora),
                 oferta == null ? null : oferta.monto(),
-                oferta == null ? null : oferta.hasta());
+                oferta == null ? null : oferta.hasta(),
+                deuda.getDebtor().getEmail() == null);
     }
 }

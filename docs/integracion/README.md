@@ -275,7 +275,7 @@ Las que no caben en JSON Schema las aplica cada receptor al recibir:
 | Código de error | Cuándo |
 | --- | --- |
 | `rut_invalido` | El RUT no cumple el formato o el dígito verificador no calza |
-| `sin_canal_contacto` | El deudor no trae ni correo ni teléfono |
+| `sin_canal_contacto` | El deudor no trae ni correo ni teléfono, o trae un correo que no es válido y no trae teléfono |
 | `monto_invalido` | Monto ≤ 0, CLP con decimales, o UF con más de 2 decimales |
 | `cargo_no_vencido` | Un cargo vence en o después de `fecha_corte`: todavía no es mora |
 | `mora_fuera_de_mandato` | La mora supera el máximo de la agencia. **Para APOFYX son 120 días**: después devuelve el caso al acreedor (su §2.2). APOFYX lo aplica al recibir; DataBridge lo vuelve a revisar contra el mandato. Si la deuda ya estaba en gestión, la devolución es de verdad: APOFYX la saca de su cartera y le pasa el retiro a DataBridge, con el motivo `fuera_de_mandato`, para que deje de cobrarla |
@@ -358,6 +358,23 @@ Para el lote de ejemplo, **suponiendo que el RUT de `CTR-2024-007` viniera mal e
 
 `resultado` es uno de: `registrada`, `actualizada`, `sin_cambios`, `retirada`, `al_dia`,
 `rechazada`. Solo `rechazada` cuenta en `rechazadas`.
+
+**Avisos.** Una deuda aceptada puede traer `avisos`, con la misma forma que `errores`: algo que el
+receptor corrigió sin rechazarla. Hoy hay uno:
+
+| Código | Cuándo | Qué hace el receptor |
+| --- | --- | --- |
+| `correo_invalido` | `deudor.correo` no es una dirección válida: `juan@gmail` (sin terminación), `juan perez@gmail.com` (con espacios), `@gmail.com` (sin nada antes de la arroba) | La deuda **entra sin correo**. Si el deudor ya tenía uno válido, lo conserva. Si tampoco trae teléfono, se rechaza con `sin_canal_contacto` y el aviso dice por qué |
+
+Se acepta cualquier dirección válida, de cualquier proveedor: con `+`
+(`juan.perez+arriendo@gmail.com`), con subdominios (`ana@sub.dominio.cl`) y con dominios nuevos
+(`x@empresa.app`). Se guarda sin espacios alrededor y con el dominio en minúsculas.
+
+```json
+{ "id_externo": "CTR-2026-031", "resultado": "registrada", "mora_dias": 44, "tramo": "31-90",
+  "avisos": [ { "campo": "deudor.correo", "codigo": "correo_invalido",
+                "mensaje": "El correo no es una direccion valida: la deuda entra sin correo" } ] }
+```
 
 ### 6.6 Variante CSV
 

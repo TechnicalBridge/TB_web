@@ -1165,13 +1165,13 @@ equipo: Transbank y Khipu se reemplazan por un servidor HTTP local.
 | **De seguridad** | **CodeQL** (Java, JavaScript y Python) en cada pull request y cada semana; la auditoría de dependencias del portal y del asistente, que rompe su workflow ante una vulnerabilidad alta; Dependabot por módulo, también para las acciones de GitHub; y el escaneo de secretos de GitHub con protección de push, que rechaza un push que traiga un token conocido |
 | **De rendimiento** (k6) | Cómo lo siente una persona, dónde está el techo y cuánto aguanta abrir cobros (`pagos.js`, solo con las pasarelas simuladas). Se corren a mano, con el sistema arriba ([`rendimiento/`](rendimiento/README.md)) |
 
-**520 pruebas en Java y 12 en Python**, sin fallos:
+**528 pruebas en Java y 12 en Python**, sin fallos:
 
 | Módulo | Pruebas |
 | --- | --- |
 | `gateway` | 13 |
 | `ms-auth` | 68 |
-| `ms-debt` | 267 |
+| `ms-debt` | 275 |
 | `ms-payments` | 172 |
 | `ms-ai` (Python) | 12 |
 
@@ -1248,7 +1248,7 @@ $cuerpo | docker compose --profile app exec -T ms-payments sh -c 'curl -s -X POS
 
 | Verificación | Resultado |
 | --- | --- |
-| Pruebas Java (cada servicio con su `mvnw -f <servicio>\pom.xml clean test`, JDK 25) | **520**, sin fallos |
+| Pruebas Java (cada servicio con su `mvnw -f <servicio>\pom.xml clean test`, JDK 25) | **528**, sin fallos |
 | Webpay | Contra el ambiente de integración de Transbank, con los contenedores reconstruidos y en Edge: el deudor anula en Webpay y el portal dice *El pago no se completó*; paga con la tarjeta de prueba y vuelve con *Pago aprobado*, el pago queda `paid` con la respuesta `AUTHORIZED` guardada, y el contrato de Patrimonio queda con lo que corresponde |
 | Pruebas Python (`ms-ai`) | **12**, sin fallos |
 | Build del portal | Correcto, 754 módulos |

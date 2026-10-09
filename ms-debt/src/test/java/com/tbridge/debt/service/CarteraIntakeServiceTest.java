@@ -550,4 +550,71 @@ class CarteraIntakeServiceTest {
         assertEquals("campana_desconocida", fallo.getCodigo());
         assertEquals(404, fallo.getStatus());
     }
+
+    // ------------------------------------------------------------------
+    //  El correo del deudor (#66)
+    // ------------------------------------------------------------------
+
+    /** La cartera de siempre, con otro correo y, si se pide, un telefono. */
+    private JsonNode conCorreo(String correo, boolean conTelefono) throws Exception {
+        JsonNode payload = cartera(cargo("Arriendo agosto", "2026-08", "2026-08-05"));
+        ObjectNode deudor = (ObjectNode) payload.get("deudas").get(0).get("deudor");
+        deudor.put("correo", correo);
+        if (conTelefono) {
+            deudor.put("telefono", "+56987654321");
+        }
+        return payload;
+    }
+
+    private Debtor deudorGuardado() {
+        ArgumentCaptor<Debtor> guardado = ArgumentCaptor.forClass(Debtor.class);
+        verify(debtors, org.mockito.Mockito.atLeastOnce()).save(guardado.capture());
+        return guardado.getValue();
+    }
+
+    @Test
+    void un_correo_invalido_deja_entrar_la_deuda_sin_correo_y_con_el_aviso() throws Exception {
+        for (String malo : new String[]{"juan@gmail", "juan perez@gmail.com", "@gmail.com"}) {
+            ResultadoDeuda resultado = recibir(conCorreo(malo, true));
+
+            assertEquals("registrada", resultado.resultado(), malo);
+            assertEquals("correo_invalido", resultado.avisos().getFirst().codigo(), malo);
+            assertNull(deudorGuardado().getEmail(), malo);
+        }
+    }
+
+    @Test
+    void un_correo_invalido_sin_telefono_se_rechaza_y_dice_por_que() throws Exception {
+        ResultadoDeuda resultado = recibir(conCorreo("juan@gmail", false));
+
+        assertEquals("rechazada", resultado.resultado());
+        assertEquals("sin_canal_contacto", resultado.errores().getFirst().codigo());
+        assertEquals("El deudor no trae un correo valido ni telefono", resultado.errores().getFirst().mensaje());
+        assertEquals("correo_invalido", resultado.avisos().getFirst().codigo());
+    }
+
+    @Test
+    void un_correo_valido_se_guarda_sin_espacios_y_con_el_dominio_en_minusculas() throws Exception {
+        for (String bueno : new String[]{"juan.perez+arriendo@gmail.com", "ana@sub.dominio.cl", "x@empresa.app"}) {
+            ResultadoDeuda resultado = recibir(conCorreo(bueno, false));
+            assertEquals("registrada", resultado.resultado(), bueno);
+            assertNull(resultado.avisos(), bueno);
+            assertEquals(bueno, deudorGuardado().getEmail());
+        }
+        recibir(conCorreo("  Valentina.Soto@CORREO.cl ", false));
+        assertEquals("Valentina.Soto@correo.cl", deudorGuardado().getEmail());
+    }
+
+    @Test
+    void un_correo_invalido_no_borra_el_bueno_que_el_deudor_ya_tenia() throws Exception {
+        Debtor valentina = new Debtor();
+        valentina.setRut("18905214-6");
+        valentina.setEmail("valentina.soto@correo.cl");
+        when(debtors.findByRut("18905214-6")).thenReturn(Optional.of(valentina));
+
+        ResultadoDeuda resultado = recibir(conCorreo("valentina@correo", true));
+
+        assertEquals("correo_invalido", resultado.avisos().getFirst().codigo());
+        assertEquals("valentina.soto@correo.cl", deudorGuardado().getEmail());
+    }
 }

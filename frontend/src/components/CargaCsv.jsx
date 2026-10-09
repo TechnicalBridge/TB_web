@@ -80,6 +80,8 @@ export default function CargaCsv({ onCargada }) {
   }
 
   const rechazos = (resultado?.resultados || []).filter((r) => r.resultado === "rechazada");
+  //  Aceptadas con algo corregido: un correo mal escrito entra sin correo, y la empresa lo tiene que saber.
+  const conAvisos = (resultado?.resultados || []).filter((r) => r.resultado !== "rechazada" && r.avisos?.length);
 
   return (
     <form
@@ -158,6 +160,18 @@ export default function CargaCsv({ onCargada }) {
                 <li key={r.id_externo}>{r.id_externo}: {r.errores?.[0]?.mensaje}</li>
               ))}
             </ul>
+          ) : null}
+          {conAvisos.length ? (
+            <>
+              <p style={{ margin: "8px 0 0" }}>
+                {conAvisos.length === 1 ? "1 entró con un aviso" : `${conAvisos.length} entraron con un aviso`}:
+              </p>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+                {conAvisos.slice(0, 5).map((r) => (
+                  <li key={r.id_externo}>{r.id_externo}: {r.avisos[0].mensaje}</li>
+                ))}
+              </ul>
+            </>
           ) : null}
         </div>
       ) : null}

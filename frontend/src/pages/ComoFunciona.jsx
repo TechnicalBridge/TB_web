@@ -152,7 +152,7 @@ Content-Type: application/json`}</pre>
           <div className="card aparece" style={{ "--i": 4 }}>
             <h3>Preguntas frecuentes</h3>
             <Preguntas preguntas={[
-              ["¿Por qué se rechazó una deuda?", `Cada rechazo viene con su motivo. Los más comunes: bajo_umbral_mora (menos de ${minimo} días de mora), cargo_no_vencido (un cargo todavía no vence a la fecha de corte), rut_invalido y sin_canal_contacto (el deudor no trae correo ni teléfono).`],
+              ["¿Por qué se rechazó una deuda?", `Cada rechazo viene con su motivo. Los más comunes: bajo_umbral_mora (menos de ${minimo} días de mora), cargo_no_vencido (un cargo todavía no vence a la fecha de corte), rut_invalido y sin_canal_contacto (el deudor no trae correo ni teléfono). Un correo mal escrito no rechaza la deuda: entra sin correo, con el aviso correo_invalido, y en la cartera dice Sin correo válido.`],
               ["¿Qué es un convenio en riesgo?", "Un convenio con cuotas vencidas sin pagar. Aparecen en Convenios en riesgo, del más atrasado al menos, para que contactes al deudor antes de que el convenio se caiga."],
               ["¿Qué pasa si el deudor paga en nuestra oficina?", "Envía la deuda de nuevo con el saldo menor, o como retiro con motivo pago_directo. DataBridge deja de cobrarla en el acto."],
               ["¿Podemos ver el código del deudor?", "No. El código va directo al correo del deudor y nunca vuelve a la empresa."],
