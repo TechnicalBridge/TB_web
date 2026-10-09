@@ -1,20 +1,21 @@
 # =============================================================================
-#  ms-ai — el asistente (FastAPI)
+#  ms-ai — el asistente: el motor de reglas y el LLM
 # =============================================================================
-#  Prueba solo si cambio su carpeta. Las pruebas usan el motor local, que solo
-#  necesita la biblioteca estandar; aparte se revisan sus dependencias.
+#  Prueba solo si cambio su carpeta (o este workflow, o el reutilizable): un
+#  cambio en el portal no vuelve a probar los servicios Java.
 # =============================================================================
 name: ms-ai
 
 on:
   push:
     branches: [main]
-    paths: ['ms-ai/**', '.github/workflows/ms-ai.yml']
+    paths: ['ms-ai/**', '.github/workflows/ms-ai.yml', '.github/workflows/java.yml']
   #  En un PR corre siempre: main exige el check "CI de ms-ai", y un check que
   #  no corre dejaria el PR esperando para siempre. Si su carpeta no cambio, se
   #  salta las pruebas y el check pasa en segundos.
   pull_request:
 
+#  Un push nuevo a la misma rama cancela la corrida anterior, que ya no sirve.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-          RUTAS: '^(ms-ai/|\.github/workflows/ms-ai\.yml$)'
+          RUTAS: '^(ms-ai/|\.github/workflows/ms-ai\.yml$|\.github/workflows/java\.yml$)'
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             echo "toca=true" >> "$GITHUB_OUTPUT"
@@ -47,40 +48,24 @@ jobs:
           echo "toca=$toca" >> "$GITHUB_OUTPUT"
           echo "Cambio ms-ai: $toca"
 
-  probar:
+  java:
     needs: cambios
     if: needs.cambios.outputs.toca == 'true'
-    name: Pruebas y dependencias
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: ms-ai
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.13'
-      - name: Pruebas
-        run: python -m unittest discover tests -v
-      - name: Dependencias vulnerables
-        run: |
-          pip install pip-audit
-          pip-audit -r requirements.txt
+    uses: ./.github/workflows/java.yml
+    with:
+      modulo: ms-ai
 
   #  El check que exige main: pasa si las pruebas pasaron o si no tocaban.
   resultado:
     name: CI de ms-ai
-    needs: [cambios, probar]
+    needs: [cambios, java]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - env:
           CAMBIOS: ${{ needs.cambios.result }}
-          PRUEBAS: ${{ needs.probar.result }}
+          PRUEBAS: ${{ needs.java.result }}
         run: |
           echo "Que cambio: $CAMBIOS · pruebas: $PRUEBAS"
           [ "$CAMBIOS" = success ] && { [ "$PRUEBAS" = success ] || [ "$PRUEBAS" = skipped ]; }

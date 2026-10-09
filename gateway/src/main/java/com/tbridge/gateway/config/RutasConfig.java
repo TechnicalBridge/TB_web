@@ -43,9 +43,8 @@ public class RutasConfig {
                 .route("docs-ms-payments", r -> r.path("/v3/api-docs/ms-payments/**")
                         .filters(f -> f.rewritePath("/v3/api-docs/ms-payments/(?<grupo>.*)", "/v3/api-docs/${grupo}"))
                         .uri(payments))
-                //  El asistente es FastAPI: su documentacion vive en /openapi.json.
-                .route("docs-ms-ai", r -> r.path("/v3/api-docs/ms-ai")
-                        .filters(f -> f.setPath("/openapi.json"))
+                .route("docs-ms-ai", r -> r.path("/v3/api-docs/ms-ai/**")
+                        .filters(f -> f.rewritePath("/v3/api-docs/ms-ai/(?<grupo>.*)", "/v3/api-docs/${grupo}"))
                         .uri(ai))
                 .build();
     }

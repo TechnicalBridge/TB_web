@@ -1,26 +1,54 @@
+# syntax=docker/dockerfile:1
 # =============================================================================
-#  El asistente del portal (FastAPI).
+#  ms-ai — la imagen del asistente.
 # =============================================================================
-#  Es el unico servicio que no es de Spring. No tiene base de datos propia a
-#  proposito: consulta las deudas a ms-debt con la sesion del deudor, asi que
-#  no puede ver nada que el deudor no pueda ver.
+#  Se construye desde la carpeta de este servicio, que no necesita nada
+#  de los demas:
+#
+#      docker build -t tbridge/ms-ai ms-ai
+#
+#  El compose lo hace solo (perfil "app").
+#
+#  Dos etapas: la primera trae el JDK y Maven y compila; la segunda solo
+#  ejecuta el jar. No tiene base de datos propia a proposito: consulta las
+#  deudas a ms-debt con la sesion del deudor, asi que no puede ver nada que el
+#  deudor no pueda ver.
 # =============================================================================
 
-#  3.13: la misma version con que el CI corre las pruebas. Una imagen con una
-#  version distinta de la probada es una imagen sin probar.
-FROM python:3.13-slim
-WORKDIR /app
+FROM maven:3.9-eclipse-temurin-25 AS construccion
+WORKDIR /obra
 
-#  Las dependencias antes que el codigo: mientras requirements.txt no cambie,
-#  Docker reutiliza esta capa y no vuelve a bajar nada.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+#  Solo este servicio: su pom y su codigo.
+COPY pom.xml .
+COPY src src
 
-COPY app app
+#  El cache de ~/.m2 sobrevive entre construcciones: las dependencias se bajan
+#  una vez, no en cada cambio de codigo. Sin pruebas: las corre la integracion
+#  continua; una imagen se construye para desplegar.
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q package -DskipTests
 
+
+FROM eclipse-temurin:25-jre
+
+#  curl es para el healthcheck, que corre dentro del contenedor.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+#  Nadie corre como root sin necesitarlo: si alguien se escapa del proceso, se
+#  encuentra con un usuario sin permisos sobre nada.
 RUN useradd --system --create-home --uid 10001 tbridge
+WORKDIR /app
+COPY --from=construccion /obra/target/*.jar app.jar
 USER tbridge
 
-#  0.0.0.0 y no 127.0.0.1: dentro del contenedor, escuchar solo en localhost
-#  significa que nadie de afuera lo alcanza.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"]
+#  La JVM toma el limite de memoria del contenedor, no el de la maquina: sin
+#  esto pide memoria que no tiene y Docker la mata.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
+EXPOSE 8085
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
+  CMD curl -fs http://127.0.0.1:8085/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

@@ -9,9 +9,9 @@
 #        porque recompilar una imagen en cada cambio seria insoportable.
 #
 #    docker compose --profile app up -d --build --wait
-#        Todo: la infraestructura mas los cuatro servicios de Spring, el
-#        asistente y el portal, a la par. Nada instalado en la maquina —ni
-#        JDK, ni Node, ni Python—. El portal queda en http://localhost:8080 y
+#        Todo: la infraestructura mas los cinco servicios de Spring (el
+#        asistente incluido) y el portal, a la par. Nada instalado en la
+#        maquina —ni JDK ni Node—. El portal queda en http://localhost:8080 y
 #        la documentacion de toda la API en http://localhost:8080/swagger-ui.html
 #
 #  Cada servicio tiene su propio Dockerfile (ms-auth/Dockerfile, ...), y se
@@ -263,18 +263,14 @@ services:
       XAI_API_KEY:  ${XAI_API_KEY:-}
       XAI_BASE_URL: ${XAI_BASE_URL:-https://api.x.ai/v1}
       XAI_MODEL:    ${XAI_MODEL:-grok-4.5}
-    #  La imagen de Python no trae curl, pero si httpx, que es con lo que este
-    #  servicio le habla a ms-debt.
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8085/openapi.json').status_code==200 else 1)"]
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8085/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
-    deploy:
-      resources:
-        limits: { memory: 256M }
+      retries: 12
+      start_period: 60s
+    deploy: *limites
 
   gateway:
     profiles: ["app"]

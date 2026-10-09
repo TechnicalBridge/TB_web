@@ -1,8 +1,2 @@
-# El contexto de esta imagen es ms-ai/, asi que el .dockerignore de la raiz
-# no la alcanza.
-.venv/
-venv/
-**/__pycache__/
-**/*.pyc
-tests/
-.env
+# Lo que no viaja a Docker al construir la imagen: lo compilado en el equipo.
+target/

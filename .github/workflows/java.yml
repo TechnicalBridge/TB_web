@@ -1,7 +1,7 @@
 # =============================================================================
 #  Las pruebas de un servicio Java — workflow reutilizable
 # =============================================================================
-#  Lo llaman gateway.yml, ms-auth.yml, ms-debt.yml y ms-payments.yml: cada
+#  Lo llaman gateway.yml, ms-auth.yml, ms-debt.yml, ms-payments.yml y ms-ai.yml: cada
 #  servicio se compila y se prueba solo, con su propio pom, y deja en el
 #  resumen de la corrida cuantas pruebas pasaron, clase por clase.
 #

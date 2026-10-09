@@ -1,7 +1,7 @@
 # =============================================================================
 #  Dependencias al dia — Dependabot
 # =============================================================================
-#  Revisa las dependencias de los cinco ecosistemas que usa este repositorio y
+#  Revisa las dependencias de los cuatro ecosistemas que usa este repositorio y
 #  abre pull requests con las versiones nuevas.
 #
 #  Es la capa que cubre Maven: OWASP dependency-check necesita una clave de la
@@ -21,7 +21,7 @@ version: 2
 updates:
   #  Un directorio por servicio: cada uno tiene su pom.
   - package-ecosystem: maven
-    directories: [/gateway, /ms-auth, /ms-debt, /ms-payments]
+    directories: [/gateway, /ms-auth, /ms-debt, /ms-payments, /ms-ai]
     schedule: { interval: weekly, day: monday }
     commit-message: { prefix: "deps(java)" }
     groups:
@@ -45,17 +45,6 @@ updates:
       - dependency-name: "*"
         update-types: [version-update:semver-major]
 
-  - package-ecosystem: pip
-    directory: /ms-ai
-    schedule: { interval: weekly, day: monday }
-    commit-message: { prefix: "deps(ms-ai)" }
-    groups:
-      asistente:
-        update-types: [minor, patch]
-    ignore:
-      - dependency-name: "*"
-        update-types: [version-update:semver-major]
-
   #  Las propias acciones de GitHub tambien son codigo de terceros que corre
   #  con permisos sobre el repositorio. Van fijadas a un commit exacto, y
   #  Dependabot las sube de version con un pull request.
@@ -70,7 +59,7 @@ updates:
       - dependency-name: "*"
         update-types: [version-update:semver-major]
 
-  #  Las imagenes base de cada Dockerfile (JRE, Node, nginx, Python): una
+  #  Las imagenes base de cada Dockerfile (JRE, Node, nginx): una
   #  imagen vieja trae las vulnerabilidades de su sistema operativo.
   - package-ecosystem: docker
     directories: [/ms-auth, /ms-debt, /ms-payments, /gateway, /frontend, /ms-ai]
