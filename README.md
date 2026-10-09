@@ -574,7 +574,9 @@ para la entrega.
   Lo que todavía no está terminado entra apagado, detrás de una configuración, en vez de esperar en
   una rama larga. Cada PR pasa la CI y se mergea con squash.
 - **PRs.** La plantilla pide qué cambia, cómo se probó y cómo se deshace, y trae la **Definition of
-  Done** como checklist.
+  Done** como checklist. Es la del informe de la fase 2: cumplimiento funcional, verificación,
+  validación de interfaz, seguridad, integración, documentación, y revisión y entrega. Lo que queda
+  pendiente se deja identificado y no se presenta como terminado.
 
 El trabajo se organizó en un tablero con cinco épicas —autenticación, gestión de deudas,
 pagos, asistente y reportes— y un backlog de tareas que se fueron tomando de a una. El
