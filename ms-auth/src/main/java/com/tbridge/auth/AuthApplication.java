@@ -2,6 +2,7 @@ package com.tbridge.auth;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
 /**
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
  * <p>El deudor, con su RUT y un codigo de acceso; el personal de una empresa,
  * con un enlace al correo. Emite el JWT de la sesion y la llave de renovacion.
  */
+@EnableAsync
 @SpringBootApplication(
         scanBasePackages = {"com.tbridge.auth"},
         //  Sin usuarios en memoria: nadie entra con usuario y contrasena.

@@ -86,6 +86,19 @@ class InternalControllerTest {
     }
 
     @Test
+    void el_correo_registrado_de_un_deudor_va_detras_de_la_clave() throws Exception {
+        when(debts.correoDelDeudor("16482337-7")).thenReturn(java.util.Optional.of("felipe.rojas@correo.cl"));
+        when(debts.correoDelDeudor("11111111-1")).thenReturn(java.util.Optional.empty());
+
+        mvc.perform(get("/internal/deudores/16482337-7/correo")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/internal/deudores/16482337-7/correo").header("X-Internal-Key", CLAVE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correo").value("felipe.rojas@correo.cl"));
+        mvc.perform(get("/internal/deudores/11111111-1/correo").header("X-Internal-Key", CLAVE))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void la_cartera_de_una_empresa_va_detras_de_la_clave() throws Exception {
         when(debts.carteraInterna("77305118-6")).thenReturn(List.of(3L, 7L));
 

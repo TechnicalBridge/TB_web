@@ -127,6 +127,9 @@ services:
         PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
         SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       PORT: "8081"
+      #  El enlace de acceso de un deudor va solo al correo que registro el
+      #  acreedor: ms-auth se lo pregunta a ms-debt.
+      DEBT_URI: http://ms-debt:8083
       #  La sesion: un JWT corto que nadie puede revocar, y una llave de
       #  renovacion que si. Ver ms-auth/src/main/resources/db/migration/V2.
       JWT_TTL_MINUTES:   ${JWT_TTL_MINUTES:-15}

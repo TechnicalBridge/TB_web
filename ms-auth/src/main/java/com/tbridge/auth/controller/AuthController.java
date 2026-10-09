@@ -101,8 +101,9 @@ public class AuthController {
     @ApiResponse(responseCode = "202", description = "Si el correo corresponde, el enlace va en camino")
     @ApiResponse(responseCode = "400", description = "Correo o RUT no validos",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
-    public ResponseEntity<EnlaceResponse> enlace(@Valid @RequestBody EnlaceRequest pedido) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(auth.pedirEnlace(pedido.rut(), pedido.correo()));
+    public ResponseEntity<EnlaceResponse> enlace(@Valid @RequestBody EnlaceRequest pedido, HttpServletRequest peticion) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(auth.pedirEnlace(pedido.rut(), pedido.correo(), origen(peticion)));
     }
 
     @PostMapping("/api/auth/verify")

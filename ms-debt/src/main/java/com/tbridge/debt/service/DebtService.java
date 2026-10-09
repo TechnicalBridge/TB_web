@@ -9,6 +9,7 @@ import com.tbridge.debt.dto.evento.DeudaSaldadaDatos;
 import com.tbridge.debt.dto.evento.PagoConfirmadoDatos;
 import com.tbridge.debt.dto.evento.RepactacionAceptadaDatos;
 import com.tbridge.debt.dto.response.DebtDetailResponse;
+import com.tbridge.debt.util.Rut;
 import com.tbridge.debt.dto.response.DebtSnapshotResponse;
 import com.tbridge.debt.dto.response.DebtSummaryResponse;
 import com.tbridge.debt.dto.response.InstallmentPreview;
@@ -142,6 +143,18 @@ public class DebtService {
         return organizations.findByRut(rut)
                 .map(org -> debts.carteraDe(org).stream().map(Debt::getId).toList())
                 .orElse(List.of());
+    }
+
+    /**
+     * El correo que registro el acreedor para ese RUT, para ms-auth: el enlace
+     * de acceso va solo ahi, nunca al que alguien escriba en el formulario.
+     */
+    public java.util.Optional<String> correoDelDeudor(String rut) {
+        String normalizado = Rut.normalizar(rut);
+        if (!Rut.esValido(normalizado)) {
+            return java.util.Optional.empty();
+        }
+        return debtors.findByRut(normalizado).map(Debtor::getEmail).filter(c -> c != null && c.contains("@"));
     }
 
     /** El deudor detras del token, por RUT: es lo unico que trae su sesion. */

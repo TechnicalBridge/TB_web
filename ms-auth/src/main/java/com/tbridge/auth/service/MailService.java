@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -106,7 +107,12 @@ public class MailService {
                 acreedor == null ? "tu acreedor" : acreedor, publicUrl, codigo));
     }
 
-    /** El camino de excepcion, para quien no logra entrar con el codigo. */
+    /**
+     * El camino de excepcion, para quien no logra entrar con el codigo. Sale en
+     * segundo plano: si tardara solo cuando hay a quien mandarlo, el tiempo de
+     * la respuesta diria quien es deudor.
+     */
+    @Async
     public void enviarEnlace(String to, String url, long minutos) {
         if (!smtpEnabled) {
             log.info("Sin SMTP: enlace de acceso para {}: {}", to, url);

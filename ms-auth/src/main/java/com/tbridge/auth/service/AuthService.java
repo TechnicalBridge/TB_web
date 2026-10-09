@@ -1,5 +1,6 @@
 package com.tbridge.auth.service;
 
+import com.tbridge.auth.client.DeudasClient;
 import com.tbridge.auth.model.AccessCode;
 import com.tbridge.auth.model.AccessLog;
 import com.tbridge.auth.model.MagicLink;
@@ -69,6 +70,7 @@ public class AuthService {
     private final JwtService jwt;
     private final SessionService sesiones;
     private final MailService correo;
+    private final DeudasClient deudas;
     private final String publicUrl;
     private final long codeTtlHours;
     private final long magicTtlMinutes;
@@ -89,6 +91,7 @@ public class AuthService {
             JwtService jwt,
             SessionService sesiones,
             MailService correo,
+            DeudasClient deudas,
             @Value("${app.public-url}") String publicUrl,
             @Value("${app.code-ttl-hours:24}") long codeTtlHours,
             @Value("${app.magic-ttl-minutes:15}") long magicTtlMinutes
@@ -100,6 +103,7 @@ public class AuthService {
         this.jwt = jwt;
         this.sesiones = sesiones;
         this.correo = correo;
+        this.deudas = deudas;
         this.publicUrl = publicUrl.replaceAll("/$", "");
         this.codeTtlHours = codeTtlHours;
         this.magicTtlMinutes = magicTtlMinutes;
@@ -193,32 +197,56 @@ public class AuthService {
     //  El respaldo: enlace de un solo uso
     // ------------------------------------------------------------------
 
+    /** Lo que se le responde a quien pide un enlace, salga o no: no revela quien es deudor ni quien es personal. */
+    static final String RESPUESTA_ENLACE = "Si tus datos estan registrados, te llegara un enlace de acceso.";
+
     /**
      * El camino de excepcion, para quien no logra entrar con el codigo.
      *
      * <p>Se conserva a sabiendas de que es el patron que el caso critica. Por
-     * eso dura quince minutos y no veinticuatro horas.
+     * eso dura quince minutos y no veinticuatro horas, y nunca va a un correo
+     * que elija quien lo pide:
+     * <ul>
+     *   <li><b>Con RUT</b> es un deudor: el enlace va solo al correo que
+     *       registro el acreedor, que se le pregunta a ms-debt. El que se
+     *       escribe no se usa. Sin correo registrado, no sale nada.</li>
+     *   <li><b>Sin RUT</b> es el personal de una empresa: sale solo si el
+     *       correo es de una cuenta habilitada.</li>
+     * </ul>
+     * La respuesta es siempre la misma, y el correo sale en segundo plano para
+     * que el tiempo de respuesta tampoco lo delate. La bitacora anota si salio.
      */
     @Transactional
-    public EnlaceResponse pedirEnlace(String rutCrudo, String email) {
+    public EnlaceResponse pedirEnlace(String rutCrudo, String email, String ip) {
+        String ipHash = ip == null ? null : Hash.sha256(ip);
         String rut = rutCrudo == null || rutCrudo.isBlank() ? null : normalizarRut(rutCrudo);
-        if (email == null || !email.contains("@")) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Correo no valido");
+        String destino;
+        if (rut != null) {
+            destino = deudas.correoDelDeudor(rut).map(c -> c.trim().toLowerCase(Locale.ROOT)).orElse(null);
+        } else {
+            if (email == null || !email.contains("@")) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Correo no valido");
+            }
+            destino = personal.findByEmailIgnoreCase(email.trim())
+                    .filter(StaffUser::habilitado)
+                    .map(s -> s.getEmail().toLowerCase(Locale.ROOT))
+                    .orElse(null);
         }
-        String token = UUID.randomUUID().toString();
 
-        MagicLink enlace = new MagicLink();
-        enlace.setTokenHash(Hash.sha256(token));
-        enlace.setDebtorRut(rut);
-        enlace.setEmail(email.trim().toLowerCase(Locale.ROOT));
-        enlace.setExpiresAt(Instant.now().plus(magicTtlMinutes, ChronoUnit.MINUTES));
-        enlaces.save(enlace);
-
-        String url = publicUrl + "/magic?token=" + token;
-        correo.enviarEnlace(enlace.getEmail(), url, magicTtlMinutes);
-
-        return new EnlaceResponse(true, "Si ese correo esta en cartera, recibiras un enlace de acceso.",
-                magicTtlMinutes);
+        if (destino == null) {
+            anotar(rut, AccessLog.Method.magic_link, AccessLog.Outcome.refused, ipHash);
+        } else {
+            String token = UUID.randomUUID().toString();
+            MagicLink enlace = new MagicLink();
+            enlace.setTokenHash(Hash.sha256(token));
+            enlace.setDebtorRut(rut);
+            enlace.setEmail(destino);
+            enlace.setExpiresAt(Instant.now().plus(magicTtlMinutes, ChronoUnit.MINUTES));
+            enlaces.save(enlace);
+            correo.enviarEnlace(destino, publicUrl + "/magic?token=" + token, magicTtlMinutes);
+            anotar(rut, AccessLog.Method.magic_link, AccessLog.Outcome.sent, ipHash);
+        }
+        return new EnlaceResponse(true, RESPUESTA_ENLACE, magicTtlMinutes);
     }
 
     @Transactional
@@ -235,17 +263,19 @@ public class AuthService {
         enlaces.save(enlace);
         anotar(enlace.getDebtorRut(), AccessLog.Method.magic_link, AccessLog.Outcome.granted, ipHash);
 
-        //  El personal de una empresa tambien entra por enlace.
-        StaffUser staff = personal.findByEmailIgnoreCase(enlace.getEmail()).orElse(null);
-        if (staff != null && staff.habilitado()) {
-            staff.setLastLoginAt(Instant.now());
-            personal.save(staff);
-            return sesionDePersonal(staff, ipHash);
+        //  Un enlace pedido con RUT es del deudor, y abre solo su sesion: aunque
+        //  su correo fuera tambien el de alguien del personal, no entra como empresa.
+        if (enlace.getDebtorRut() != null) {
+            return sesionDeDeudor(enlace.getDebtorRut(), ipHash);
         }
-        if (enlace.getDebtorRut() == null) {
+        //  El personal de una empresa tambien entra por enlace, si sigue habilitado.
+        StaffUser staff = personal.findByEmailIgnoreCase(enlace.getEmail()).orElse(null);
+        if (staff == null || !staff.habilitado()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Ese correo no tiene acceso");
         }
-        return sesionDeDeudor(enlace.getDebtorRut(), ipHash);
+        staff.setLastLoginAt(Instant.now());
+        personal.save(staff);
+        return sesionDePersonal(staff, ipHash);
     }
 
     // ------------------------------------------------------------------
