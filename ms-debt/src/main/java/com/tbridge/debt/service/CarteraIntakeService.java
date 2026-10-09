@@ -3,6 +3,7 @@ package com.tbridge.debt.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tbridge.debt.util.Hash;
+import com.tbridge.debt.util.Correo;
 import com.tbridge.debt.util.Rut;
 import com.tbridge.debt.dto.evento.DeudaRetiradaDatos;
 import com.tbridge.debt.dto.evento.LoteProcesadoDatos;
@@ -414,11 +415,20 @@ public class CarteraIntakeService {
             errores.add(error("deudor.rut", "rut_invalido",
                     "El RUT no cumple el formato o el digito verificador no corresponde"));
         }
-        String correo = nodoDeudor == null ? null : texto(nodoDeudor.get("correo"));
+        //  Un correo que no puede recibir nada no rechaza la deuda: entra sin el, y la
+        //  respuesta lo avisa. Solo si tampoco trae telefono se queda sin canal.
+        String correoCrudo = nodoDeudor == null ? null : texto(nodoDeudor.get("correo"));
+        String correo = vacio(correoCrudo) ? null : Correo.normalizar(correoCrudo).orElse(null);
+        List<ErrorDeuda> advertencias = new ArrayList<>();
+        if (!vacio(correoCrudo) && correo == null) {
+            advertencias.add(error("deudor.correo", "correo_invalido",
+                    "El correo no es una direccion valida: la deuda entra sin correo"));
+        }
         String telefono = nodoDeudor == null ? null : texto(nodoDeudor.get("telefono"));
-        if (vacio(correo) && vacio(telefono)) {
-            errores.add(error("deudor", "sin_canal_contacto",
-                    "El deudor no trae ni correo ni telefono"));
+        if (correo == null && vacio(telefono)) {
+            errores.add(error("deudor", "sin_canal_contacto", advertencias.isEmpty()
+                    ? "El deudor no trae ni correo ni telefono"
+                    : "El deudor no trae un correo valido ni telefono"));
         }
         String tipo = nodoDeudor == null ? null : texto(nodoDeudor.get("tipo"));
         if (!"persona".equals(tipo) && !"empresa".equals(tipo)) {
@@ -503,10 +513,10 @@ public class CarteraIntakeService {
         }
 
         if (!errores.isEmpty()) {
-            return rechazo(idDeuda, errores);
+            return rechazo(idDeuda, errores).conAvisos(advertencias);
         }
 
-        Debtor deudor = guardarDeudor(rut, tipo, nombre, correo, telefono);
+        Debtor deudor = guardarDeudor(rut, tipo, nombre, correo, !advertencias.isEmpty(), telefono);
         BigDecimal total = cargos.stream()
                 .map(CargoLeido::monto)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -564,7 +574,8 @@ public class CarteraIntakeService {
                 .conReferencia(batch.getExternalId()));
 
         return ResultadoDeuda.registrada(idDeuda,
-                nueva ? "registrada" : (sinCambios ? "sin_cambios" : "actualizada"), mora, tramo(mora));
+                nueva ? "registrada" : (sinCambios ? "sin_cambios" : "actualizada"), mora, tramo(mora))
+                .conAvisos(advertencias);
     }
 
     private void leerCargo(JsonNode nodo, int indice, String moneda, LocalDate corte,
@@ -596,12 +607,16 @@ public class CarteraIntakeService {
         cargos.add(new CargoLeido(concepto, texto(nodo.get("periodo")), monto, vence));
     }
 
-    private Debtor guardarDeudor(String rut, String tipo, String nombre, String correo, String telefono) {
+    private Debtor guardarDeudor(String rut, String tipo, String nombre, String correo, boolean correoInvalido,
+                                 String telefono) {
         Debtor deudor = debtors.findByRut(rut).orElseGet(Debtor::new);
         deudor.setRut(rut);
         deudor.setKind("empresa".equals(tipo) ? Debtor.Kind.company : Debtor.Kind.person);
         deudor.setFullName(nombre);
-        deudor.setEmail(vacio(correo) ? null : correo);
+        //  Un correo malo no borra el bueno que ya tenia: con el se le sigue escribiendo.
+        if (!correoInvalido) {
+            deudor.setEmail(correo);
+        }
         deudor.setPhone(vacio(telefono) ? null : telefono);
         deudor.setUpdatedAt(Instant.now());
         return debtors.save(deudor);

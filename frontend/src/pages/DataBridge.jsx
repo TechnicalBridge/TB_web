@@ -169,7 +169,10 @@ export default function DataBridge() {
                   const cobrable = d.estado === "open" || d.estado === "repacted";
                   return (
                     <tr key={d.id}>
-                      <td>{d.deudor}<span className="sub">{rutLegible(d.deudorRut)}</span></td>
+                      <td>
+                        {d.deudor}<span className="sub">{rutLegible(d.deudorRut)}</span>
+                        {d.sinCorreoValido ? <span className="tag tag-vencida">Sin correo válido</span> : null}
+                      </td>
                       <td>{d.acreedor}<span className="sub">{d.concepto}, ref. {d.externalId}</span></td>
                       <td className="num">
                         {dinero(d.saldo, d.moneda)}
