@@ -70,12 +70,12 @@ el cobro con el valor del Banco Central. Ver el desvío D4.
 
 | Tarea del plan | Estado | Dónde |
 | --- | --- | --- |
-| Entorno Python / FastAPI | Hecha | `ms-ai/` |
+| Entorno Python / FastAPI | Hecha, y después pasado a Java | `ms-ai/`. Ver D7 |
 | Endpoint de consulta NLP (chatbot) | Hecha | `POST /api/ai/chat` |
 | Lectura segura (solo lectura) del saldo | Hecha | ms-ai consulta ms-debt con la sesión del deudor; no tiene acceso propio a ninguna base |
 | Widget de chatbot flotante | Hecha | `frontend/src/components/Chatbot.jsx` |
 | Historial de mensajes en el estado de React | Hecha | `Chatbot.jsx` |
-| Análisis de sentimiento (sección 3 del plan) | Hecha | `ms-ai/app/nlp.py`. Ver D6 |
+| Análisis de sentimiento (sección 3 del plan) | Hecha | `ms-ai/.../service/MotorLocal.java`. Ver D6 |
 
 ## Épica 5 — Analítica B2B
 
@@ -118,6 +118,13 @@ sandbox es cambiar la página de la pasarela y el verificador de firmas; el rest
 un léxico en español de Chile, y el asistente ajusta su respuesta: a quien desconfía le explica cómo
 verificar que el mensaje es legítimo; a quien no puede pagar le ofrece las cuotas. Si hay una clave
 de LLM configurada, el asistente la usa para responder, informado por el mismo análisis.
+
+**D7. El asistente, en Java como los demás servicios.** El plan lo pedía en Python con FastAPI, y así
+se construyó. Después se pasó a Spring Boot (#128), porque no usaba nada propio de Python: el ánimo
+se detecta con un léxico, las respuestas sin LLM son reglas, y el LLM se llama por HTTP. Así los
+cinco servicios del backend se compilan, se prueban, se empaquetan y se mantienen al día de la
+misma forma. El LLM se llama con el SDK oficial de OpenAI para Java, apuntando a xAI (Grok). Antes
+de borrar la versión en Python se compararon las dos con las mismas preguntas: responden lo mismo.
 
 ## Más allá del plan
 

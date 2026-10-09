@@ -38,8 +38,6 @@ jobs:
             construir: manual
           - lenguaje: javascript-typescript
             construir: none
-          - lenguaje: python
-            construir: none
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -70,7 +68,7 @@ jobs:
       - name: Compilar
         if: matrix.lenguaje == 'java-kotlin'
         run: |
-          for modulo in gateway ms-auth ms-debt ms-payments; do
+          for modulo in gateway ms-auth ms-debt ms-payments ms-ai; do
             mvn -B -q -f "$modulo/pom.xml" package -DskipTests
           done
 
