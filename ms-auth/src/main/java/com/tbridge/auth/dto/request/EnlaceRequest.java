@@ -2,7 +2,6 @@ package com.tbridge.auth.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /** Pedir el enlace de respaldo al correo. */
@@ -13,8 +12,8 @@ public record EnlaceRequest(
         @Size(max = 20, message = "El RUT es demasiado largo")
         String rut,
 
-        @Schema(example = "felipe.rojas@correo.cl")
-        @NotBlank(message = "Correo no valido")
+        @Schema(description = "Solo para el personal de una empresa. El deudor no lo manda: su enlace va al correo "
+                + "que registro el acreedor", example = "camila.reyes@apofyx.cl", nullable = true)
         @Email(message = "Correo no valido")
         @Size(max = 254, message = "Correo no valido")
         String correo

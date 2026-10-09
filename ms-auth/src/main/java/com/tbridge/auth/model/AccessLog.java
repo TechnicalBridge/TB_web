@@ -21,7 +21,9 @@ public class AccessLog {
 
     public enum Method { code, magic_link }
 
-    public enum Outcome { granted, expired, invalid, exhausted }
+    //  sent y refused son los pedidos de enlace: si salio un correo o no. La
+    //  respuesta al que lo pidio es la misma en los dos casos.
+    public enum Outcome { granted, expired, invalid, exhausted, sent, refused }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -143,7 +143,7 @@ function ConEnlace({ esDeudor, onVolver }) {
     setBusy(true);
     setError("");
     try {
-      setEnviado(await pedirEnlace(correo, esDeudor ? rut : null));
+      setEnviado(await pedirEnlace(esDeudor ? null : correo, esDeudor ? rut : null));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -175,7 +175,7 @@ function ConEnlace({ esDeudor, onVolver }) {
       {esDeudor ? (
         <p className="hint" style={{ margin: "-6px 0 16px" }}>
           Si no te llegó el código, te mandamos un enlace de un solo uso al correo que la empresa
-          tiene registrado.
+          tiene registrado. Solo necesitamos tu RUT.
         </p>
       ) : null}
       {error ? <div className="error">{error}</div> : null}
@@ -186,18 +186,20 @@ function ConEnlace({ esDeudor, onVolver }) {
                  placeholder="12.345.678-5" required />
         </div>
       ) : null}
-      <div className="field">
-        <label htmlFor="correo">Correo</label>
-        <input
-          id="correo"
-          type="email"
-          value={correo}
-          onChange={(e) => setCorreo(e.target.value)}
-          placeholder={esDeudor ? "tu.correo@correo.cl" : "nombre@empresa.cl"}
-          autoComplete="email"
-          required
-        />
-      </div>
+      {esDeudor ? null : (
+        <div className="field">
+          <label htmlFor="correo">Correo</label>
+          <input
+            id="correo"
+            type="email"
+            value={correo}
+            onChange={(e) => setCorreo(e.target.value)}
+            placeholder="nombre@empresa.cl"
+            autoComplete="email"
+            required
+          />
+        </div>
+      )}
       <button className="btn btn-primary btn-block" disabled={busy}>
         {busy ? <><span className="girando" /> Enviando…</> : "Enviar enlace"}
       </button>

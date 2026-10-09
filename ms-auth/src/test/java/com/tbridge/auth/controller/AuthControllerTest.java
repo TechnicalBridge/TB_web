@@ -139,8 +139,8 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Correo no valido"));
 
-        when(auth.pedirEnlace(null, "camila.reyes@apofyx.cl"))
-                .thenReturn(new EnlaceResponse(true, "Si ese correo esta en cartera, recibiras un enlace de acceso.", 15));
+        when(auth.pedirEnlace(eq(null), eq("camila.reyes@apofyx.cl"), any()))
+                .thenReturn(new EnlaceResponse(true, "Si tus datos estan registrados, te llegara un enlace de acceso.", 15));
         mvc.perform(post("/api/auth/enlace")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"correo\":\"camila.reyes@apofyx.cl\"}"))
@@ -192,5 +192,15 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.rut").value(RUT))
                 .andExpect(jsonPath("$._links.self.href").value("http://localhost/api/me"));
+    }
+
+    @Test
+    void el_deudor_pide_su_enlace_solo_con_el_rut() throws Exception {
+        when(auth.pedirEnlace(eq("16482337-7"), eq(null), any()))
+                .thenReturn(new EnlaceResponse(true, "Si tus datos estan registrados, te llegara un enlace de acceso.", 15));
+        mvc.perform(post("/api/auth/enlace")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rut\":\"16482337-7\"}"))
+                .andExpect(status().isAccepted());
     }
 }

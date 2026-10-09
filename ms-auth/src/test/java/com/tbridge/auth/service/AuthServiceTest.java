@@ -1,6 +1,9 @@
 package com.tbridge.auth.service;
 
+import com.tbridge.auth.client.DeudasClient;
 import com.tbridge.auth.model.AccessCode;
+import com.tbridge.auth.model.MagicLink;
+import com.tbridge.auth.model.StaffUser;
 import com.tbridge.auth.model.AccessLog;
 import com.tbridge.auth.repository.AccessCodeRepository;
 import com.tbridge.auth.repository.AccessLogRepository;
@@ -25,6 +28,11 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -41,14 +49,20 @@ class AuthServiceTest {
     private final List<AccessLog> bitacora = new ArrayList<>();
     private final SesionesEnMemoria sesiones = new SesionesEnMemoria();
     private AuthService auth;
+    private MagicLinkRepository enlaces;
+    private StaffUserRepository personal;
+    private MailService correo;
+    private DeudasClient deudas;
 
     @BeforeEach
     void preparar() {
         AccessCodeRepository codigos = mock(AccessCodeRepository.class);
-        MagicLinkRepository enlaces = mock(MagicLinkRepository.class);
-        StaffUserRepository personal = mock(StaffUserRepository.class);
+        enlaces = mock(MagicLinkRepository.class);
+        personal = mock(StaffUserRepository.class);
         AccessLogRepository registro = mock(AccessLogRepository.class);
-        MailService correo = mock(MailService.class);
+        correo = mock(MailService.class);
+        deudas = mock(DeudasClient.class);
+        when(deudas.correoDelDeudor(any())).thenReturn(Optional.empty());
         JwtService jwt = new JwtService("unit-test-secret-key-32-chars!!!", 15);
         SessionService sesiones = new SessionService(this.sesiones.repositorio,
                 java.time.Duration.ofDays(7), java.time.Clock.systemUTC());
@@ -75,7 +89,7 @@ class AuthServiceTest {
         when(personal.findByEmailIgnoreCase(any())).thenReturn(Optional.empty());
         when(enlaces.findByTokenHash(any())).thenReturn(Optional.empty());
 
-        auth = new AuthService(codigos, enlaces, personal, registro, jwt, sesiones, correo,
+        auth = new AuthService(codigos, enlaces, personal, registro, jwt, sesiones, correo, deudas,
                 "http://localhost:5173", 24, 15);
     }
 
@@ -200,5 +214,89 @@ class AuthServiceTest {
 
         //  Si fueran distintos, se podria averiguar que RUT tienen deuda.
         assertEquals(sinCodigo, equivocado);
+    }
+
+    // ------------------------------------------------------------------
+    //  El enlace de acceso (#59): solo al correo registrado
+    // ------------------------------------------------------------------
+
+    private StaffUser camila(boolean habilitada) {
+        StaffUser staff = new StaffUser();
+        staff.setEmail("camila.reyes@apofyx.cl");
+        staff.setFullName("Camila Reyes");
+        staff.setOrgRut("77305118-6");
+        staff.setRole(StaffUser.Role.operator);
+        if (!habilitada) {
+            org.springframework.test.util.ReflectionTestUtils.setField(staff, "disabledAt", Instant.now());
+        }
+        return staff;
+    }
+
+    private AccessLog.Outcome ultimoPedido() {
+        return bitacora.getLast().getOutcome();
+    }
+
+    @Test
+    void el_enlace_de_un_deudor_va_solo_al_correo_que_registro_el_acreedor() {
+        when(deudas.correoDelDeudor("16482337-7")).thenReturn(Optional.of("felipe.rojas@correo.cl"));
+
+        var respuesta = auth.pedirEnlace("16.482.337-7", "atacante@correo.cl", "10.0.0.1");
+
+        verify(correo).enviarEnlace(eq("felipe.rojas@correo.cl"), anyString(), anyLong());
+        verify(correo, never()).enviarEnlace(eq("atacante@correo.cl"), anyString(), anyLong());
+        assertEquals(AuthService.RESPUESTA_ENLACE, respuesta.mensaje());
+        assertEquals(AccessLog.Outcome.sent, ultimoPedido());
+    }
+
+    @Test
+    void un_rut_sin_correo_registrado_no_recibe_nada_y_la_respuesta_es_la_misma() {
+        var respuesta = auth.pedirEnlace("16482337-7", "atacante@correo.cl", "10.0.0.1");
+
+        verify(correo, never()).enviarEnlace(anyString(), anyString(), anyLong());
+        verify(enlaces, never()).save(any());
+        assertEquals(AuthService.RESPUESTA_ENLACE, respuesta.mensaje());
+        assertEquals(AccessLog.Outcome.refused, ultimoPedido());
+    }
+
+    @Test
+    void el_personal_habilitado_recibe_su_enlace_y_el_que_no_esta_habilitado_no() {
+        when(personal.findByEmailIgnoreCase("camila.reyes@apofyx.cl")).thenReturn(Optional.of(camila(true)));
+        auth.pedirEnlace(null, " camila.reyes@apofyx.cl ", "10.0.0.1");
+        verify(correo).enviarEnlace(eq("camila.reyes@apofyx.cl"), anyString(), anyLong());
+
+        when(personal.findByEmailIgnoreCase("camila.reyes@apofyx.cl")).thenReturn(Optional.of(camila(false)));
+        var respuesta = auth.pedirEnlace(null, "camila.reyes@apofyx.cl", "10.0.0.1");
+        verify(correo).enviarEnlace(anyString(), anyString(), anyLong());
+        assertEquals(AuthService.RESPUESTA_ENLACE, respuesta.mensaje());
+        assertEquals(AccessLog.Outcome.refused, ultimoPedido());
+    }
+
+    @Test
+    void un_correo_que_no_es_de_nadie_no_recibe_enlace() {
+        var respuesta = auth.pedirEnlace(null, "cualquiera@correo.cl", "10.0.0.1");
+
+        verify(correo, never()).enviarEnlace(anyString(), anyString(), anyLong());
+        assertEquals(AuthService.RESPUESTA_ENLACE, respuesta.mensaje());
+    }
+
+    @Test
+    void sin_rut_y_sin_correo_es_un_pedido_malo() {
+        ApiException error = assertThrows(ApiException.class, () -> auth.pedirEnlace(null, null, "10.0.0.1"));
+        assertEquals(HttpStatus.BAD_REQUEST, error.getStatus());
+    }
+
+    @Test
+    void un_enlace_pedido_con_rut_abre_la_sesion_de_ese_deudor_aunque_su_correo_sea_de_personal() {
+        MagicLink enlace = new MagicLink();
+        enlace.setDebtorRut("16482337-7");
+        enlace.setEmail("camila.reyes@apofyx.cl");
+        enlace.setExpiresAt(Instant.now().plus(10, ChronoUnit.MINUTES));
+        when(enlaces.findByTokenHash(any())).thenReturn(Optional.of(enlace));
+        when(personal.findByEmailIgnoreCase("camila.reyes@apofyx.cl")).thenReturn(Optional.of(camila(true)));
+
+        var sesion = auth.entrarConEnlace("token", "10.0.0.1");
+
+        assertEquals("16482337-7", sesion.user().rut());
+        assertEquals("16482337-7", sesion.user().id(), "es la sesion del deudor, no la de la empresa");
     }
 }

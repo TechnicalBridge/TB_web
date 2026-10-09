@@ -8,6 +8,7 @@ import com.tbridge.debt.dto.request.EmitirClaveRequest;
 import com.tbridge.debt.dto.response.AvanceResponse;
 import com.tbridge.debt.dto.response.ClaveEmitidaResponse;
 import com.tbridge.debt.dto.response.ContactosResponse;
+import com.tbridge.debt.dto.response.CorreoDelDeudorResponse;
 import com.tbridge.debt.dto.response.DebtSnapshotResponse;
 import com.tbridge.debt.dto.response.OkResponse;
 import com.tbridge.debt.dto.response.RecordatoriosResponse;
@@ -90,6 +91,22 @@ public class InternalController {
     ) {
         exigirClave(clave);
         return debts.snapshotInterno(id, installmentIds);
+    }
+
+    @GetMapping("/deudores/{rut}/correo")
+    @Operation(summary = "El correo registrado de un deudor (para ms-auth)",
+            description = "El que registro el acreedor en su cartera. ms-auth manda el enlace de acceso solo ahi, "
+                    + "nunca al correo que alguien escriba en el formulario.")
+    @ApiResponse(responseCode = "200", description = "El correo")
+    @ApiResponse(responseCode = "404", description = "Ese RUT no esta en cartera o no tiene correo",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public CorreoDelDeudorResponse correoDelDeudor(
+            @Parameter(hidden = true) @RequestHeader(value = "X-Internal-Key", required = false) String clave,
+            @PathVariable String rut
+    ) {
+        exigirClave(clave);
+        return debts.correoDelDeudor(rut).map(CorreoDelDeudorResponse::new)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Sin correo registrado"));
     }
 
     @GetMapping("/cartera/{rut}")
